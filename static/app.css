@@ -993,7 +993,7 @@ body {
 }
 .cal-row {
     display: grid;
-    grid-template-columns: 50px 36px 1fr 60px 60px;
+    grid-template-columns: 46px 46px 34px 1fr;
     gap: 6px;
     align-items: baseline;
     font-family: var(--mono); font-size: 12px;
@@ -1002,16 +1002,11 @@ body {
     border-radius: var(--radius);
     border-left: 3px solid var(--fg-dim);
 }
+.cal-row .cal-date { color: var(--fg-muted); font-weight: 700; }
 .cal-row .time { color: var(--warning); font-weight: 700; }
 .cal-row .ccy  { color: var(--fg);     font-weight: 700; text-align: center; }
 .cal-row .title{ color: var(--fg); overflow: hidden;
                  text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.cal-row .fcst { color: var(--fg-muted); text-align: right; }
-.cal-row .cnt  { color: var(--fg); text-align: right; font-weight: 700; }
-.cal-row.warn  { background: rgba(255,183,77,0.20);
-                 border-left-color: var(--warning); }
-.cal-row.warn .cnt, .cal-row.warn .title { color: var(--warning); }
-.cal-row.past  .cnt { color: var(--critical); }
 
 /* ============================================================
    Bottom: strength + correlation

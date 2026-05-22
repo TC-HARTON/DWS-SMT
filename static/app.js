@@ -118,19 +118,10 @@ function fmtJSTclockNoSec(epochSec) {
     const p = n => String(n).padStart(2, '0');
     return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes());
 }
-function fmtCountdown(diffSec) {
-    if (diffSec >= 0) {
-        const h = Math.floor(diffSec / 3600);
-        const m = Math.floor((diffSec % 3600) / 60);
-        const s = Math.floor(diffSec % 60);
-        if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm';
-        if (m > 0) return m + 'm ' + String(s).padStart(2,'0') + 's';
-        return s + 's';
-    }
-    const s = Math.floor(-diffSec);
-    if (s < 60) return '-' + s + 's';
-    if (s < 3600) return '-' + Math.floor(s/60) + 'm';
-    return '-' + Math.floor(s/3600) + 'h';
+function fmtJSTdate(epochSec) {
+    if (!epochSec) return '--';
+    const d = new Date(epochSec * 1000 + 9 * 3600 * 1000);
+    return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
 }
 function touchClass(distance, atr) {
     if (atr == null || !isFinite(atr) || atr <= 0) return '';
@@ -624,10 +615,7 @@ function paintCalendar(snap) {
     const srcEl = $bind('cal-source');
     srcEl.textContent = cal.source + (cal.consecutive_failures
         ? ` · ${cal.consecutive_failures} fails` : '');
-    if (!changed('cal', cal.generated_at)) {
-        updateCountdowns();
-        return;
-    }
+    if (!changed('cal', cal.generated_at)) return;
     const nowSec = Date.now() / 1000;
     const cutoff = nowSec - (cal.warning_window_sec || 1800);
     const events = (cal.events || []).filter(e => e.release_ts >= cutoff)
@@ -636,15 +624,14 @@ function paintCalendar(snap) {
         root.innerHTML = '<div class="empty mute">no high-impact events</div>';
         return;
     }
+    // Each row: date · time · event title (JST). No countdown.
     root.innerHTML = events.map(e => `
-        <div class="cal-row" data-release="${e.release_ts}">
-            <span class="time">${fmtJSTclockNoSec(e.release_ts)}</span>
+        <div class="cal-row">
+            <span class="cal-date">${esc(fmtJSTdate(e.release_ts))}</span>
+            <span class="time">${esc(fmtJSTclockNoSec(e.release_ts))}</span>
             <span class="ccy">${esc(e.currency)}</span>
             <span class="title" title="${esc(e.title)}">${esc(e.title)}</span>
-            <span class="fcst">${esc(e.forecast || '--')}</span>
-            <span class="cnt">--</span>
         </div>`).join('');
-    updateCountdowns();
 }
 
 /** Paint the macro / rate-differential reference panel.
@@ -734,22 +721,6 @@ function paintMacro(snap) {
               + `<span class="macro-rynum mute">失業率 ${esc(ur)}</span></div>`;
     }
     root.innerHTML = keyBlock + rows;
-}
-
-function updateCountdowns() {
-    const warn = 1800;
-    const now = Date.now() / 1000;
-    document.querySelectorAll('.cal-row').forEach(row => {
-        const r = parseFloat(row.dataset.release);
-        if (!isFinite(r)) return;
-        const diff = r - now;
-        const cntEl = row.querySelector('.cnt');
-        if (cntEl) cntEl.textContent = fmtCountdown(diff);
-        let cls = 'cal-row';
-        if (Math.abs(diff) <= warn) cls += ' warn';
-        if (diff < 0) cls += ' past';
-        row.className = cls;
-    });
 }
 
 // ------------------------------------------------------------
@@ -1692,7 +1663,6 @@ function startTickers() {
         if (latestSnap) {
             $bind('clock').textContent = fmtJSTclock(Date.now() / 1000);
         }
-        updateCountdowns();
     }, 1000);
 }
 
