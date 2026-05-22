@@ -39,6 +39,12 @@ from analyzer.signal_validator import (
     ValidationSnapshot,
     ValidationStats,
 )
+from analyzer.macro_feed import (
+    MacroEmployment,
+    MacroPairBias,
+    MacroRate,
+    MacroSnapshot,
+)
 from analyzer.mt5_connector import AccountSnapshot, Tick
 from analyzer.price_action import PriceActionEvent
 from analyzer.state import (
@@ -510,6 +516,59 @@ def serialize_validation(s: ValidationSnapshot | None) -> dict[str, Any] | None:
 
 
 # --------------------------------------------------------------------------- #
+# Macro / rate-differential layer (precision-optimization spec, Section B)
+# --------------------------------------------------------------------------- #
+
+def _serialize_macro_rate(r: MacroRate) -> dict[str, Any]:
+    return {
+        "currency": r.currency,
+        "rate": _opt_float(r.rate),
+        "as_of": r.as_of,
+        "prev_rate": _opt_float(r.prev_rate),
+        "source": r.source,
+        "stale": bool(r.stale),
+    }
+
+
+def _serialize_macro_pair(b: MacroPairBias) -> dict[str, Any]:
+    return {
+        "pair": b.pair,
+        "base_ccy": b.base_ccy,
+        "quote_ccy": b.quote_ccy,
+        "differential": _opt_float(b.differential),
+        "macro_dir": int(b.macro_dir),
+        "label": b.label,
+    }
+
+
+def _serialize_macro_employment(e: MacroEmployment | None) -> dict[str, Any] | None:
+    if e is None:
+        return None
+    return {
+        "nonfarm_change": _opt_float(e.nonfarm_change),
+        "unemployment_rate": _opt_float(e.unemployment_rate),
+        "as_of": e.as_of,
+        "prev_nonfarm_change": _opt_float(e.prev_nonfarm_change),
+        "source": e.source,
+    }
+
+
+def serialize_macro(s: MacroSnapshot | None) -> dict[str, Any] | None:
+    """Serialise the macro snapshot for the WebSocket payload."""
+    if s is None:
+        return None
+    return {
+        "generated_at": float(s.generated_at),
+        "fetched_at": float(s.fetched_at) if s.fetched_at > 0 else None,
+        "rates": {ccy: _serialize_macro_rate(r) for ccy, r in s.rates.items()},
+        "employment": _serialize_macro_employment(s.employment),
+        "by_pair": {p: _serialize_macro_pair(b) for p, b in s.by_pair.items()},
+        "last_error": s.last_error,
+        "consecutive_failures": int(s.consecutive_failures),
+    }
+
+
+# --------------------------------------------------------------------------- #
 
 
 def _safe_meta(
@@ -560,6 +619,7 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "performance": serialize_performance(snap["performance"]),  # type: ignore[arg-type]
         "calendar": serialize_calendar(snap["calendar"]),  # type: ignore[arg-type]
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
+        "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {
             s.base: {

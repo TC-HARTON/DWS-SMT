@@ -169,6 +169,23 @@ def test_state_set_and_read_macro():
     assert st.analysis_version == before + 1
 
 
+def test_serialize_macro_shape():
+    from dashboard.serialize import serialize_macro
+    from analyzer.macro_feed import MacroRate, MacroPairBias, MacroSnapshot
+
+    rates = {"USD": MacroRate("USD", 4.5, "2026-05-01", 4.25, "fred", False)}
+    pair = MacroPairBias("USDJPY", "USD", "JPY", 4.0, 1, "USD金利優位")
+    snap = MacroSnapshot(generated_at=1.0, fetched_at=1.0, rates=rates,
+                         employment=None, by_pair={"USDJPY": pair},
+                         last_error=None, consecutive_failures=0)
+    out = serialize_macro(snap)
+    assert out["rates"]["USD"]["rate"] == 4.5
+    assert out["rates"]["USD"]["stale"] is False
+    assert out["by_pair"]["USDJPY"]["macro_dir"] == 1
+    assert out["by_pair"]["USDJPY"]["differential"] == 4.0
+    assert serialize_macro(None) is None
+
+
 def test_serialize_validation_shape():
     from dashboard.serialize import serialize_validation
     from analyzer.signal_validator import (
