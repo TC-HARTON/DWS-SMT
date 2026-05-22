@@ -706,25 +706,34 @@ function paintMacro(snap) {
             <span class="macro-dir ${dirCls}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
         </div>`;
     }).join('');
-    let extra = '';
+    // Key indicators (real yield + US employment) lead the panel — they are
+    // the highest-value macro signals, so they sit above the per-pair table.
+    let keyBlock = '';
     if (ry && ry.value != null) {
         const ch = ry.change_1d;
         const chCls = ch > 0 ? 'pos' : ch < 0 ? 'neg' : 'mute';
         const chStr = ch == null ? '--' : (ch >= 0 ? '+' : '') + ch.toFixed(2);
-        extra += `<div class="macro-emp">米10年実質利回り `
-              + `${esc(ry.value.toFixed(2))}% `
-              + `<span class="macro-rynum ${chCls}">(前日比 ${esc(chStr)})</span>`
-              + `${ry.stale ? ' *' : ''}</div>`;
+        keyBlock += `<div class="macro-key">`
+              + `<span class="macro-key-label">米10年実質利回り</span>`
+              + `<span class="macro-key-val">${esc(ry.value.toFixed(2))}%</span>`
+              + `<span class="macro-rynum ${chCls}">前日比 ${esc(chStr)}</span>`
+              + `${ry.stale ? ' <span class="mute">*</span>' : ''}</div>`;
     }
     if (m.employment) {
         const e = m.employment;
         const nfp = e.nonfarm_change == null ? '--'
                   : (e.nonfarm_change >= 0 ? '+' : '') + Math.round(e.nonfarm_change);
+        const nfpCls = e.nonfarm_change > 0 ? 'pos'
+                     : e.nonfarm_change < 0 ? 'neg' : 'mute';
         const ur = e.unemployment_rate == null ? '--'
                  : e.unemployment_rate.toFixed(1) + '%';
-        extra += `<div class="macro-emp">米雇用 NFP変化 ${esc(nfp)}k · 失業率 ${esc(ur)}</div>`;
+        keyBlock += `<div class="macro-key">`
+              + `<span class="macro-key-label">米雇用</span>`
+              + `<span class="macro-key-val">NFP `
+              + `<span class="macro-rynum ${nfpCls}">${esc(nfp)}k</span></span>`
+              + `<span class="macro-rynum mute">失業率 ${esc(ur)}</span></div>`;
     }
-    root.innerHTML = rows + extra;
+    root.innerHTML = keyBlock + rows;
 }
 
 function updateCountdowns() {

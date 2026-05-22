@@ -369,6 +369,21 @@ CALENDAR_WARNING_WINDOW_SEC: Final[int] = 30 * 60
 # the strength meter so the calendar agrees with the rest of the dashboard.
 CALENDAR_CURRENCIES: Final[frozenset[str]] = frozenset(FIAT_CURRENCIES)
 
+# Event-type filter: only central-bank rate decisions and employment releases
+# are surfaced (the two highest-impact macro categories). An event passes if
+# its title contains any of these lowercase substrings; CPI / ISM / retail /
+# sentiment etc. are dropped. Empty tuple = no title filter (all events).
+CALENDAR_EVENT_KEYWORDS: Final[tuple[str, ...]] = (
+    # rate decisions (central-bank press conferences follow the decision)
+    "fomc", "federal funds rate", "bank rate", "cash rate", "policy rate",
+    "refinancing rate", "rate statement", "rate decision", "monetary policy",
+    "interest rate", "press conference",
+    # employment
+    "employment", "non-farm", "nonfarm", "payroll", "unemployment",
+    "jobless", "hourly earnings", "earnings index", "claimant count",
+    "jolts", "adp",
+)
+
 # How many upcoming events to render; older items disappear.
 CALENDAR_DISPLAY_COUNT: Final[int] = 12
 

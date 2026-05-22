@@ -1190,16 +1190,26 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .macro-diff.pos, .macro-dir.pos { color: #00d09c; }
 .macro-diff.neg, .macro-dir.neg { color: #ff5b6b; }
 .macro-diff.mute, .macro-dir.mute { color: #8089a0; }
-.macro-emp {
-    font-size: 11px;
-    color: #f2f4f9;
-    padding: 4px;
-    margin-top: 4px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
 /* DWS sync line when the alignment fights the rate differential */
 .dws-sync.macro-counter { color: #ffb74d; }
 /* Real-yield daily-change figure in the macro panel */
 .macro-rynum.pos { color: #00d09c; }
 .macro-rynum.neg { color: #ff5b6b; }
 .macro-rynum.mute { color: #8089a0; }
+
+/* Key macro indicators (real yield + US employment) — lead the panel,
+   visually heavier than the per-pair rows below. */
+.macro-key {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    font-size: 12px;
+    padding: 5px 7px;
+    margin-bottom: 3px;
+    background: rgba(120, 170, 255, 0.10);
+    border-left: 3px solid #4a9eff;
+    border-radius: 2px;
+}
+.macro-key-label { color: #c5ccd8; min-width: 96px; }
+.macro-key-val { font-weight: 700; font-size: 14px; color: #f2f4f9; }

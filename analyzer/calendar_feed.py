@@ -103,6 +103,23 @@ def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
     return None
 
 
+def _title_matches_keywords(
+    title: str,
+    keywords: Iterable[str] = config.CALENDAR_EVENT_KEYWORDS,
+) -> bool:
+    """True if *title* contains any allowed keyword (rate / employment events).
+
+    SPEC §15 surfaces only central-bank rate decisions and employment
+    releases — the two highest-impact macro categories. An empty keyword set
+    disables the filter (every title passes).
+    """
+    kws = tuple(keywords)
+    if not kws:
+        return True
+    low = title.lower()
+    return any(kw in low for kw in kws)
+
+
 def parse_forex_factory_xml(
     body: str,
     *,
@@ -133,9 +150,12 @@ def parse_forex_factory_xml(
             continue
         impact = (raw.get("impact") or "").strip()
         currency = (raw.get("country") or "").strip().upper()
+        title = (raw.get("title") or "").strip()
         if impact.lower() not in allowed_imp:
             continue
         if currency not in allowed_ccy:
+            continue
+        if not _title_matches_keywords(title):
             continue
         release_ts = _parse_ff_datetime(
             (raw.get("date") or "").strip(),
@@ -146,7 +166,7 @@ def parse_forex_factory_xml(
         out.append(CalendarEvent(
             release_ts=release_ts,
             currency=currency,
-            title=(raw.get("title") or "").strip(),
+            title=title,
             impact=impact,
             forecast=(raw.get("forecast") or "").strip(),
             previous=(raw.get("previous") or "").strip(),
@@ -204,13 +224,16 @@ def parse_mt5_calendar(window_days: int = 7) -> list[CalendarEvent]:
         impact = _mt5_importance_to_label(getattr(ev, "importance", 0))
         if impact.lower() not in allowed_imp:
             continue
+        title = getattr(ev, "name", "") or ""
+        if not _title_matches_keywords(title):
+            continue
         release_ts = float(getattr(v, "time", 0))
         if release_ts <= 0:
             continue
         out.append(CalendarEvent(
             release_ts=release_ts,
             currency=currency,
-            title=getattr(ev, "name", "") or "",
+            title=title,
             impact=impact,
             forecast=_mt5_value_str(getattr(v, "forecast_value", None)),
             previous=_mt5_value_str(getattr(v, "prev_value", None)),

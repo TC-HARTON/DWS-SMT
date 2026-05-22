@@ -42,7 +42,7 @@ SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <country>EUR</country>
     <date>05-22-2026</date>
     <time>10:00am</time>
-    <impact>Medium</impact>
+    <impact>High</impact>
     <forecast>0.3%</forecast>
     <previous>0.2%</previous>
   </event>
@@ -113,6 +113,16 @@ def test_parse_xml_drops_non_display_currencies():
     currencies = {e.currency for e in events}
     assert "XYZ" not in currencies
     assert {"USD", "JPY"}.issubset(currencies)
+
+
+def test_parse_xml_drops_non_rate_employment_events():
+    """SPEC §15: only rate-decision / employment events surface — a High-impact
+    CPI release is dropped by the title-keyword filter."""
+    events = parse_forex_factory_xml(SAMPLE_XML)
+    titles = [e.title for e in events]
+    assert "CPI m/m" not in titles
+    assert "Non-Farm Employment Change" in titles   # employment keyword
+    assert "BOJ Press Conference" in titles         # rate-decision keyword
 
 
 def test_parse_xml_drops_unparsable_time_events():
