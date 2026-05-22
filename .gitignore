@@ -1,0 +1,24 @@
+# env
+.env
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+.mypy_cache/
+
+# logs / cache / runtime data
+logs/*.log
+logs/*.log.*
+data/cache/*
+data/lines/*
+external/forex_factory_xml/*
+!**/.gitkeep
+
+# editor
+.vscode/
+.idea/
+*.swp
+.gstack/

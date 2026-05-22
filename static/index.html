@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MT5 Dashboard</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="brand-mark">MT5</span>
+  </div>
+  <div class="hdr-active" data-bind="active-setups">
+    <span class="active-label">ACTIVE SETUPS</span>
+    <span class="active-chips" data-bind="active-chips"><span class="active-empty">no high-conviction signals</span></span>
+  </div>
+  <div class="hdr-stats">
+    <div class="stat"><div class="stat-label">JST</div><div class="stat-val" data-bind="clock">--:--:--</div></div>
+    <div class="stat"><div class="stat-label">MT5</div><div class="stat-val"><span class="dot off" data-bind="conn-dot"></span><span data-bind="conn-text">offline</span></div></div>
+    <div class="stat"><div class="stat-label">CYCLE</div><div class="stat-val" data-bind="compute">-- ms</div></div>
+    <div class="stat"><div class="stat-label">VER</div><div class="stat-val" data-bind="version">0</div></div>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="symbols" data-bind="symbols-grid"></section>
+
+  <aside class="side">
+    <div class="card account-card">
+      <div class="card-title"><span class="title-accent">Account</span><span data-bind="acc-identity">--</span></div>
+      <div class="acc-grid">
+        <div class="acc-cell"><div class="acc-label">Balance</div><div class="acc-val mono" data-bind="acc-balance">--</div></div>
+        <div class="acc-cell"><div class="acc-label">Equity</div><div class="acc-val mono" data-bind="acc-equity">--</div></div>
+        <div class="acc-cell"><div class="acc-label">Profit</div><div class="acc-val mono" data-bind="acc-profit">--</div></div>
+        <div class="acc-cell pnl"><div class="acc-label">Today P&L</div><div class="acc-val big mono" data-bind="acc-today">--</div></div>
+        <div class="acc-cell"><div class="acc-label">Margin</div><div class="acc-val mono" data-bind="acc-margin">--</div></div>
+        <div class="acc-cell"><div class="acc-label">Free</div><div class="acc-val mono" data-bind="acc-free">--</div></div>
+        <div class="acc-cell"><div class="acc-label">Lev</div><div class="acc-val mono" data-bind="acc-lev">--</div></div>
+        <div class="acc-cell"><div class="acc-label">Level</div><div class="acc-val mono" data-bind="acc-level">--</div></div>
+      </div>
+      <div class="acc-positions" data-bind="positions">
+        <div class="empty">no open positions</div>
+      </div>
+    </div>
+
+    <div class="card calendar-card">
+      <div class="card-title"><span class="title-accent">Calendar</span><span data-bind="cal-source" class="mute">--</span></div>
+      <div class="cal-list" data-bind="calendar"></div>
+    </div>
+  </aside>
+</main>
+
+<footer class="bottom">
+  <section class="card strength-card">
+    <div class="card-title">
+      <span class="title-accent">Currency Strength</span>
+      <span class="pill-group" data-bind="strength-windows"></span>
+    </div>
+    <div class="strength-rows" data-bind="strength-rows"></div>
+  </section>
+
+  <section class="card corr-card">
+    <div class="card-title">
+      <span class="title-accent">Correlation Insights — H1</span>
+      <span class="pill-group" data-bind="corr-windows"></span>
+    </div>
+    <div class="concentration" data-bind="concentration"></div>
+    <div class="corr-list" data-bind="corr-list">
+      <div class="empty mute">waiting for data...</div>
+    </div>
+  </section>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

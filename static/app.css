@@ -1,0 +1,1151 @@
+/* ============================================================
+   MT5 Lite Dashboard — vanilla CSS, no framework.
+   Brighter dark-mode palette, big readable type, clear hierarchy.
+   ============================================================ */
+
+:root {
+    --bg:           #1f2532;
+    --bg-soft:      #283044;
+    --panel:        #2a3142;
+    --panel-2:      #353c50;
+    --border:       #3a4258;
+    --fg:           #f2f4f9;
+    --fg-muted:     #b4bbcc;
+    --fg-dim:       #8089a0;
+    --buy:          #00d09c;
+    --sell:         #ff5b6b;
+    --warning:      #ffb74d;
+    --critical:     #ff3d54;
+    --accent:       #4d8eff;
+    --gap:          8px;
+    --radius:       6px;
+    --mono:         "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+    --ui:           "Inter", "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100vh; }
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--ui);
+    font-size: 16px;
+    line-height: 1.4;
+    overflow: hidden;
+}
+.mono  { font-family: var(--mono); }
+.mute  { color: var(--fg-muted); }
+
+/* ============================================================
+   Layout: header / main (grid 1fr + 320px aside) / footer (50/50)
+   ============================================================ */
+
+body {
+    display: grid;
+    grid-template-rows: 56px 1fr 280px;
+    gap: var(--gap);
+    padding: var(--gap);
+}
+
+.hdr {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 var(--gap);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+}
+.hdr-brand { display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; }
+
+/* Active Setups strip — the headline answer to "act now?" */
+.hdr-active {
+    flex: 1 1 auto;
+    display: flex; align-items: center; gap: 12px;
+    overflow: hidden;
+}
+.hdr-active .active-label {
+    font-size: 10px; letter-spacing: 0.14em; font-weight: 800;
+    color: var(--warning); text-transform: uppercase;
+    white-space: nowrap;
+}
+.hdr-active .active-chips {
+    display: flex; gap: 8px; flex-wrap: nowrap; overflow: hidden;
+    flex: 1 1 auto;
+}
+.hdr-active .active-empty {
+    color: var(--fg-dim); font-style: italic; font-size: 12px;
+}
+.active-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    border-radius: 14px;
+    font-family: var(--mono); font-weight: 800; font-size: 13px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+}
+.active-chip .ac-sym  { color: var(--fg); }
+.active-chip .ac-side { font-size: 11px; letter-spacing: 0.08em; }
+.active-chip .ac-score{ color: var(--fg-muted); font-size: 11px; }
+.active-chip.strong-buy   { border-color: var(--buy);
+                             background: rgba(0,208,156,0.18); }
+.active-chip.strong-buy   .ac-side, .active-chip.strong-buy   .ac-sym { color: var(--buy); }
+.active-chip.buy          { border-color: var(--buy); }
+.active-chip.buy          .ac-side, .active-chip.buy          .ac-sym { color: var(--buy); }
+.active-chip.sell         { border-color: var(--sell); }
+.active-chip.sell         .ac-side, .active-chip.sell         .ac-sym { color: var(--sell); }
+.active-chip.strong-sell  { border-color: var(--sell);
+                             background: rgba(255,91,107,0.18); }
+.active-chip.strong-sell  .ac-side, .active-chip.strong-sell  .ac-sym { color: var(--sell); }
+.brand-mark {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+}
+.hdr-stats { display: flex; gap: 24px; }
+.stat { display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
+.stat-label {
+    font-size: 9px; letter-spacing: 0.1em; font-weight: 700;
+    color: var(--fg-muted); text-transform: uppercase;
+}
+.stat-val {
+    font-family: var(--mono); font-size: 17px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.on  { background: var(--buy);  box-shadow: 0 0 8px var(--buy); }
+.dot.off { background: var(--sell); box-shadow: 0 0 8px var(--sell); }
+
+/* ============================================================
+   Main: symbols grid + account aside
+   ============================================================ */
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 330px;
+    gap: var(--gap);
+    min-height: 0;
+}
+.symbols {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: var(--gap);
+    min-height: 0;
+    overflow: hidden;
+}
+/* When one panel is clicked to expand, it takes the entire symbols area
+   and the other 9 panels are hidden. Click again (or press Esc / ✕) to restore. */
+.symbols.has-expanded {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+}
+.symbols.has-expanded .panel:not(.expanded) { display: none; }
+
+.side {
+    display: flex; flex-direction: column; gap: var(--gap);
+    min-height: 0; overflow: hidden;
+}
+
+/* ============================================================
+   Card base
+   ============================================================ */
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 6px;
+    min-height: 0;
+}
+.card-title {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+}
+.title-accent { color: var(--accent); }
+
+/* ============================================================
+   Symbol panel — hero-driven, activity-glow
+   ============================================================ */
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 5px;
+    min-height: 0; overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.15s;
+    cursor: pointer;
+}
+.panel:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+.panel.quiet  { opacity: 0.6; }
+.panel.quiet:hover { opacity: 1; }
+.panel.active {
+    border-color: var(--warning);
+    box-shadow: 0 0 0 1px var(--warning), 0 0 16px rgba(255,183,77,0.18);
+}
+.panel.touch {
+    border-color: var(--critical);
+    box-shadow: 0 0 0 1px var(--critical), 0 0 20px rgba(255,61,84,0.30);
+}
+
+.panel-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 8px; flex-wrap: nowrap;
+}
+.panel-sym {
+    font-weight: 800;
+    color: var(--fg);
+    letter-spacing: 0.04em;
+    font-size: 18px;
+}
+
+.quote {
+    display: flex; gap: 8px; align-items: baseline;
+    font-family: var(--mono); font-weight: 700;
+    font-size: 15px;
+    overflow: hidden;
+}
+.quote .bid { color: var(--sell); }
+.quote .ask { color: var(--buy); }
+.quote .lbl {
+    font-size: 9px; letter-spacing: 0.1em; color: var(--fg-muted);
+    text-transform: uppercase; font-weight: 700;
+    margin-right: 3px;
+}
+.quote .spread {
+    color: var(--fg-muted); font-weight: 500;
+    font-size: 0.65em;
+    align-self: baseline;
+}
+.quote .age {
+    color: var(--fg-dim); font-size: 0.6em; align-self: baseline;
+}
+
+/* Hero: at-a-glance metric */
+.hero {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--fg);
+    background: var(--panel-2);
+    border-left: 3px solid var(--fg-dim);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.panel.active .hero {
+    border-left-color: var(--warning); color: var(--warning);
+}
+.panel.touch  .hero {
+    border-left-color: var(--critical); color: var(--critical);
+    background: rgba(255,61,84,0.10);
+}
+
+/* Bias chip */
+.bias {
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 700;
+    padding: 3px 6px;
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--fg-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bias.strong-buy   { color: var(--buy);  border-left-color: var(--buy);
+                     background: rgba(0,208,156,0.15); }
+.bias.buy          { color: var(--buy);  border-left-color: var(--buy); }
+.bias.sell         { color: var(--sell); border-left-color: var(--sell); }
+.bias.strong-sell  { color: var(--sell); border-left-color: var(--sell);
+                     background: rgba(255,91,107,0.15); }
+.bias.hidden       { display: none; }
+
+/* Panel close button (✕) — visible only when panel is .expanded. */
+.panel-close {
+    display: none;
+    background: var(--panel-2);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--mono); font-weight: 800;
+    font-size: 16px;
+    padding: 4px 10px;
+    cursor: pointer;
+    line-height: 1;
+}
+.panel-close:hover { color: var(--fg); border-color: var(--accent); }
+.panel.expanded .panel-close { display: inline-block; }
+
+/* ============================================================
+   Composite bias badge — the headline answer per symbol.
+   ============================================================ */
+
+.composite {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    column-gap: 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 10px;
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    border-left: 4px solid var(--fg-dim);
+}
+.composite .comp-label {
+    font-size: 9px; letter-spacing: 0.12em; font-weight: 800;
+    color: var(--fg-muted); text-transform: uppercase;
+}
+.composite .comp-main {
+    display: flex; align-items: center; gap: 8px;
+}
+.composite .comp-arrow { font-weight: 900; font-size: 16px; line-height: 1; }
+.composite .comp-text  { font-weight: 800; letter-spacing: 0.04em; }
+.composite .comp-score { color: var(--fg); font-weight: 800; font-size: 13px;
+                         justify-self: end; }
+
+/* Score gauge — shows -10 ... +10 as a horizontal bar. */
+.composite .comp-gauge {
+    display: flex; flex-direction: column;
+    gap: 1px;
+    align-self: center;
+}
+.comp-gauge-track {
+    position: relative;
+    height: 8px;
+    background: var(--bg-soft);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.comp-gauge-mid {
+    position: absolute; left: 50%; top: 0; bottom: 0;
+    width: 1px; background: var(--fg-dim);
+    z-index: 1;
+}
+.comp-gauge-fill {
+    position: absolute; top: 0; bottom: 0;
+    transition: width 0.25s, left 0.25s, background 0.25s;
+}
+.comp-gauge-fill.buy  { background: var(--buy); }
+.comp-gauge-fill.sell { background: var(--sell); }
+.comp-gauge-fill.strong { box-shadow: inset 0 0 4px rgba(255,255,255,0.4); }
+.comp-gauge-axis {
+    display: flex; justify-content: space-between;
+    font-size: 8px; color: var(--fg-dim);
+    letter-spacing: 0.05em; font-weight: 700;
+    padding: 0 1px;
+}
+
+/* ============================================================
+   ANALYTICS — Trade Plan + Conviction Breakdown + Risk Warnings.
+   Hidden by default (no space in compact panel); shown when expanded.
+   ============================================================ */
+.analytics { display: none; }
+.panel.expanded .analytics {
+    display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto;
+    min-height: 0;
+}
+.anlx-block {
+    background: var(--panel-2);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+}
+.anlx-block.warn { border-left-color: var(--warning); }
+.anlx-title {
+    font-size: 12px; font-weight: 800; letter-spacing: 0.1em;
+    color: var(--fg); text-transform: uppercase;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+}
+.anlx-title.warn { color: var(--warning); }
+.anlx-title .anlx-sub {
+    font-size: 11px; font-weight: 500; letter-spacing: 0;
+    color: var(--fg-muted); text-transform: none;
+    margin-left: 8px;
+}
+.anlx-grid.trade {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+}
+.anlx-cell {
+    background: var(--bg-soft);
+    border-radius: 4px;
+    padding: 6px 8px;
+    display: flex; flex-direction: column; gap: 3px;
+}
+.anlx-cell .lbl {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--fg-muted); text-transform: uppercase;
+}
+.anlx-cell .val {
+    font-family: var(--mono); font-size: 14px; font-weight: 700;
+    color: var(--fg);
+}
+.anlx-cell .val small { font-size: 10px; color: var(--fg-muted);
+                        font-weight: 500; margin-left: 4px; }
+.anlx-cell .val.buy  { color: var(--buy); }
+.anlx-cell .val.sell { color: var(--sell); }
+
+.anlx-breakdown { display: flex; flex-direction: column; gap: 3px; }
+.anlx-bd-row {
+    display: grid;
+    /* TF | 寄与 | シグナル | 重み | ADX | RSI. The two flex columns spread the
+       row edge-to-edge so every field lines up as a tidy table — no left skew,
+       no dead gap. minmax(0,1fr) (not 1fr) keeps both flex columns an identical
+       width on every row, so a long label like "STRONG SELL" cannot widen its
+       column and knock the table out of vertical alignment. */
+    grid-template-columns: 44px 60px minmax(0, 1fr) 56px minmax(0, 1fr) 52px;
+    gap: 8px; align-items: center;
+    padding: 5px 10px;
+    background: var(--bg-soft);
+    border-left: 3px solid var(--fg-dim);
+    border-radius: 4px;
+    font-family: var(--mono); font-size: 12px;
+}
+/* 寄与 + RSI are numeric — right-align (header cells included). */
+.anlx-bd-row > :nth-child(2),
+.anlx-bd-row > :nth-child(6) { text-align: right; }
+.anlx-bd-row.anlx-bd-head {
+    background: transparent;
+    border-left-color: transparent;
+    color: var(--fg-muted);
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0 10px 2px;
+}
+.anlx-bd-row .bd-tf    { color: var(--fg); font-weight: 800; }
+.anlx-bd-row .bd-score { color: var(--fg-muted); font-weight: 800; }
+.anlx-bd-row .bd-sig   { color: var(--fg-muted); font-weight: 700; }
+.anlx-bd-row .bd-dim   { color: var(--fg-muted); }
+.anlx-bd-row .bd-gate  { color: var(--warning); font-weight: 800; }
+.anlx-bd-row.na        { opacity: 0.5; }
+
+/* Colour coding — BUY green / SELL red / NEUTRAL grey — applied to the left
+   bar, the TF tag, the 寄与 score and the シグナル label. 重み/ADX/RSI stay
+   muted: they are context, not direction. */
+.anlx-bd-row.buy,
+.anlx-bd-row.strong-buy   { border-left-color: var(--buy); }
+.anlx-bd-row.buy   .bd-tf, .anlx-bd-row.strong-buy   .bd-tf,
+.anlx-bd-row.buy   .bd-score, .anlx-bd-row.strong-buy   .bd-score,
+.anlx-bd-row.buy   .bd-sig, .anlx-bd-row.strong-buy   .bd-sig { color: var(--buy); }
+
+.anlx-bd-row.sell,
+.anlx-bd-row.strong-sell  { border-left-color: var(--sell); }
+.anlx-bd-row.sell  .bd-tf, .anlx-bd-row.strong-sell  .bd-tf,
+.anlx-bd-row.sell  .bd-score, .anlx-bd-row.strong-sell  .bd-score,
+.anlx-bd-row.sell  .bd-sig, .anlx-bd-row.strong-sell  .bd-sig { color: var(--sell); }
+
+.anlx-bd-row.neutral      { border-left-color: var(--fg-dim); }
+.anlx-bd-row.neutral .bd-tf { color: var(--fg-muted); }
+
+.anlx-warn {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--warning); padding: 3px 6px;
+}
+
+/* ============================================================
+   DWS-SMT panel — 3-TF trend histogram (port of DWS_SMT.mq5).
+   Lives in the expanded panel's right column, spanning the
+   signals + analytics rows. Hidden in compact mode.
+   ============================================================ */
+.dws { display: none; }
+.panel.expanded .dws {
+    flex-direction: column;
+    gap: 8px;
+    background: var(--panel-2);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    min-height: 0;
+}
+.dws-head {
+    display: flex; align-items: baseline; gap: 8px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+}
+.dws-title {
+    font-size: 13px; font-weight: 800; letter-spacing: 0.1em;
+    color: var(--fg); text-transform: uppercase;
+}
+.dws-sub { font-size: 11px; color: var(--fg-muted); }
+.dws-pills { margin-left: auto; display: flex; gap: 4px; }
+.dws-state {
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    color: var(--fg-muted);
+}
+.dws-state.buy  { color: var(--buy); }
+.dws-state.sell { color: var(--sell); }
+/* BIAS ⇄ DWS alignment banner (recommendation 1). */
+.dws-sync {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    color: var(--fg-muted);
+    padding: 4px 8px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.03);
+}
+.dws-sync.buy      { color: var(--buy); }
+.dws-sync.sell     { color: var(--sell); }
+.dws-sync.diverge  { color: var(--warning); background: rgba(255, 183, 77, 0.10); }
+.dws-sync.conflict { color: var(--sell);    background: rgba(255, 91, 107, 0.13); }
+/* Trigger back-test summary — labels white, P/L numbers coloured by sign. */
+.dws-stats {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg);
+    display: flex; flex-direction: column; gap: 2px;
+}
+.dws-stat-line { font-weight: 700; line-height: 1.35; }
+.dws-stats .dws-num      { font-weight: 800; }
+.dws-stats .dws-num.pos  { color: var(--buy); }
+.dws-stats .dws-num.neg  { color: var(--sell); }
+.dws-stats .dws-dim      { color: var(--fg-muted); font-weight: 500; }
+.dws-stats .dws-warn     { color: var(--warning); font-weight: 800; }
+.dws-canvas-wrap {
+    flex: 1 1 auto; min-height: 200px; position: relative;
+}
+.dws-canvas-wrap canvas { display: block; }
+.dws-legend {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    font-family: var(--mono); font-size: 10px; color: var(--fg-muted);
+}
+.dws-legend span { display: flex; align-items: center; gap: 3px; }
+.dws-legend .sw {
+    width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+}
+.dws-legend .tg.buy  { color: var(--buy); }
+.dws-legend .tg.sell { color: var(--sell); }
+.dws-legend .tg.exit { color: var(--warning); }
+.dws-legend .dws-leg-sep { color: var(--fg-dim); margin-left: 4px; }
+
+/* Correlation concentration warning (recommendation 5). */
+.concentration:empty { display: none; }
+.concentration {
+    margin-bottom: 8px; padding: 8px 10px;
+    background: rgba(255, 183, 77, 0.10);
+    border-left: 3px solid var(--warning);
+    border-radius: 4px;
+    font-family: var(--mono); font-size: 12px;
+}
+.conc-head { color: var(--warning); font-weight: 800; margin-bottom: 4px; }
+.conc-row  { padding: 2px 0; color: var(--fg-muted); }
+.conc-sym  { font-weight: 800; }
+.conc-sym.buy  { color: var(--buy); }
+.conc-sym.sell { color: var(--sell); }
+.conc-tag  { color: var(--fg-muted); }
+
+/* ============================================================
+   INDICATOR CHARTS — per-TF visual comparison.
+   Mini bar charts that show RSI / ADX / EMA% / DI± across
+   D1/H4/H1/M15 so timeframe divergence pops at a glance.
+   Hidden in compact mode (no room); visible only when expanded.
+   ============================================================ */
+.ind-charts { display: none; }
+.panel.expanded .ind-charts {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+.panel.expanded .ind-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.panel.expanded .ind-chart { flex: 1 1 0; }
+.ind-chart {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    display: flex; flex-direction: column;
+    min-height: 140px;
+}
+.ind-head { display: flex; align-items: baseline; gap: 8px;
+            border-bottom: 1px solid var(--border); padding-bottom: 4px;
+            margin-bottom: 6px; }
+.ind-title { font-size: 12px; font-weight: 800; letter-spacing: 0.1em;
+             color: var(--fg); text-transform: uppercase; }
+.ind-sub   { font-size: 10px; color: var(--fg-muted); }
+.ind-plot {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 80px;
+    margin: 12px 2px 18px 2px;
+}
+.ind-bars {
+    position: absolute; inset: 0;
+    display: flex; gap: 6px;
+    z-index: 2;
+}
+.ind-bar {
+    flex: 1; position: relative;
+    display: flex; justify-content: center;
+}
+.ind-fill {
+    position: absolute; left: 12%; right: 12%;
+    border-radius: 3px 3px 0 0;
+    transition: height 0.3s, bottom 0.3s, background 0.3s;
+    z-index: 2;
+}
+.ind-fill.buy   { background: var(--buy); }
+.ind-fill.sell  { background: var(--sell); }
+.ind-fill.warn  { background: var(--warning); }
+.ind-fill.neutral   { background: var(--fg-dim); }
+.ind-fill.buy-dim   { background: rgba(0,208,156,0.45); }
+.ind-fill.sell-dim  { background: rgba(255,91,107,0.45); }
+.ind-val {
+    position: absolute; top: -14px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--fg);
+    z-index: 3;
+    white-space: nowrap;
+}
+.ind-tf {
+    position: absolute; bottom: -16px;
+    font-family: var(--mono); font-size: 10px; font-weight: 800;
+    color: var(--accent);
+}
+.ind-ref {
+    position: absolute; left: 0; right: 0; height: 0;
+    border-top: 1px dashed var(--border);
+    z-index: 1;
+}
+.ind-ref::after {
+    content: attr(data-label);
+    position: absolute; right: -2px; top: -7px;
+    font-family: var(--mono); font-size: 9px;
+    color: var(--fg-dim);
+    background: var(--panel-2);
+    padding: 0 2px;
+}
+
+
+/* ============================================================
+   DERIVED SIGNALS — multi-TF ADX/RSI/EMA/DI synthesis.
+   Things that AREN'T visible by glancing at a chart.
+   ============================================================ */
+.derived {
+    display: flex; flex-direction: column; gap: 3px;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+}
+.d-row {
+    /* Indicator | D | 4H | 1H | M15 | summary
+       Fixed widths give perfect column alignment across all rows + header. */
+    display: grid;
+    grid-template-columns: 60px repeat(4, 78px) minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    padding: 4px 6px;
+    background: var(--panel-2);
+    border-left: 3px solid var(--fg-dim);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.3;
+}
+.d-row.d-header {
+    background: transparent;
+    border-left-color: transparent;
+    padding: 2px 6px;
+}
+.d-row .d-tag {
+    font-size: 14px; font-weight: 800; letter-spacing: 0.04em;
+    color: var(--fg); text-align: center;
+}
+.d-row .d-col-name {
+    text-align: center;
+    font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--accent); text-transform: uppercase;
+}
+.d-row .d-summary { color: var(--fg-muted); font-size: 11px;
+                    overflow: hidden; text-overflow: ellipsis;
+                    white-space: nowrap; }
+.d-row .d-summary b { color: var(--fg); }
+.d-row.buy   { border-left-color: var(--buy);  background: rgba(0,208,156,0.10); }
+.d-row.buy   .d-text, .d-row.buy   .d-tag { color: var(--buy); }
+.d-row.buy   .d-text b { color: var(--buy); }
+.d-row.sell  { border-left-color: var(--sell); background: rgba(255,91,107,0.10); }
+.d-row.sell  .d-text, .d-row.sell  .d-tag { color: var(--sell); }
+.d-row.sell  .d-text b { color: var(--sell); }
+.d-row.warn  { border-left-color: var(--warning); background: rgba(255,183,77,0.10); }
+.d-row.warn  .d-text, .d-row.warn  .d-tag { color: var(--warning); }
+.d-row.warn  .d-text b { color: var(--warning); }
+.d-row.neutral { border-left-color: var(--border); }
+
+/* TF chip — color-coded per TF (D1/H4/H1/M15) for instant scan.
+   Value is rendered MUCH larger than the TF name — the value is the
+   data, the TF name is just context. */
+.tf-chip {
+    display: inline-flex; align-items: baseline; gap: 4px;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin: 0 4px 0 0;
+    font-family: var(--mono);
+    background: var(--panel-2);
+    line-height: 1;
+    /* Fixed width per chip so the 4 TF columns align vertically across
+       EMA / RSI / ADX / DI± rows. */
+    min-width: 78px;
+    justify-content: center;
+    box-sizing: border-box;
+}
+.tf-chip .tf-name {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
+    color: var(--fg-muted);
+}
+.tf-chip .tf-val {
+    font-size: 14px; font-weight: 800;
+    color: var(--fg);
+}
+.tf-chip.buy       { border-color: var(--buy);
+                     background: rgba(0,208,156,0.18); }
+.tf-chip.buy       .tf-name, .tf-chip.buy       .tf-val { color: var(--buy); }
+.tf-chip.buy-dim   { border-color: rgba(0,208,156,0.5);
+                     background: rgba(0,208,156,0.08); }
+.tf-chip.buy-dim   .tf-name, .tf-chip.buy-dim   .tf-val { color: var(--buy); }
+.tf-chip.sell      { border-color: var(--sell);
+                     background: rgba(255,91,107,0.18); }
+.tf-chip.sell      .tf-name, .tf-chip.sell      .tf-val { color: var(--sell); }
+.tf-chip.sell-dim  { border-color: rgba(255,91,107,0.5);
+                     background: rgba(255,91,107,0.08); }
+.tf-chip.sell-dim  .tf-name, .tf-chip.sell-dim  .tf-val { color: var(--sell); }
+.tf-chip.warn      { border-color: var(--warning);
+                     background: rgba(255,183,77,0.18); }
+.tf-chip.warn      .tf-name, .tf-chip.warn      .tf-val { color: var(--warning); }
+.tf-chip.neutral   .tf-name, .tf-chip.neutral   .tf-val { color: var(--fg-dim); }
+
+/* In expanded mode bump chip value further so it dominates. */
+.panel.expanded .tf-chip { padding: 4px 10px; }
+.panel.expanded .tf-chip .tf-name { font-size: 10px; }
+.panel.expanded .tf-chip .tf-val  { font-size: 17px; }
+
+.composite.strong-buy  { border-left-color: var(--buy);
+                         background: rgba(0,208,156,0.18); }
+.composite.strong-buy  .comp-arrow, .composite.strong-buy  .comp-text { color: var(--buy); }
+.composite.buy         { border-left-color: var(--buy); }
+.composite.buy         .comp-arrow, .composite.buy         .comp-text { color: var(--buy); }
+.composite.sell        { border-left-color: var(--sell); }
+.composite.sell        .comp-arrow, .composite.sell        .comp-text { color: var(--sell); }
+.composite.strong-sell { border-left-color: var(--sell);
+                         background: rgba(255,91,107,0.18); }
+.composite.strong-sell .comp-arrow, .composite.strong-sell .comp-text { color: var(--sell); }
+.composite.neutral     .comp-arrow, .composite.neutral     .comp-text { color: var(--fg-muted); }
+.composite.na          { opacity: 0.5; }
+
+/* ============================================================
+   TF signal matrix — D1 / H4 / H1 / M15 × TREND, RSI, ADX, EMA dist
+   ============================================================ */
+
+.signals {
+    display: flex; flex-direction: column; gap: 1px;
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 4px 6px;
+    flex: 0 0 auto;
+}
+.sig-row {
+    display: grid;
+    grid-template-columns: 38px minmax(0,1fr) 56px 56px 64px;
+    gap: 6px;
+    align-items: center;
+    font-family: var(--mono);
+    padding: 3px 4px;
+    border-left: 3px solid transparent;
+    border-radius: 3px;
+}
+.sig-row.sig-head {
+    color: var(--fg-muted);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 800;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+    border-left-color: transparent !important;
+}
+/* Numeric column headers must right-align to match the values below them
+   (the data cells use text-align:right via .num). Header was left-aligned
+   while values were right-aligned → visual misalignment. */
+.sig-row.sig-head > :nth-child(3),
+.sig-row.sig-head > :nth-child(4),
+.sig-row.sig-head > :nth-child(5),
+.sig-row.sig-head > :nth-child(6) {
+    text-align: right;
+}
+.sig-row .tf { color: var(--accent); font-weight: 800; }
+.sig-row .trend {
+    font-weight: 800; letter-spacing: 0.04em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sig-row .num { text-align: right; color: var(--fg); font-weight: 600; }
+.sig-row .num.pos  { color: var(--buy);  }
+.sig-row .num.neg  { color: var(--sell); }
+.sig-row .num.warn { color: var(--warning); font-weight: 800; }
+.sig-row .num.strong {
+    background: rgba(255,183,77,0.18);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+
+.sig-row.strong-buy   { border-left-color: var(--buy);
+                        background: rgba(0,208,156,0.14); }
+.sig-row.strong-buy   .trend { color: var(--buy); }
+.sig-row.buy          { border-left-color: var(--buy); }
+.sig-row.buy          .trend { color: var(--buy); }
+.sig-row.sell         { border-left-color: var(--sell); }
+.sig-row.sell         .trend { color: var(--sell); }
+.sig-row.strong-sell  { border-left-color: var(--sell);
+                        background: rgba(255,91,107,0.14); }
+.sig-row.strong-sell  .trend { color: var(--sell); }
+.sig-row.neutral      .trend { color: var(--fg-muted); }
+.sig-row.na           { opacity: 0.4; }
+
+/* Compact sig-row: 6 columns in order TF / TREND / EMA / ADX / DI± / RSI. */
+.sig-row {
+    grid-template-columns: 28px minmax(0,1fr) 58px 42px 52px 42px;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+.sig-row.sig-head { font-size: 9px; }
+
+/* Structure mini-list — visible in all panels (top 3 in compact mode). */
+.struct {
+    display: flex; flex-direction: column; gap: 1px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+/* Compact struct row (default, in small panels): 4 columns only. */
+.struct-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0,1fr) 64px 50px;
+    gap: 4px;
+    font-family: var(--mono); font-size: 10px;
+    padding: 2px 4px;
+    border-left: 2px solid var(--fg-dim);
+    align-items: center;
+}
+.struct-row .cat   { color: var(--accent); font-weight: 700; }
+.struct-row .name  { color: var(--fg); overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; }
+.struct-row .src   { color: var(--accent); font-size: 0.85em;
+                     text-align: center; font-weight: 700; }
+.struct-row .imp   { color: var(--warning); font-size: 0.85em;
+                     letter-spacing: -1px; }
+.struct-row .dir   { font-weight: 800; text-align: center; }
+.struct-row .dir.resist  { color: var(--sell); }
+.struct-row .dir.support { color: var(--buy);  }
+.struct-row .price { color: var(--fg); font-weight: 600; text-align: right; }
+.struct-row .pip   { color: var(--fg-muted); text-align: right;
+                     font-size: 0.9em; }
+.struct-row .atr   { color: var(--fg-muted); text-align: right;
+                     font-size: 0.9em; }
+/* In compact mode, hide the rich columns — only cat/name/price/pip. */
+.struct-row > .src, .struct-row > .imp, .struct-row > .dir,
+.struct-row > .atr { display: none; }
+/* Default 4-col layout maps to: cat | name | price | pip
+   (we use pip column slot for the existing 50px "dist" slot)  */
+
+.struct-row.touch  { background: rgba(255,61,84,0.30);
+                     border-left-color: var(--critical); border-left-width: 4px;
+                     font-weight: 700; }
+.struct-row.near   { border-left-color: var(--warning); border-left-width: 3px; }
+.struct-row.far    { border-left-color: var(--warning); }
+.struct-row.struct-head {
+    color: var(--fg-muted); font-size: 9px;
+    letter-spacing: 0.1em; font-weight: 800; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    border-left-color: transparent !important;
+    background: transparent;
+    padding-bottom: 4px; margin-bottom: 2px;
+}
+.struct-row.struct-head .dir.resist,
+.struct-row.struct-head .dir.support { color: var(--fg-muted); }
+
+/* ============================================================
+   Expanded mode — click any panel to focus on it.
+   - Larger fonts everywhere
+   - 2-column grid layout: full-width head/composite, then the
+     signals matrix and analytics stacked in the left column
+   - Show EMA column in sig matrix
+   - Bigger struct rows
+   ============================================================ */
+
+.panel.expanded {
+    cursor: default;
+    padding: 14px 20px;
+    display: grid;
+    grid-template-areas:
+        "head       head"
+        "composite  composite"
+        "signals    dws"
+        "analytics  dws";
+    grid-template-columns: 1fr 1fr;
+    /* Last row is content-sized (auto), not 1fr — otherwise it is forced to
+       fill the panel and the page can't grow. With auto + overflow-y:auto
+       the panel scrolls when content exceeds the visible area. */
+    grid-template-rows: auto auto auto auto;
+    column-gap: 16px;
+    row-gap: 12px;
+    overflow-y: auto;
+}
+.panel.expanded:hover { transform: none; }
+.panel.expanded .panel-head { grid-area: head; }
+.panel.expanded .composite  { grid-area: composite; }
+.panel.expanded .signals    { grid-area: signals;   align-self: start; }
+.panel.expanded .dws        { grid-area: dws;       display: flex; }
+.panel.expanded .analytics  { grid-area: analytics; align-self: start; }
+
+.panel.expanded .panel-sym  { font-size: 36px; }
+.panel.expanded .quote      { font-size: 26px; gap: 14px; }
+.panel.expanded .composite  { font-size: 30px; padding: 18px 24px; gap: 14px; }
+.panel.expanded .composite .comp-label { font-size: 14px; }
+.panel.expanded .composite .comp-arrow { font-size: 42px; }
+.panel.expanded .composite .comp-text  { font-size: 38px; letter-spacing: 0.08em; }
+.panel.expanded .composite .comp-score { font-size: 24px; }
+.panel.expanded .sig-row {
+    font-size: 16px; padding: 6px 8px;
+    /* The signals box sits in the left column only — same width as the
+       analytics block stacked below it. The 6 columns (TF|TREND|EMA|ADX|
+       DI±|RSI) are fr-sized to fill that box edge-to-edge: no trailing
+       spacer, no dead gap. TREND gets the widest share for "STRONG SELL". */
+    grid-template-columns: 0.7fr 1.9fr 1.15fr 0.85fr 0.85fr 0.85fr;
+}
+.panel.expanded .sig-row.sig-head { font-size: 11px; }
+.panel.expanded .d-row {
+    font-size: 14px; padding: 8px 12px;
+}
+.panel.expanded .d-row .d-tag { font-size: 10px; }
+
+/* ============================================================
+   Account card
+   ============================================================ */
+
+.account-card { flex: 0 0 auto; }
+.acc-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+}
+.acc-cell {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 4px 8px;
+}
+.acc-cell.pnl { grid-column: span 2; }
+.acc-label {
+    font-size: 10px; font-weight: 700;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.acc-val {
+    font-family: var(--mono);
+    font-size: 16px; font-weight: 600;
+}
+.acc-val.big { font-size: 20px; }
+.acc-val.pos { color: var(--buy); }
+.acc-val.neg { color: var(--sell); }
+
+.acc-positions { margin-top: 4px; }
+.acc-positions .empty {
+    color: var(--fg-dim); font-size: 11px; padding: 4px 0;
+}
+.pos-row {
+    display: grid;
+    grid-template-columns: 40px 60px 50px 1fr 70px;
+    gap: 4px;
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 6px; margin-bottom: 2px;
+    background: var(--panel-2); border-radius: var(--radius);
+    border-left: 3px solid var(--fg-dim);
+}
+.pos-row.buy  { border-left-color: var(--buy); }
+.pos-row.sell { border-left-color: var(--sell); }
+.pos-row .type-buy  { color: var(--buy);  font-weight: 700; }
+.pos-row .type-sell { color: var(--sell); font-weight: 700; }
+.pos-row .pos-pnl.pos { color: var(--buy); }
+.pos-row .pos-pnl.neg { color: var(--sell); }
+
+/* ============================================================
+   Calendar card
+   ============================================================ */
+
+.calendar-card { flex: 1 1 auto; min-height: 0; }
+.cal-list {
+    display: flex; flex-direction: column; gap: 2px;
+    overflow-y: auto; min-height: 0; flex: 1;
+}
+.cal-row {
+    display: grid;
+    grid-template-columns: 50px 36px 1fr 60px 60px;
+    gap: 6px;
+    align-items: baseline;
+    font-family: var(--mono); font-size: 12px;
+    padding: 4px 6px;
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--fg-dim);
+}
+.cal-row .time { color: var(--warning); font-weight: 700; }
+.cal-row .ccy  { color: var(--fg);     font-weight: 700; text-align: center; }
+.cal-row .title{ color: var(--fg); overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.cal-row .fcst { color: var(--fg-muted); text-align: right; }
+.cal-row .cnt  { color: var(--fg); text-align: right; font-weight: 700; }
+.cal-row.warn  { background: rgba(255,183,77,0.20);
+                 border-left-color: var(--warning); }
+.cal-row.warn .cnt, .cal-row.warn .title { color: var(--warning); }
+.cal-row.past  .cnt { color: var(--critical); }
+
+/* ============================================================
+   Bottom: strength + correlation
+   ============================================================ */
+
+.bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap);
+    min-height: 0;
+}
+.strength-card { min-height: 0; }
+.strength-rows {
+    display: flex; flex-direction: column; gap: 4px;
+    overflow-y: auto;
+    flex: 1;
+}
+.s-row {
+    display: grid;
+    grid-template-columns: 50px 1fr 56px;
+    gap: 8px; align-items: center;
+    font-family: var(--mono); font-size: 14px;
+}
+.s-row .ccy { color: var(--fg); font-weight: 800; text-align: right;
+              display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 6px; }
+.s-row .ccy-ref {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--warning);
+    border: 1px solid var(--warning);
+    padding: 1px 4px;
+    border-radius: 3px;
+    cursor: help;
+}
+.s-row .val { color: var(--fg); text-align: right; }
+.s-row .bar-track {
+    position: relative; height: 20px;
+    background: var(--panel-2); border-radius: 10px; overflow: hidden;
+}
+.s-row .bar-mid {
+    position: absolute; left: 50%; top: 0; bottom: 0;
+    width: 1px; background: var(--border);
+}
+.s-row .bar {
+    position: absolute; top: 0; bottom: 0;
+    transition: width 0.25s, left 0.25s;
+}
+.s-row .bar.pos { background: var(--buy); }
+.s-row .bar.neg { background: var(--sell); }
+.s-row .bar.ref {
+    background: var(--warning);
+    background-image: repeating-linear-gradient(45deg,
+        transparent, transparent 4px,
+        rgba(0,0,0,0.25) 4px, rgba(0,0,0,0.25) 8px);
+}
+
+.corr-card { min-height: 0; }
+canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
+
+/* Correlation Insights list — replaces the heatmap. */
+.corr-list {
+    display: flex; flex-direction: column; gap: 3px;
+    overflow-y: auto;
+    flex: 1; min-height: 0;
+    padding-right: 4px;
+}
+.corr-section-title {
+    font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    margin: 6px 0 2px;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 2px;
+}
+.corr-section-title.warn { color: var(--warning); }
+.corr-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.4fr) 1fr 60px 70px;
+    gap: 8px;
+    align-items: center;
+    font-family: var(--mono); font-size: 12px;
+    padding: 4px 8px;
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--fg-dim);
+}
+.corr-row .pair { color: var(--fg); font-weight: 600; }
+.corr-row .pair b { color: var(--fg); font-weight: 800; }
+.corr-row .bar {
+    height: 10px; background: var(--bg-soft);
+    border-radius: 5px; overflow: hidden; position: relative;
+}
+.corr-row .bar i {
+    display: block; height: 100%;
+    transition: width 0.25s;
+}
+.corr-row.pos .bar i { background: var(--buy); }
+.corr-row.neg .bar i { background: var(--sell); }
+.corr-row.pos { border-left-color: var(--buy); }
+.corr-row.neg { border-left-color: var(--sell); }
+.corr-row .val { text-align: right; font-weight: 800; }
+.corr-row.pos .val { color: var(--buy);  }
+.corr-row.neg .val { color: var(--sell); }
+.corr-row .lbl { font-size: 10px; color: var(--fg-muted); text-align: right; }
+.corr-row.very-strong { box-shadow: inset 0 0 0 1px rgba(255,183,77,0.25); }
+.corr-row.very-strong .lbl { color: var(--warning); font-weight: 700; }
+.corr-row.diverge {
+    grid-template-columns: minmax(150px, 1.4fr) 1fr 90px;
+    background: rgba(255,183,77,0.10);
+    border-left-color: var(--warning);
+}
+.corr-row.diverge .div-detail {
+    color: var(--fg); font-weight: 600;
+}
+.corr-row.diverge .lbl.warn { color: var(--warning); font-weight: 800; }
+.corr-list .empty { padding: 10px; }
+
+/* Pill buttons (window selectors) */
+.pill-group { display: flex; gap: 4px; }
+.pill {
+    background: var(--panel-2); color: var(--fg-muted);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 2px 10px;
+    font-family: var(--mono); font-size: 11px;
+    cursor: pointer; user-select: none;
+    font-weight: 600;
+}
+.pill:hover { background: var(--panel); color: var(--fg); }
+.pill.on {
+    background: var(--accent); color: white;
+    border-color: var(--accent);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }

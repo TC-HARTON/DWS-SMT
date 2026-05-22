@@ -1,0 +1,29 @@
+# MT5-Python Trading Dashboard - dependencies
+# SPEC 3.1 準拠。TA-Lib は Python 3.14 wheel 不安、pandas-ta は numba 依存で 3.14 不可。
+# SPEC が必要とする指標(EMA/ADX/RSI/ATR)は analyzer/indicators.py で numpy 直書きする。
+
+# --- MT5 connection ---
+MetaTrader5>=5.0.45
+
+# --- Numerics ---
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13          # scipy.signal.lfilter — vectorised first-order IIR for Wilder smoothing
+
+# --- Web framework ---
+dash>=2.17
+dash-extensions>=1.0.18   # WebSocket *client* component
+flask-sock>=0.7           # WebSocket *server* endpoint mounted on Dash's Flask app
+simple-websocket>=1.0     # used directly by scripts/_verify_*.py and _memory_watch.py as a client
+plotly>=5.22
+
+# --- File / external ---
+watchdog>=4.0
+requests>=2.32
+xmltodict>=0.13
+python-dotenv>=1.0
+
+# --- Dev / test / operations ---
+pytest>=8.2
+pytest-mock>=3.14
+psutil>=5.9          # used by scripts/_memory_watch.py for SPEC §18.4 leak monitoring

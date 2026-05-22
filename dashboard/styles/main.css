@@ -1,0 +1,927 @@
+/* ============================================================================ *
+ * MT5 Trading Dashboard - main stylesheet
+ *
+ * SPEC §16.4 / §16.5 / §17.1 駆動。視認性最優先・ダーク基調・大型表示。
+ * 色は config.THEME と同期しているが、CSS 側は静的に展開して GPU 負荷を抑える。
+ * Dash は assets/ 配下を自動で <head> に注入する。
+ * ============================================================================ */
+
+:root {
+    /* Brighter than pure dark mode — easier to read for 24/7 monitoring.
+       Background is mid-dark slate, foreground near-white for high
+       contrast. Accents reserved for actionable signals. */
+    --bg:           #1f2532;
+    --bg-panel:     #2a3142;
+    --bg-panel-2:   #353c50;
+    --bg-panel-3:   #404760;
+    --border:       #3a4258;
+    --border-soft:  #2e3548;
+    --fg:           #f2f4f9;   /* near-white for max readability */
+    --fg-muted:     #b4bbcc;   /* much brighter than before */
+    --fg-dim:       #8089a0;
+    /* Semantic accents — brighter so they pop on lighter background. */
+    --buy:          #00d09c;   /* vivid green for BUY/up */
+    --sell:         #ff5b6b;   /* vivid coral for SELL/down */
+    --neutral:      #8089a0;
+    --warning:      #ffb74d;
+    --critical:     #ff3d54;
+    --accent:       #4d8eff;   /* signal blue */
+
+    /* 構造接触ハイライト(SPEC §17.1) — graduated bg so the eye locks
+       on the touch tier without losing the far/near context. */
+    --touch-far:    rgba(255, 183,  77, 0.10);
+    --touch-near:   rgba(255, 183,  77, 0.22);
+    --touch-touch:  rgba(255,  61,  84, 0.38);
+
+    /* タイポグラフィ */
+    --font-mono:    "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+    --font-ui:      "Inter", "Segoe UI", "Yu Gothic UI", sans-serif;
+
+    /* リズム */
+    --radius:       6px;
+    --gap-xs:       4px;
+    --gap-sm:       8px;
+    --gap-md:       12px;
+    --gap-lg:       20px;
+}
+
+/* ---------------------------------------------------------- reset / page */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #react-entry-point, #_dash-app-content {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 15px;       /* up from 13 — readable at distance */
+    line-height: 1.45;
+    overflow: hidden;
+}
+
+.app-root {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+    gap: var(--gap-sm);
+    padding: var(--gap-sm);
+}
+
+/* ----------------------------------------------------------------- header */
+
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--gap-sm) var(--gap-md);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.app-header__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--gap-sm);
+}
+.app-header__brand {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+}
+.app-header__sub {
+    color: var(--fg-muted);
+    font-size: 13px;
+}
+
+.app-header__metrics {
+    display: flex;
+    gap: var(--gap-lg);
+}
+.app-header__metric { display: flex; flex-direction: column; min-width: 80px; }
+.app-header__metric-label {
+    font-size: 10px;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+}
+.app-header__metric-value {
+    font-family: var(--font-mono);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+}
+.status-dot--on  { background: var(--buy);  box-shadow: 0 0 6px var(--buy); }
+.status-dot--off { background: var(--sell); box-shadow: 0 0 6px var(--sell); }
+
+/* ------------------------------------------------------------------ main */
+
+.app-main {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--gap-sm);
+    min-height: 0;
+}
+
+.app-main__left {
+    display: grid;
+    /* SPEC §7.2 — XAUUSD ~35% (大型), USDJPY-AUDUSD ~35% (中型),
+       残り5銘柄 ~30% (compact). Fractional units keep the proportions
+       across viewports instead of letting the XL panel devour the whole
+       column when its body is taller than expected. */
+    grid-template-rows: 35fr 35fr 30fr;
+    gap: var(--gap-sm);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.app-main__right { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ------------------------------------------------------ symbol grid rows */
+
+.symbol-grid {
+    display: grid;
+    gap: var(--gap-sm);
+    min-height: 0;
+    overflow: hidden;
+}
+.symbol-grid--xl { grid-template-columns: 1fr; }
+.symbol-grid--md { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.symbol-grid--sm { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+/* ----------------------------------------------------------- symbol panel */
+
+.symbol-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--gap-sm) var(--gap-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    min-height: 0;
+    overflow-y: auto;
+    transition: opacity 0.25s, border-color 0.25s, box-shadow 0.25s;
+}
+/* Activity-driven highlight: quiet panels dim, active glow, touch glow harder. */
+.symbol-panel--quiet  { opacity: 0.55; }
+.symbol-panel--active {
+    border-color: var(--warning);
+    box-shadow: 0 0 0 1px var(--warning), 0 0 18px rgba(255,183,77,0.18);
+}
+.symbol-panel--touch  {
+    border-color: var(--critical);
+    box-shadow: 0 0 0 1px var(--critical), 0 0 22px rgba(255,61,84,0.30);
+}
+
+/* Hero: the headline metric per panel — "↑ R1 4548.50 +12.3 pip · NEAR". */
+.symbol-panel__hero {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--fg);
+    background: var(--bg-panel-2);
+    border-left: 4px solid var(--fg-dim);
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.symbol-panel--xl .symbol-panel__hero { font-size: 18px; padding: 8px 12px; }
+.symbol-panel--md .symbol-panel__hero { font-size: 13px; }
+.symbol-panel--sm .symbol-panel__hero { font-size: 11px; padding: 4px 6px; }
+.symbol-panel--active .symbol-panel__hero {
+    border-left-color: var(--warning); color: var(--warning);
+}
+.symbol-panel--touch  .symbol-panel__hero {
+    border-left-color: var(--critical); color: var(--critical);
+    background: rgba(255,61,84,0.10);
+}
+.symbol-panel--xl {
+    grid-row: span 1;
+    padding: var(--gap-md) var(--gap-lg);
+}
+.symbol-panel--md { font-size: 11px; }
+.symbol-panel--sm { font-size: 10px; padding: 6px 8px; gap: 2px; }
+
+/* SPEC §7.2 density tiering: MD shows just structure (no MTF/PA detail),
+   SM shows price + bias + 2 structure rows only. This is achieved by
+   hiding heavier sections, not by removing them from the DOM, so future
+   layout tweaks need only touch CSS. */
+.symbol-panel--md .symbol-panel__section:not(.symbol-panel__section--structure):not(.symbol-panel__section--bias) {
+    display: none;
+}
+.symbol-panel--sm .symbol-panel__section:not(.symbol-panel__section--structure):not(.symbol-panel__section--bias) {
+    display: none;
+}
+.symbol-panel--sm .structure-list { max-height: 36px; }
+.symbol-panel--sm .symbol-panel__broker { display: none; }
+.symbol-panel--md .structure-list { max-height: 70px; }
+
+.symbol-panel__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--gap-md);
+    padding-bottom: var(--gap-xs);
+    border-bottom: 1px solid var(--border);
+}
+.symbol-panel__title-block { display: flex; align-items: baseline; gap: var(--gap-sm); }
+.symbol-panel__base {
+    font-weight: 800;
+    color: var(--fg);
+    letter-spacing: 0.04em;
+}
+.symbol-panel--xl .symbol-panel__base { font-size: 36px; }
+.symbol-panel--md .symbol-panel__base { font-size: 22px; }
+.symbol-panel--sm .symbol-panel__base { font-size: 16px; }
+
+.symbol-panel__broker {
+    color: var(--fg-muted);
+    font-size: 11px;
+}
+
+.symbol-panel__price-block {
+    display: flex;
+    align-items: baseline;
+    gap: var(--gap-md);
+    flex-wrap: wrap;
+}
+.symbol-panel__quote {
+    display: flex; flex-direction: column; align-items: flex-end;
+    line-height: 1.1;
+}
+.symbol-panel__spread-block {
+    display: flex; flex-direction: column; align-items: flex-end;
+    line-height: 1.1;
+}
+.symbol-panel__quote-label {
+    font-size: 9px;
+    color: var(--fg-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+/* CURRENT PRICE = top-priority readout. Big, bold, accent-colored. */
+.symbol-panel__bid, .symbol-panel__ask {
+    font-family: var(--font-mono);
+    font-weight: 700;
+}
+.symbol-panel__bid { color: var(--sell); }
+.symbol-panel__ask { color: var(--buy); }
+.symbol-panel--xl .symbol-panel__bid,
+.symbol-panel--xl .symbol-panel__ask { font-size: 40px; line-height: 1; }
+.symbol-panel--md .symbol-panel__bid,
+.symbol-panel--md .symbol-panel__ask { font-size: 22px; line-height: 1; }
+.symbol-panel--sm .symbol-panel__bid,
+.symbol-panel--sm .symbol-panel__ask { font-size: 16px; line-height: 1; }
+.symbol-panel__quote-label {
+    font-size: 10px;
+    color: var(--fg-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.symbol-panel__spread {
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+.symbol-panel--xl .symbol-panel__spread { font-size: 14px; }
+.symbol-panel--md .symbol-panel__spread { font-size: 11px; }
+.symbol-panel--sm .symbol-panel__spread { font-size: 10px; }
+
+.symbol-panel__tick-age {
+    color: var(--fg-dim); font-family: var(--font-mono); font-size: 10px;
+    align-self: baseline;
+}
+
+.symbol-panel__section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 0;
+}
+.symbol-panel--sm .symbol-panel__section { padding: 2px 0; }
+.symbol-panel__section-title {
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 3px;
+    margin-bottom: 4px;
+}
+.symbol-panel__section--placeholder { opacity: 0.55; }
+.symbol-panel__placeholder-note { color: var(--fg-dim); font-size: 10px; font-style: italic; }
+.symbol-panel--sm .symbol-panel__placeholder-note { display: none; }
+
+/* ----------------------------------------------------------- MTF table */
+
+.mtf-table { display: flex; flex-direction: column; gap: 2px; }
+/* Variable column count per TF (SPEC §6 restricts which indicators show on
+ * each TF), so we use flexbox instead of a fixed grid template. */
+.mtf-row {
+    display: flex;
+    gap: var(--gap-sm);
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 0;
+}
+.symbol-panel--xl .mtf-row { font-size: 14px; }
+.symbol-panel--sm .mtf-row { font-size: 10px; gap: 6px; }
+
+.mtf-row__tf     { color: var(--warning); font-weight: 600; min-width: 30px; flex: 0 0 auto; }
+.mtf-row__arrow  { color: var(--fg-muted); font-weight: 700; min-width: 14px; flex: 0 0 auto; }
+.mtf-row__ema    { color: var(--fg); flex: 1 1 auto; min-width: 0; }
+.mtf-row__adx    { color: var(--fg); flex: 0 0 auto; min-width: 70px; }
+.mtf-row__rsi    { color: var(--fg); flex: 0 0 auto; min-width: 70px; }
+.mtf-row__atr    { color: var(--fg); flex: 0 0 auto; min-width: 90px; }
+
+.mtf-row__arrow--up   { color: var(--buy); }
+.mtf-row__arrow--down { color: var(--sell); }
+
+/* ------------------------------------------------------------- account card */
+
+.account-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--gap-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-md);
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.account-card__header { display: flex; justify-content: space-between; align-items: baseline; }
+.account-card__title { font-size: 18px; color: var(--accent); font-weight: 800; letter-spacing: 0.06em; }
+.account-card__identity { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); }
+.account-card__sep { padding: 0 4px; color: var(--fg-dim); }
+
+.account-card__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--gap-sm);
+}
+.account-card__metric {
+    background: var(--bg-panel-2);
+    border-radius: var(--radius);
+    padding: var(--gap-xs) var(--gap-sm);
+}
+.account-card__metric-label {
+    font-size: 10px;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+.account-card__metric-value {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--fg);
+    font-weight: 600;
+}
+.account-card__metric-value--positive { color: var(--buy); }
+.account-card__metric-value--negative { color: var(--sell); }
+
+.account-card__section-title {
+    color: var(--fg-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.account-card__placeholder { opacity: 0.55; }
+.account-card__placeholder-note { color: var(--fg-dim); font-size: 10px; font-style: italic; }
+
+.account-card__positions-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px;
+}
+.account-card__badge {
+    background: var(--bg-panel-3);
+    color: var(--fg);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.positions-list { display: flex; flex-direction: column; gap: 4px; }
+.positions-list__empty { color: var(--fg-dim); font-size: 11px; font-style: italic; padding: 4px 0; }
+
+.position-row {
+    display: grid;
+    grid-template-columns: 36px 60px 50px 1fr 70px;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: var(--gap-xs) var(--gap-sm);
+    background: var(--bg-panel-2);
+    border-left: 3px solid var(--fg-dim);
+    border-radius: var(--radius);
+}
+.position-row--buy  { border-left-color: var(--buy); }
+.position-row--sell { border-left-color: var(--sell); }
+.position-row__type { font-weight: 700; }
+.position-row--buy  .position-row__type { color: var(--buy); }
+.position-row--sell .position-row__type { color: var(--sell); }
+.position-row__sym  { color: var(--warning); }
+.position-row__vol  { color: var(--fg-muted); }
+.position-row__px   { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.position-row__pnl  { text-align: right; }
+.position-row__pnl--positive { color: var(--buy); }
+.position-row__pnl--negative { color: var(--sell); }
+
+/* ========================================================================= *
+ * Phase 2: Structure / Price Action / Confluence
+ * ========================================================================= */
+
+.symbol-panel__section-title-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 2px; margin-bottom: 2px;
+}
+.symbol-panel__confluence {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--fg-muted);
+}
+.symbol-panel__confluence--active {
+    color: var(--warning);
+    font-weight: 700;
+    text-shadow: 0 0 6px rgba(255, 170, 0, 0.45);
+}
+
+.structure-list {
+    display: flex; flex-direction: column;
+    gap: 1px;
+    max-height: 130px;
+    overflow-y: auto;
+}
+.symbol-panel--xl .structure-list { max-height: 220px; }
+.symbol-panel--sm .structure-list { max-height: 88px; gap: 0; }
+.structure-list__empty {
+    color: var(--fg-dim); font-size: 10px; font-style: italic; padding: 2px 0;
+}
+.structure-row {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 90px 70px 70px;
+    gap: var(--gap-sm);
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 2px 6px;
+    border-left: 2px solid var(--fg-dim);
+    border-radius: 2px;
+}
+.symbol-panel--xl .structure-row {
+    font-size: 14px;
+    padding: 3px 8px;
+    grid-template-columns: 50px minmax(0, 1fr) 120px 90px 90px;
+}
+.symbol-panel--md .structure-row {
+    font-size: 11px;
+    grid-template-columns: 36px minmax(0, 1fr) 70px 56px 0;
+}
+.symbol-panel--md .structure-row__meta { display: none; }
+.symbol-panel--sm .structure-row {
+    font-size: 10px;
+    grid-template-columns: 30px minmax(0, 1fr) 58px 0 0;
+}
+.symbol-panel--sm .structure-row__meta,
+.symbol-panel--sm .structure-row__dist { display: none; }
+
+.structure-row__cat { color: var(--accent); font-weight: 700; }
+.structure-row__name { color: var(--fg); overflow: hidden;
+                       text-overflow: ellipsis; white-space: nowrap; }
+.structure-row__price { color: var(--fg); font-weight: 600; }
+.structure-row__dist  { color: var(--fg-muted); text-align: right; }
+.structure-row__meta  { color: var(--fg-dim); text-align: right; }
+
+/* SPEC §8.1 source distinction: EA-drawn = solid border, auto = dashed */
+.structure-row--ea_user      { border-left-color: var(--warning); }
+.structure-row--auto_detect  { border-left-color: var(--fg-dim);
+                                border-left-style: dashed; }
+.structure-row--auto_vwap    { border-left-color: var(--critical);
+                                border-left-style: dotted; }
+
+/* SPEC §17.1 distance-to-touch — left-border accent only for far/near,
+   full row highlight reserved for the actual touch tier so the eye is
+   drawn to one cell at a time. */
+.structure-row--far   {
+    border-left-color: var(--warning); border-left-style: solid;
+    border-left-width: 2px;
+}
+.structure-row--near  {
+    border-left-color: var(--warning); border-left-style: solid;
+    border-left-width: 3px;
+}
+.structure-row--touch {
+    background: var(--touch-touch);
+    border-left-color: var(--critical);
+    border-left-style: solid;
+    border-left-width: 4px;
+    font-weight: 600;
+}
+
+/* -------------------------- Price Action ----------------------------- */
+
+.pa-list { display: flex; flex-direction: column; gap: 1px;
+           max-height: 96px; overflow-y: auto; }
+.symbol-panel--xl .pa-list { max-height: 140px; }
+.symbol-panel--sm .pa-list { max-height: 60px; }
+.pa-list__empty { color: var(--fg-dim); font-size: 10px; font-style: italic; }
+.pa-row {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) 70px 36px;
+    gap: var(--gap-sm);
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 4px;
+}
+.symbol-panel--xl .pa-row { font-size: 12px; }
+.symbol-panel--sm .pa-row { font-size: 9px; }
+.pa-row__icon { font-size: 12px; }
+.pa-row__kind { color: var(--fg); overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+.pa-row__close { color: var(--fg-muted); text-align: right; }
+.pa-row__age { color: var(--fg-dim); text-align: right; }
+.pa-row--bull .pa-row__kind { color: var(--buy); }
+.pa-row--bear .pa-row__kind { color: var(--sell); }
+.pa-row--neutral .pa-row__kind { color: var(--fg-muted); }
+
+/* ------------------------------------------------------------- bottom row */
+
+.app-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap-sm);
+    height: 280px;
+}
+.bottom-placeholder {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--gap-md);
+    opacity: 0.55;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 4px;
+}
+.bottom-placeholder__title {
+    color: var(--warning);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+.bottom-placeholder__note {
+    color: var(--fg-dim);
+    font-size: 11px;
+    font-style: italic;
+}
+
+/* ========================================================================= *
+ * Phase 3: Currency strength meter / Correlation heatmap /
+ *          Performance card / Currency bias
+ * ========================================================================= */
+
+/* ----------------------------- strength meter ----------------------------- */
+
+.strength-meter {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--gap-sm) var(--gap-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+    overflow: hidden;
+}
+.strength-meter__header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding-bottom: var(--gap-xs);
+    border-bottom: 1px dashed var(--border);
+}
+.strength-meter__title { color: var(--accent); font-weight: 800;
+                         letter-spacing: 0.06em; font-size: 14px;
+                         text-transform: uppercase; }
+.strength-meter__subtitle { color: var(--fg-muted); font-size: 11px;
+                            margin-left: 8px; }
+.strength-meter__windows { display: flex; gap: 4px; }
+
+/* SPEC §16.4 shared pill-button style — used by every window/range picker. */
+.strength-window-btn,
+.correlation-window-btn,
+.performance-card__range-btn {
+    background: var(--bg-panel-2);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    user-select: none;
+}
+.strength-window-btn:hover,
+.correlation-window-btn:hover,
+.performance-card__range-btn:hover {
+    background: var(--bg-panel-3); color: var(--fg);
+}
+.strength-window-btn--active,
+.correlation-window-btn--active,
+.performance-card__range-btn--active {
+    background: var(--warning); color: #1a1a1a;
+    border-color: var(--warning); font-weight: 700;
+}
+.strength-window-btn      { padding: 2px 8px; font-size: 10px; }
+
+.strength-meter__rows {
+    display: flex; flex-direction: column; gap: 2px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+.strength-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 56px;
+    gap: var(--gap-sm);
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 2px 0;
+}
+.strength-row__ccy { color: var(--fg); font-weight: 800;
+                     text-align: right; }
+.strength-row__track {
+    position: relative;
+    height: 18px;
+    background: var(--bg-panel-2);
+    border-radius: 9px;
+    overflow: hidden;
+}
+.strength-row__midline {
+    position: absolute; left: 50%; top: 0; bottom: 0;
+    width: 1px; background: var(--border);
+}
+.strength-row__bar {
+    position: absolute; top: 0; bottom: 0;
+    background: var(--neutral);
+    transition: width 0.2s, left 0.2s, background-color 0.2s;
+}
+.strength-row__bar--pos { background: var(--buy); }
+.strength-row__bar--neg { background: var(--sell); }
+.strength-row__bar--ref {
+    background: var(--warning);
+    background-image: repeating-linear-gradient(
+        45deg, transparent, transparent 4px,
+        rgba(0,0,0,0.25) 4px, rgba(0,0,0,0.25) 8px);
+}
+.strength-row__val { color: var(--fg); text-align: right; }
+
+/* -------------------------- correlation heatmap -------------------------- */
+
+.correlation-heatmap {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--gap-sm) var(--gap-md);
+    display: flex; flex-direction: column; gap: var(--gap-xs);
+    overflow: hidden;
+}
+.correlation-heatmap__header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding-bottom: var(--gap-xs);
+    border-bottom: 1px dashed var(--border);
+}
+.correlation-heatmap__title { color: var(--accent); font-weight: 800;
+                              letter-spacing: 0.06em; font-size: 14px;
+                              text-transform: uppercase; }
+.correlation-heatmap__subtitle { color: var(--fg-muted); font-size: 11px;
+                                 margin-left: 8px; }
+.correlation-heatmap__windows { display: flex; gap: 4px; }
+
+.correlation-window-btn   { padding: 2px 8px; font-size: 10px; }
+
+.correlation-heatmap__graph {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* ----------------------- performance card (right column) ----------------- */
+
+.performance-card {
+    display: flex; flex-direction: column; gap: 6px;
+}
+.performance-card__header {
+    display: flex; justify-content: space-between; align-items: center;
+}
+.performance-card__ranges { display: flex; gap: 3px; }
+.performance-card__range-btn { padding: 1px 6px; font-size: 9px; }
+
+.performance-card__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+}
+.performance-card__metric {
+    background: var(--bg-panel-2);
+    border-radius: 3px;
+    padding: 3px 6px;
+}
+.performance-card__metric-label {
+    font-size: 9px; color: var(--fg-muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.performance-card__metric-value {
+    font-family: var(--font-mono);
+    font-size: 12px; color: var(--fg);
+}
+.performance-card__metric-value--positive { color: var(--buy); }
+.performance-card__metric-value--negative { color: var(--sell); }
+.performance-card__subtitle {
+    color: var(--fg-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 4px;
+}
+
+.perf-symbol-list { display: flex; flex-direction: column; gap: 1px;
+                    max-height: 80px; overflow-y: auto; }
+.perf-symbol-list__empty { color: var(--fg-dim); font-size: 10px;
+                           font-style: italic; padding: 2px 0; }
+.perf-symbol-row {
+    display: grid;
+    grid-template-columns: 60px 36px 36px 1fr;
+    gap: 4px;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 4px;
+    border-left: 2px solid var(--fg-dim);
+}
+.perf-symbol-row--win  { border-left-color: var(--buy); }
+.perf-symbol-row--loss { border-left-color: var(--sell); }
+.perf-symbol-row--flat { border-left-color: var(--fg-dim); }
+.perf-symbol-row__sym { color: var(--warning); font-weight: 600; }
+.perf-symbol-row__n   { color: var(--fg-muted); }
+.perf-symbol-row__wr  { color: var(--fg-muted); }
+.perf-symbol-row__net { color: var(--fg); text-align: right; }
+.perf-symbol-row--win .perf-symbol-row__net  { color: var(--buy); }
+.perf-symbol-row--loss .perf-symbol-row__net { color: var(--sell); }
+
+/* ========================================================================= *
+ * Phase 4: Economic calendar (SPEC §15)
+ * ========================================================================= */
+
+.calendar-card { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.calendar-card__header {
+    display: flex; justify-content: space-between; align-items: baseline;
+}
+.calendar-card__source {
+    font-family: var(--font-mono); font-size: 9px; color: var(--fg-muted);
+}
+.calendar-card__source--primary  { color: var(--buy); }
+.calendar-card__source--fallback { color: var(--warning); }
+.calendar-card__source--stale    { color: var(--fg-dim); }
+.calendar-card__source--warn     { color: var(--critical); font-weight: 700; }
+
+.calendar-list {
+    display: flex; flex-direction: column; gap: 1px;
+    max-height: 130px; overflow-y: auto;
+}
+.calendar-list__empty {
+    color: var(--fg-dim); font-size: 10px; font-style: italic; padding: 2px 0;
+}
+.calendar-row {
+    display: grid;
+    grid-template-columns: 40px 28px 18px minmax(0,1fr) 44px 44px 56px;
+    gap: 4px;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 4px;
+    border-left: 2px solid var(--fg-dim);
+    border-radius: 2px;
+}
+.calendar-row__time     { color: var(--warning); font-weight: 600; }
+.calendar-row__ccy      { color: var(--fg); font-weight: 600; text-align: center; }
+.calendar-row__impact   { text-align: center; font-size: 9px; }
+.calendar-row__title    { color: var(--fg); overflow: hidden;
+                          text-overflow: ellipsis; white-space: nowrap; }
+.calendar-row__forecast { color: var(--fg-muted); text-align: right; }
+.calendar-row__previous { color: var(--fg-dim);  text-align: right; }
+.calendar-row__countdown {
+    color: var(--fg); text-align: right; font-weight: 600;
+}
+/* SPEC §15.3 ±30 min warning colour */
+.calendar-row--warning {
+    background: rgba(255, 170, 0, 0.15);
+    border-left-color: var(--warning);
+}
+.calendar-row--warning .calendar-row__countdown,
+.calendar-row--warning .calendar-row__title {
+    color: var(--warning);
+    text-shadow: 0 0 4px rgba(255, 170, 0, 0.45);
+}
+/* Past-but-still-in-window release dimmed slightly */
+.calendar-row--past { opacity: 0.85; }
+.calendar-row--past .calendar-row__countdown { color: var(--critical); }
+
+/* SPEC §14.3 時間帯別損益 — 24 columns positioned around a 0 axis */
+.performance-card__by-hour { margin-top: 4px; }
+.perf-hour-bars {
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
+    gap: 1px;
+    height: 42px;
+    align-items: stretch;
+}
+.perf-hour-bars__empty {
+    grid-column: 1 / -1;
+    color: var(--fg-dim); font-size: 10px; font-style: italic; padding: 2px 0;
+}
+.perf-hour-bar {
+    position: relative;
+    display: flex;
+    /* SPEC §14.3 hour-of-day PnL: both pos and neg bars grow upward from
+       the bottom of the cell — colour (green vs red) carries the sign.
+       ``column-reverse`` puts DOM-order ``pos`` then ``neg`` visually at
+       the bottom growing up. */
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+    background: var(--bg-panel-2);
+}
+.perf-hour-bar__pos,
+.perf-hour-bar__neg {
+    width: 100%;
+    transition: height 0.2s;
+}
+.perf-hour-bar__pos { background: var(--buy);  }
+.perf-hour-bar__neg { background: var(--sell); }
+.perf-hour-bar__label {
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 7px;
+    color: var(--fg-dim);
+    font-family: var(--font-mono);
+}
+.perf-hour-bar--flat { opacity: 0.4; }
+
+/* ------------------------- currency-bias (per symbol) -------------------- */
+
+/* SPEC §16.6: "XAU vs USD: -53 (SELL優位)" — the SIGNAL line, deserves
+   prominence comparable to price. */
+.currency-bias {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 4px 8px;
+    background: var(--bg-panel-2);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--fg-dim);
+}
+.symbol-panel--xl .currency-bias { font-size: 20px; }
+.symbol-panel--md .currency-bias { font-size: 13px; padding: 3px 6px; }
+.symbol-panel--sm .currency-bias { font-size: 11px; padding: 2px 4px; }
+
+.currency-bias--strong-buy   { color: var(--buy); border-left-color: var(--buy);
+                                background: rgba(0, 208, 156, 0.15); }
+.currency-bias--buy          { color: var(--buy); border-left-color: var(--buy); }
+.currency-bias--neutral      { color: var(--fg-muted); }
+.currency-bias--sell         { color: var(--sell); border-left-color: var(--sell); }
+.currency-bias--strong-sell  { color: var(--sell); border-left-color: var(--sell);
+                                background: rgba(255, 91, 107, 0.15); }
+.currency-bias--hidden       { display: none; }
+
+/* ------------------------------------------------------------- utilities */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-panel-3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
