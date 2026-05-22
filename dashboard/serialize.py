@@ -44,6 +44,7 @@ from analyzer.macro_feed import (
     MacroPairBias,
     MacroRate,
     MacroSnapshot,
+    RealYieldSnapshot,
 )
 from analyzer.mt5_connector import AccountSnapshot, Tick
 from analyzer.price_action import PriceActionEvent
@@ -568,6 +569,22 @@ def serialize_macro(s: MacroSnapshot | None) -> dict[str, Any] | None:
     }
 
 
+def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
+    """Serialise the US 10Y real-yield snapshot for the WebSocket payload."""
+    if s is None:
+        return None
+    return {
+        "value": _opt_float(s.value),
+        "prev_value": _opt_float(s.prev_value),
+        "change_1d": _opt_float(s.change_1d),
+        "trend_5d": _opt_float(s.trend_5d),
+        "gold_dir": int(s.gold_dir),
+        "as_of": s.as_of,
+        "stale": bool(s.stale),
+        "generated_at": float(s.generated_at),
+    }
+
+
 # --------------------------------------------------------------------------- #
 
 
@@ -620,6 +637,7 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "calendar": serialize_calendar(snap["calendar"]),  # type: ignore[arg-type]
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
+        "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {
             s.base: {

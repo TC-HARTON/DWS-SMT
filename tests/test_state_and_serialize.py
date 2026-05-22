@@ -169,6 +169,21 @@ def test_state_set_and_read_macro():
     assert st.analysis_version == before + 1
 
 
+def test_serialize_real_yield_shape():
+    from dashboard.serialize import serialize_real_yield
+    from analyzer.macro_feed import RealYieldSnapshot
+
+    snap = RealYieldSnapshot(value=1.92, prev_value=1.88, change_1d=0.04,
+                             trend_5d=0.15, gold_dir=-1, as_of="2026-05-21",
+                             stale=False, generated_at=1.0)
+    out = serialize_real_yield(snap)
+    assert out["value"] == 1.92
+    assert out["gold_dir"] == -1
+    assert out["change_1d"] == 0.04
+    assert out["stale"] is False
+    assert serialize_real_yield(None) is None
+
+
 def test_state_set_and_read_real_yield():
     from analyzer.state import LatestState
     from analyzer.macro_feed import RealYieldSnapshot
