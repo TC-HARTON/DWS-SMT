@@ -20,7 +20,7 @@ from typing import Optional
 from analyzer.account_monitor import PerformanceSnapshot
 from analyzer.calendar_feed import CalendarSnapshot
 from analyzer.signal_validator import ValidationSnapshot
-from analyzer.macro_feed import MacroSnapshot
+from analyzer.macro_feed import MacroSnapshot, RealYieldSnapshot
 from analyzer.confluence import ConfluenceCluster
 from analyzer.correlation import CorrelationSnapshot
 from analyzer.currency_strength import StrengthSnapshot
@@ -90,6 +90,7 @@ class LatestState:
         self._calendar: Optional[CalendarSnapshot] = None
         self._validation: Optional[ValidationSnapshot] = None
         self._macro: Optional[MacroSnapshot] = None
+        self._real_yield: Optional[RealYieldSnapshot] = None
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
@@ -186,6 +187,13 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
+    def set_real_yield(self, snapshot: RealYieldSnapshot) -> None:
+        with self._cond:
+            self._real_yield = snapshot
+            self._monotonic_version += 1
+            self._analysis_version += 1
+            self._cond.notify_all()
+
     def wait_for_update(self, since_version: int, timeout: float) -> bool:
         """Block until ``self.version > since_version`` or *timeout* elapses.
 
@@ -254,6 +262,11 @@ class LatestState:
             return self._macro
 
     @property
+    def real_yield(self) -> RealYieldSnapshot | None:
+        with self._lock:
+            return self._real_yield
+
+    @property
     def version(self) -> int:
         with self._lock:
             return self._monotonic_version
@@ -281,6 +294,7 @@ class LatestState:
                 "calendar": self._calendar,
                 "validation": self._validation,
                 "macro": self._macro,
+                "real_yield": self._real_yield,
                 "broker_meta": self._broker_meta,
             }
 
