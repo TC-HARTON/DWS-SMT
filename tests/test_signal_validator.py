@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from analyzer import signal_validator as sv
@@ -157,3 +158,61 @@ def test_evaluate_trades_thirds_split():
     core = sv.evaluate_trades(trades, spread_pts=spread, adx=adx, point=1.0)
     assert [t.n_trades for t in core.thirds] == [10, 10, 10]
     assert core.tier == "信頼"
+
+
+# ----------------------------------------------------------------- engine
+class _FakeConnector:
+    """Minimal connector stand-in: serves pre-built deep-history frames."""
+
+    def __init__(self, frames_by_pair):
+        # frames_by_pair: {(base, tf_label): DataFrame}
+        self._frames = frames_by_pair
+
+    def fetch_rates_parallel(self, bases, timeframes):
+        out = {}
+        for b in bases:
+            for tf in timeframes:
+                df = self._frames.get((b, tf.label))
+                if df is not None:
+                    out[(b, tf.label)] = df
+        return out
+
+
+def _ramp_frame(n: int, start: float = 100.0, step: float = 1.0):
+    """A steadily rising OHLC frame — DWS-SMT goes all-green on it."""
+    idx = pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC")
+    close = start + step * np.arange(n, dtype=float)
+    return pd.DataFrame(
+        {"open": close, "high": close + 0.5, "low": close - 0.5,
+         "close": close, "tick_volume": np.ones(n), "spread": np.full(n, 2.0),
+         "real_volume": np.zeros(n)},
+        index=idx,
+    )
+
+
+def test_signal_validator_compute_builds_snapshot():
+    n = 600
+    frames = {}
+    for tf in ("M15", "H1", "H4", "D1", "W1"):
+        frames[("EURUSD", tf)] = _ramp_frame(n)
+    conn = _FakeConnector(frames)
+    validator = sv.SignalValidator(conn, history_bars=n)
+    snap = validator.compute(["EURUSD"], broker_meta={"EURUSD": {"point": 0.0001}})
+
+    assert isinstance(snap, sv.ValidationSnapshot)
+    assert "EURUSD" in snap.by_symbol
+    # M15 base produces a window → a ValidationStats entry exists.
+    assert "M15" in snap.by_symbol["EURUSD"]
+    stats = snap.by_symbol["EURUSD"]["M15"]
+    assert stats.symbol == "EURUSD"
+    assert stats.base_tf == "M15"
+    # Plan 1: macro_filtered mirrors raw exactly.
+    assert stats.macro_filtered is stats.raw
+
+
+def test_signal_validator_compute_handles_missing_symbol():
+    conn = _FakeConnector({})           # no frames at all
+    validator = sv.SignalValidator(conn, history_bars=100)
+    snap = validator.compute(["EURUSD"], broker_meta={})
+    # No data → the symbol simply has no base-TF entries, no crash.
+    assert snap.by_symbol.get("EURUSD", {}) == {}

@@ -324,3 +324,133 @@ def _split_three(items: list[float]) -> tuple[list[float], list[float], list[flo
     cut2 = base + base + (1 if extra >= 1 else 0)
     # extra == 2 also lengthens the final slice implicitly (slice to end).
     return items[:cut1], items[cut1:cut2], items[cut2:]
+
+
+# --------------------------------------------------------------------------- #
+# Engine
+# --------------------------------------------------------------------------- #
+
+# Every timeframe any DWS-SMT stack references, with its MT5 constant.
+_TF_CONST: dict[str, int] = {
+    tf.label: tf.mt5_const
+    for tf in (*config.TIMEFRAMES, *config.STRUCTURE_TFS)
+}
+_NEEDED_TFS: tuple[str, ...] = tuple(
+    sorted({tf for stack in config.DWS_SMT_STACKS.values() for tf in stack})
+)
+
+
+class SignalValidator:
+    """Evaluate the DWS-SMT signal over deep history for every symbol.
+
+    The connector only needs a ``fetch_rates_parallel(bases, timeframes)``
+    method, so a lightweight fake can drive it in tests.
+    """
+
+    def __init__(
+        self,
+        connector,
+        *,
+        history_bars: int = config.VALIDATION_HISTORY_BARS,
+    ) -> None:
+        self._connector = connector
+        self._history_bars = history_bars
+        # Deep-history fetch specs: same MT5 constants, far deeper bar counts.
+        self._deep_specs = tuple(
+            config.TimeframeSpec(label, _TF_CONST[label], 0, history_bars)
+            for label in _NEEDED_TFS
+            if label in _TF_CONST
+        )
+
+    def compute(
+        self,
+        bases: list[str],
+        broker_meta: dict[str, dict[str, float]],
+    ) -> ValidationSnapshot:
+        """Run one validation pass over *bases*.
+
+        Args:
+            bases: symbol base names to validate.
+            broker_meta: ``{base: {"point": float, ...}}`` — used to convert
+                price moves to points. A missing entry falls back to a point
+                size of 1.0 (the stats stay internally consistent).
+
+        Returns:
+            A :class:`ValidationSnapshot`. Symbols/timeframes with no usable
+            history are simply absent from ``by_symbol`` — never raised.
+        """
+        t0 = time.perf_counter()
+        rates = self._connector.fetch_rates_parallel(bases, self._deep_specs)
+        by_symbol: dict[str, dict[str, ValidationStats]] = {}
+
+        for base in bases:
+            frames = {
+                tf: rates[(base, tf)]
+                for tf in _NEEDED_TFS
+                if (base, tf) in rates and not rates[(base, tf)].empty
+            }
+            if not frames:
+                continue
+            point = float(broker_meta.get(base, {}).get("point", 1.0) or 1.0)
+            try:
+                per_tf = self._validate_symbol(base, frames, point)
+            except (ValueError, KeyError, IndexError):
+                log.exception("signal validation failed for %s", base)
+                continue
+            if per_tf:
+                by_symbol[base] = per_tf
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        return ValidationSnapshot(
+            generated_at=time.time(),
+            compute_ms=elapsed_ms,
+            by_symbol=by_symbol,
+        )
+
+    def _validate_symbol(
+        self,
+        base: str,
+        frames: dict[str, pd.DataFrame],
+        point: float,
+    ) -> dict[str, ValidationStats]:
+        """Validate every DWS base timeframe for one symbol."""
+        result = dws_smt.compute_symbol(frames, out_bars=self._history_bars)
+        if result is None:
+            return {}
+        out: dict[str, ValidationStats] = {}
+        for base_tf, window in result.by_base.items():
+            base_df = frames.get(base_tf)
+            if base_df is None or base_df.empty:
+                continue
+            core = self._evaluate_window(window, base_df, point)
+            out[base_tf] = ValidationStats(
+                symbol=base, base_tf=base_tf, raw=core, macro_filtered=core,
+            )
+        return out
+
+    @staticmethod
+    def _evaluate_window(window, base_df: pd.DataFrame, point: float
+                         ) -> ValidationCore:
+        """Build a :class:`ValidationCore` from one DWS window.
+
+        Slices the base frame's spread column and a freshly computed ADX
+        series with the same ``start`` offset ``_build_window`` used, so the
+        trade ``entry_idx`` lines up with both arrays.
+        """
+        n_bars = len(base_df)
+        emitted = window.times_ms.size
+        start = max(0, n_bars - emitted)
+
+        if "spread" in base_df.columns:
+            spread_pts = base_df["spread"].to_numpy(dtype=np.float64)[start:]
+        else:
+            spread_pts = np.zeros(emitted, dtype=np.float64)
+
+        high = base_df["high"].to_numpy(dtype=np.float64)[None, :]
+        low = base_df["low"].to_numpy(dtype=np.float64)[None, :]
+        close = base_df["close"].to_numpy(dtype=np.float64)[None, :]
+        adx_2d, _, _ = indicators.adx(high, low, close, config.ADX_PERIOD)
+        adx = np.nan_to_num(adx_2d[0][start:], nan=0.0)
+
+        return evaluate_trades(window.trades, spread_pts=spread_pts,
+                               adx=adx, point=point)
