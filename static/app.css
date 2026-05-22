@@ -1157,7 +1157,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     padding: 3px 6px;
     margin-top: 2px;
     border-radius: 3px;
-    color: #c5ccd8;
+    color: #f2f4f9;
     background: rgba(255, 255, 255, 0.03);
 }
 .dws-validation .dws-vtier {
@@ -1165,7 +1165,10 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     padding: 0 5px;
     border-radius: 3px;
 }
-.dws-validation.trusted      .dws-vtier { background: #1f6f54; color: #eafff7; }
-.dws-validation.caution      .dws-vtier { background: #7a5a1e; color: #fff3da; }
-.dws-validation.insufficient .dws-vtier { background: #4a4f5c; color: #c5ccd8; }
-.dws-validation .dws-vmeta { color: #8089a0; }
+.dws-validation.trusted      .dws-vtier { background: #1f6f54; color: #f2f4f9; }
+.dws-validation.caution      .dws-vtier { background: #7a5a1e; color: #f2f4f9; }
+.dws-validation.insufficient .dws-vtier { background: #4a4f5c; color: #f2f4f9; }
+/* Meta text stays white like the rest of the panel; only the signed numbers
+   (.dws-num.pos / .dws-num.neg) carry green/red — matches the panel's
+   "labels white, numbers coloured" convention. */
+.dws-validation .dws-vmeta { color: #f2f4f9; }
