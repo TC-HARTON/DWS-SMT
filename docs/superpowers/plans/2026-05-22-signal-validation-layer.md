@@ -167,10 +167,10 @@ from analyzer import signal_validator as sv
 
 # --------------------------------------------------------------- Wilson interval
 def test_wilson_interval_known_value():
-    # 60 wins / 100 trials, z=1.96 → Wilson ≈ (0.4974, 0.6960).
+    # 60 wins / 100 trials, z=1.96 → Wilson ≈ (0.5020, 0.6906).
     low, high = sv.wilson_interval(60, 100, z=1.96)
-    assert low == pytest.approx(0.4974, abs=1e-3)
-    assert high == pytest.approx(0.6960, abs=1e-3)
+    assert low == pytest.approx(0.5020, abs=1e-3)
+    assert high == pytest.approx(0.6906, abs=1e-3)
     assert low < high
 
 
