@@ -651,9 +651,14 @@ function paintCalendar(snap) {
  *  One row per pair: base rate, quote rate, differential, macro direction. */
 function paintMacro(snap) {
     const m = snap.macro;
+    const ry = snap.real_yield;
     const root = $bind('macro');
     if (!root) return;
-    if (!changed('macro', m && m.generated_at)) return;
+    // The real yield refreshes on its own (1h) schedule, so fold its
+    // timestamp into the stamp key — otherwise the panel would not repaint
+    // when only the real yield changed.
+    const stamp = (m && m.generated_at || 0) + ':' + (ry && ry.generated_at || 0);
+    if (!changed('macro', stamp)) return;
     const statusEl = $bind('macro-status');
     if (!m || !m.rates || Object.keys(m.rates).length === 0) {
         root.innerHTML = '<div class="empty mute">マクロデータ未取得</div>';
@@ -670,6 +675,24 @@ function paintMacro(snap) {
     };
     const arrow = d => d > 0 ? '▲' : d < 0 ? '▼' : '·';
     const rows = (SYMBOL_ORDER || []).map(sym => {
+        if (sym === 'XAUUSD') {
+            // Gold's macro direction is the US real-yield trend, not a
+            // policy-rate differential (gold moves inverse to real yields).
+            const gd = ry && ry.value != null ? ry.gold_dir : 0;
+            const cls = gd > 0 ? 'pos' : gd < 0 ? 'neg' : 'mute';
+            const rv = ry && ry.value != null ? '実' + ry.value.toFixed(2) : '--';
+            const t5 = ry && ry.trend_5d != null
+                     ? (ry.trend_5d >= 0 ? '+' : '') + ry.trend_5d.toFixed(2) : '--';
+            const lbl = gd < 0 ? '実質利回り上昇/金逆風'
+                      : gd > 0 ? '実質利回り低下/金追風' : '実質利回り横ばい';
+            return `<div class="macro-row">
+                <span class="macro-pair">XAUUSD</span>
+                <span class="macro-rate">${esc(rv)}</span>
+                <span class="macro-rate">--</span>
+                <span class="macro-diff ${cls}">${esc(t5)}</span>
+                <span class="macro-dir ${cls}">${arrow(gd)} ${esc(lbl)}</span>
+            </div>`;
+        }
         const b = m.by_pair && m.by_pair[sym];
         if (!b) return '';
         const dirCls = b.macro_dir > 0 ? 'pos' : b.macro_dir < 0 ? 'neg' : 'mute';
@@ -683,16 +706,25 @@ function paintMacro(snap) {
             <span class="macro-dir ${dirCls}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
         </div>`;
     }).join('');
-    let emp = '';
+    let extra = '';
+    if (ry && ry.value != null) {
+        const ch = ry.change_1d;
+        const chCls = ch > 0 ? 'pos' : ch < 0 ? 'neg' : 'mute';
+        const chStr = ch == null ? '--' : (ch >= 0 ? '+' : '') + ch.toFixed(2);
+        extra += `<div class="macro-emp">米10年実質利回り `
+              + `${esc(ry.value.toFixed(2))}% `
+              + `<span class="macro-rynum ${chCls}">(前日比 ${esc(chStr)})</span>`
+              + `${ry.stale ? ' *' : ''}</div>`;
+    }
     if (m.employment) {
         const e = m.employment;
         const nfp = e.nonfarm_change == null ? '--'
                   : (e.nonfarm_change >= 0 ? '+' : '') + Math.round(e.nonfarm_change);
         const ur = e.unemployment_rate == null ? '--'
                  : e.unemployment_rate.toFixed(1) + '%';
-        emp = `<div class="macro-emp">米雇用 NFP変化 ${esc(nfp)}k · 失業率 ${esc(ur)}</div>`;
+        extra += `<div class="macro-emp">米雇用 NFP変化 ${esc(nfp)}k · 失業率 ${esc(ur)}</div>`;
     }
-    root.innerHTML = rows + emp;
+    root.innerHTML = rows + extra;
 }
 
 function updateCountdowns() {
@@ -1256,10 +1288,24 @@ function dwsTriggerTradeable(g, biasScore) {
  *  -1 counter-carry, 0 when there is no macro data. EXIT is direction-neutral. */
 function dwsTriggerMacroAlign(g, sym, snap) {
     if (g !== 'BUY' && g !== 'SELL') return 0;
-    const b = snap.macro && snap.macro.by_pair && snap.macro.by_pair[sym];
-    if (!b || !b.macro_dir) return 0;
+    let macroDir;
+    if (sym === 'XAUUSD') {
+        // Gold: drive direction off the US real yield (gold ∝ −real yield);
+        // fall back to the policy-rate trend when the real yield is missing.
+        const ry = snap.real_yield;
+        if (ry && ry.value != null) {
+            macroDir = ry.gold_dir;
+        } else {
+            const b = snap.macro && snap.macro.by_pair && snap.macro.by_pair[sym];
+            macroDir = b ? b.macro_dir : 0;
+        }
+    } else {
+        const b = snap.macro && snap.macro.by_pair && snap.macro.by_pair[sym];
+        macroDir = b ? b.macro_dir : 0;
+    }
+    if (!macroDir) return 0;
     const triggerDir = g === 'BUY' ? 1 : -1;
-    return triggerDir === b.macro_dir ? 1 : -1;
+    return triggerDir === macroDir ? 1 : -1;
 }
 
 /** Draw a trigger marker. BIAS-confirmed BUY/SELL are filled; unconfirmed ones
