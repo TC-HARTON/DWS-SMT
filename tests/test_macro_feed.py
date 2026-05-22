@@ -130,7 +130,24 @@ def test_macro_engine_one_source_failure_is_isolated(monkeypatch, tmp_path):
     assert snap.by_pair["USDJPY"].macro_dir == 0
     assert snap.by_pair["EURGBP"].macro_dir == 0          # 4.0 - 4.0 == 0
     assert "USD" in snap.rates
-    assert snap.consecutive_failures == 1
+    # A partial failure yields a usable snapshot — it is NOT a failure cycle,
+    # so the consecutive-failure counter stays 0; the error is still recorded.
+    assert snap.consecutive_failures == 0
+    assert snap.last_error is not None
+
+
+def test_macro_engine_total_failure_increments(monkeypatch, tmp_path):
+    def all_down(ccy):
+        raise ValueError(f"{ccy} down")
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+    monkeypatch.setattr(eng, "_fetch_rate", all_down)
+    monkeypatch.setattr(eng, "_fetch_employment", lambda: None)
+    snap1 = eng.compute()
+    snap2 = eng.compute()
+    # Every source down → each cycle is a real failure cycle.
+    assert snap1.consecutive_failures == 1
+    assert snap2.consecutive_failures == 2
+    assert snap2.last_error is not None
 
 
 # --------------------------------------------------------------- real yield

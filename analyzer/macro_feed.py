@@ -301,15 +301,20 @@ class MacroEngine:
             errors.append(f"employment: {exc}")
             employment = None
 
-        if errors:
+        if not rates:
+            # Total failure — every currency source is down. Only this counts
+            # as a failure cycle; a partial failure still yields a usable
+            # snapshot and must not inflate the consecutive-failure counter.
             self._consecutive_failures += 1
-            self._last_error = "; ".join(errors)
-            log.warning("macro: %d source error(s) - %s",
-                        len(errors), self._last_error)
+            self._last_error = "; ".join(errors) or "all macro sources failed"
+            log.warning("macro: all sources failed - %s", self._last_error)
         else:
             self._consecutive_failures = 0
-            self._last_error = None
             self._last_fetch_ok = time.time()
+            self._last_error = "; ".join(errors) if errors else None
+            if errors:
+                log.warning("macro: %d partial source error(s) - %s",
+                            len(errors), self._last_error)
 
         if rates:
             self._cached_rates = dict(rates)

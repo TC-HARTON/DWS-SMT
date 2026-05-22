@@ -72,7 +72,7 @@ class CalendarSnapshot:
 try:
     from zoneinfo import ZoneInfo
     _EASTERN = ZoneInfo("America/New_York")
-except Exception:                      # pragma: no cover — should always exist on 3.11+
+except Exception:  # noqa: BLE001  # pragma: no cover — zoneinfo always on 3.11+
     _EASTERN = timezone.utc
 
 
