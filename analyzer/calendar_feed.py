@@ -269,18 +269,35 @@ def _mt5_value_str(v: float | int | str | None) -> str:
 # Engine
 # --------------------------------------------------------------------------- #
 
+def _dedupe_events(events: list[CalendarEvent]) -> tuple[CalendarEvent, ...]:
+    """Merge events from multiple feeds: drop duplicates, sort by release time.
+
+    The this-week and next-week feeds can overlap at the week boundary; an
+    event is keyed by (release time, currency, title).
+    """
+    seen: set[tuple[float, str, str]] = set()
+    out: list[CalendarEvent] = []
+    for e in sorted(events, key=lambda x: x.release_ts):
+        key = (e.release_ts, e.currency, e.title)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return tuple(out)
+
+
 class CalendarEngine:
     """Pulls + parses + caches the SPEC §15 calendar with auto-fallback."""
 
     def __init__(
         self,
-        url: str = config.CALENDAR_FF_URL,
+        urls: tuple[str, ...] = config.CALENDAR_FF_URLS,
         cache_file: Path = config.CALENDAR_CACHE_FILE,
         timeout: float = config.CALENDAR_FETCH_TIMEOUT_SEC,
         retries: int = config.CALENDAR_FETCH_RETRIES,
         failure_fallback_after: int = config.CALENDAR_FAILURE_FALLBACK_AFTER,
     ) -> None:
-        self._url = url
+        self._urls = tuple(urls)
         self._cache_file = Path(cache_file)
         self._timeout = timeout
         self._retries = retries
@@ -317,27 +334,40 @@ class CalendarEngine:
     def compute(self) -> CalendarSnapshot:
         """One refresh cycle. Tries Forex Factory then falls back to MT5.
 
-        Returns the latest snapshot. All ``_last_*`` field mutation happens
-        in this method so the state-transition graph stays in one place.
+        Every configured feed (this week + next week) is fetched and the
+        events merged + de-duplicated, so the calendar always has a forward
+        horizon. All ``_last_*`` field mutation happens in this method so the
+        state-transition graph stays in one place.
         """
-        body = self._http_fetch()
-        if body is not None:
+        merged: list[CalendarEvent] = []
+        any_ok = False
+        first_body: str | None = None
+        parse_error: str | None = None
+        for i, url in enumerate(self._urls):
+            body = self._http_fetch(url)
+            if body is None:
+                continue
             try:
-                events = parse_forex_factory_xml(body)
+                merged.extend(parse_forex_factory_xml(body))
             except ValueError as exc:
-                self._record_failure(str(exc))
-                events = self._select_fallback_events()
-                if events:
-                    self._last_events = tuple(events)
-                    self._last_source = "mt5"
-            else:
-                self._consecutive_failures = 0
-                self._last_error = None
-                self._last_fetch_ok = time.time()
-                self._last_events = tuple(events)
-                self._last_source = "forex_factory"
-                self._store_cache(body)
+                parse_error = str(exc)
+                continue
+            any_ok = True
+            if i == 0:
+                first_body = body
+
+        if any_ok:
+            self._consecutive_failures = 0
+            self._last_error = None
+            self._last_fetch_ok = time.time()
+            self._last_events = _dedupe_events(merged)
+            self._last_source = "forex_factory"
+            # Cache only the primary (this-week) feed — enough to render
+            # immediately on restart; next week refills on the first cycle.
+            if first_body is not None:
+                self._store_cache(first_body)
         else:
+            self._record_failure(parse_error or "http: all calendar feeds failed")
             events = self._select_fallback_events()
             if events:
                 self._last_events = tuple(events)
@@ -353,22 +383,24 @@ class CalendarEngine:
         )
 
     # ------------------------------------------------------------ HTTP
-    def _http_fetch(self) -> str | None:
-        """Fetch the XML body or return None and record the failure cause."""
+    def _http_fetch(self, url: str) -> str | None:
+        """Fetch one feed's XML body, or return None on failure (logged only).
+
+        Failure accounting is the caller's job (:meth:`compute`) so a multi-
+        feed cycle counts as one failure, not one per feed.
+        """
         last_exc: Exception | None = None
         for attempt in range(1, self._retries + 1):
             try:
-                resp = requests.get(self._url, timeout=self._timeout)
+                resp = requests.get(url, timeout=self._timeout)
                 resp.raise_for_status()
                 return resp.text
             except requests.RequestException as exc:
                 last_exc = exc
-                # Per-retry detail is DEBUG noise — the overall failure
-                # is bubbled up to WARNING via _record_failure below.
-                log.debug("calendar: HTTP attempt %d/%d failed: %s",
-                          attempt, self._retries, exc)
+                log.debug("calendar: HTTP attempt %d/%d for %s failed: %s",
+                          attempt, self._retries, url, exc)
         if last_exc is not None:
-            self._record_failure(f"http: {last_exc}")
+            log.debug("calendar: feed %s unavailable: %s", url, last_exc)
         return None
 
     def _record_failure(self, msg: str) -> None:

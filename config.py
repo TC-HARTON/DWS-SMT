@@ -351,6 +351,15 @@ CALENDAR_FF_URL: Final[str] = _get_env(
     "CALENDAR_FF_URL",
     "https://nfs.faireconomy.media/ff_calendar_thisweek.xml",
 )
+# Next week is fetched too: with the rate/employment filter events are sparse,
+# so a this-week-only feed goes blank once the week's events are past. Fetching
+# next week as well guarantees a forward horizon — the calendar always shows
+# the next upcoming events.
+CALENDAR_FF_URL_NEXTWEEK: Final[str] = _get_env(
+    "CALENDAR_FF_URL_NEXTWEEK",
+    "https://nfs.faireconomy.media/ff_calendar_nextweek.xml",
+)
+CALENDAR_FF_URLS: Final[tuple[str, ...]] = (CALENDAR_FF_URL, CALENDAR_FF_URL_NEXTWEEK)
 CALENDAR_FETCH_TIMEOUT_SEC: Final[float] = 10.0
 CALENDAR_FETCH_RETRIES: Final[int] = 3
 # SPEC §15.4 更新頻度: XML 取得 1 時間に 1 回 (HTTP).

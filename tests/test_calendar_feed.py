@@ -183,7 +183,7 @@ def _stub_response(text: str, status: int = 200):
 
 def test_engine_compute_success_writes_cache(tmp_path: Path, mocker):
     cache = tmp_path / "thisweek.xml"
-    eng = CalendarEngine(url="http://x/", cache_file=cache, retries=1)
+    eng = CalendarEngine(urls=("http://x/",), cache_file=cache, retries=1)
     mocker.patch("analyzer.calendar_feed.requests.get",
                  return_value=_stub_response(SAMPLE_XML))
     snap = eng.compute()
@@ -197,7 +197,7 @@ def test_engine_compute_success_writes_cache(tmp_path: Path, mocker):
 
 def test_engine_compute_http_failure_keeps_previous_events(tmp_path, mocker):
     cache = tmp_path / "thisweek.xml"
-    eng = CalendarEngine(url="http://x/", cache_file=cache, retries=2,
+    eng = CalendarEngine(urls=("http://x/",), cache_file=cache, retries=2,
                          failure_fallback_after=5)
     # First success seeds the cache.
     mocker.patch("analyzer.calendar_feed.requests.get",
@@ -217,7 +217,7 @@ def test_engine_compute_http_failure_keeps_previous_events(tmp_path, mocker):
 
 def test_engine_falls_back_to_mt5_after_threshold(tmp_path, mocker):
     cache = tmp_path / "thisweek.xml"
-    eng = CalendarEngine(url="http://x/", cache_file=cache,
+    eng = CalendarEngine(urls=("http://x/",), cache_file=cache,
                          retries=1, failure_fallback_after=2)
     mocker.patch("analyzer.calendar_feed.requests.get",
                  side_effect=requests.ConnectionError("offline"))
@@ -249,16 +249,43 @@ def test_engine_bootstraps_from_existing_cache(tmp_path, mocker):
     # No HTTP call made; bootstrap reads the cache directly.
     mocker.patch("analyzer.calendar_feed.requests.get",
                  side_effect=AssertionError("no HTTP expected"))
-    eng = CalendarEngine(url="http://x/", cache_file=cache, retries=0)
+    eng = CalendarEngine(urls=("http://x/",), cache_file=cache, retries=0)
     # bootstrap fills _last_events; without compute() the snapshot would be
     # populated only on the first refresh. Verify the internal state directly.
     assert len(eng._last_events) >= 2
     assert eng._last_source == "stale_cache"
 
 
+def test_dedupe_events_drops_duplicates():
+    from analyzer.calendar_feed import CalendarEvent, _dedupe_events
+    a = CalendarEvent(release_ts=100.0, currency="USD", title="FOMC Statement",
+                      impact="High", forecast="", previous="")
+    b = CalendarEvent(release_ts=100.0, currency="USD", title="FOMC Statement",
+                      impact="High", forecast="", previous="")   # dup of a
+    c = CalendarEvent(release_ts=50.0, currency="JPY", title="BOJ Press Conference",
+                      impact="High", forecast="", previous="")
+    out = _dedupe_events([a, b, c])
+    assert len(out) == 2                       # the duplicate is dropped
+    assert [e.release_ts for e in out] == [50.0, 100.0]   # sorted by time
+
+
+def test_engine_fetches_and_merges_multiple_feeds(tmp_path, mocker):
+    """This week + next week are both fetched; overlapping events de-duplicate."""
+    cache = tmp_path / "thisweek.xml"
+    eng = CalendarEngine(urls=("http://a/", "http://b/"),
+                         cache_file=cache, retries=1)
+    mocker.patch("analyzer.calendar_feed.requests.get",
+                 return_value=_stub_response(SAMPLE_XML))
+    snap = eng.compute()
+    # Both feeds returned the same XML → events merge but de-duplicate.
+    assert snap.source == "forex_factory"
+    assert len(snap.events) == 2               # not 4
+    assert cache.exists()                      # primary feed cached
+
+
 def test_engine_corrupt_cache_does_not_crash(tmp_path):
     cache = tmp_path / "thisweek.xml"
     cache.write_text("<<<not xml", encoding="utf-8")
-    eng = CalendarEngine(url="http://x/", cache_file=cache, retries=0)
+    eng = CalendarEngine(urls=("http://x/",), cache_file=cache, retries=0)
     # Bootstrap silently logs; _last_events remains empty.
     assert eng._last_events == ()
