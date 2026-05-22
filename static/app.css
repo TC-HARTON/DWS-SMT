@@ -1197,3 +1197,5 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     margin-top: 4px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+/* DWS sync line when the alignment fights the rate differential */
+.dws-sync.macro-counter { color: #ffb74d; }

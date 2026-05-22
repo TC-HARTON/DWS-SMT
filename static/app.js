@@ -1252,6 +1252,16 @@ function dwsTriggerTradeable(g, biasScore) {
     return false;
 }
 
+/** Macro alignment of a BUY/SELL trigger for *sym*: +1 aligned with the carry,
+ *  -1 counter-carry, 0 when there is no macro data. EXIT is direction-neutral. */
+function dwsTriggerMacroAlign(g, sym, snap) {
+    if (g !== 'BUY' && g !== 'SELL') return 0;
+    const b = snap.macro && snap.macro.by_pair && snap.macro.by_pair[sym];
+    if (!b || !b.macro_dir) return 0;
+    const triggerDir = g === 'BUY' ? 1 : -1;
+    return triggerDir === b.macro_dir ? 1 : -1;
+}
+
 /** Draw a trigger marker. BIAS-confirmed BUY/SELL are filled; unconfirmed ones
  *  are drawn hollow (outline only) so the eye lands on the tradeable ones. */
 function drawDwsMarker(ctx, cx, cy, g, tradeable) {
@@ -1341,6 +1351,10 @@ function updateDwsSync(sym, snap, win) {
     } else {
         txt = '— BIAS・DWS とも待機';
         cls = 'dws-sync';
+    }
+    if (dwsTriggerMacroAlign(dwsDir, sym, snap) < 0) {
+        txt += '・マクロ逆行';
+        cls += ' macro-counter';
     }
     el.className = cls;
     el.textContent = txt;
@@ -1522,6 +1536,7 @@ function drawDwsCanvas(snap, sym) {
         // Judge each trigger by the BIAS as it was *at that bar* (no look-ahead).
         const barBias = biasArr[j] != null ? biasArr[j] : 0;
         const tradeable = dwsTriggerTradeable(g, barBias);
+        const macroAlign = dwsTriggerMacroAlign(g, sym, snap);
         const a = tradeable ? 0.55 : 0.16;
         ctx.strokeStyle = g === 'BUY' ? `rgba(0,208,156,${a})`
                         : g === 'SELL' ? `rgba(255,91,107,${a})`
@@ -1529,6 +1544,13 @@ function drawDwsCanvas(snap, sym) {
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(cx, plotY); ctx.lineTo(cx, markY); ctx.stroke();
         drawDwsMarker(ctx, cx, markY + 9, g, tradeable);
+        if (macroAlign < 0) {
+            // Counter-carry: this BUY/SELL fights the rate differential.
+            ctx.fillStyle = '#ffb74d';
+            ctx.font = '700 9px monospace';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.fillText('逆', cx, plotY - 1);
+        }
         // Per-trigger trade result (recommendation A): the P/L of the trade
         // this BUY/SELL opened. EXIT triggers open no trade → no label.
         const tr = tradeByEntry[j];
