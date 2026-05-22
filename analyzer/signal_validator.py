@@ -125,3 +125,56 @@ def wilson_interval(wins: int, n: int, z: float = config.VALIDATION_CI_Z
     center = (p + z2 / (2.0 * n)) / denom
     margin = (z / denom) * math.sqrt(p * (1.0 - p) / n + z2 / (4.0 * n * n))
     return max(0.0, center - margin), min(1.0, center + margin)
+
+
+def max_drawdown(pnls: list[float]) -> float:
+    """Largest peak-to-trough drop of the cumulative equity curve.
+
+    Args:
+        pnls: per-trade net P/L in chronological order.
+
+    Returns:
+        Drawdown magnitude (``>= 0``). Empty input or a monotonically rising
+        curve returns ``0.0``.
+    """
+    peak = 0.0
+    equity = 0.0
+    worst = 0.0
+    for p in pnls:
+        equity += p
+        if equity > peak:
+            peak = equity
+        drop = peak - equity
+        if drop > worst:
+            worst = drop
+    return worst
+
+
+def summarize_pnls(pnls: list[float]) -> dict[str, float]:
+    """Reduce a chronological net-P/L list to headline statistics.
+
+    Returns a dict with ``n``, ``win_rate`` (0..1), ``profit_factor``
+    (``inf`` when there are no losing trades, ``0.0`` when there are no
+    trades at all), ``expectancy`` (mean net P/L) and ``max_drawdown``.
+    """
+    n = len(pnls)
+    if n == 0:
+        return {"n": 0, "win_rate": 0.0, "profit_factor": 0.0,
+                "expectancy": 0.0, "max_drawdown": 0.0}
+    wins = [p for p in pnls if p > 0.0]
+    losses = [p for p in pnls if p < 0.0]
+    gross_win = sum(wins)
+    gross_loss = abs(sum(losses))
+    if gross_loss > 0.0:
+        profit_factor = gross_win / gross_loss
+    elif gross_win > 0.0:
+        profit_factor = math.inf
+    else:
+        profit_factor = 0.0
+    return {
+        "n": n,
+        "win_rate": len(wins) / n,
+        "profit_factor": profit_factor,
+        "expectancy": sum(pnls) / n,
+        "max_drawdown": max_drawdown(pnls),
+    }
