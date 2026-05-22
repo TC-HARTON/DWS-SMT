@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from analyzer import signal_validator as sv
+from analyzer.dws_smt import DwsSmtTrade
 
 
 # --------------------------------------------------------------- Wilson interval
@@ -103,3 +104,56 @@ def test_classify_tier_caution_unstable():
 def test_classify_tier_caution_ci_below_breakeven():
     assert sv.classify_tier(n_trades=50, ci_low=0.45, breakeven=0.5,
                             thirds_expectancy=[1.0, 1.0, 1.0]) == "要注意"
+
+
+# --------------------------------------------------------------- evaluate
+def _trade(entry_idx, direction, points, mae=0.0, is_open=False):
+    return DwsSmtTrade(entry_idx=entry_idx, direction=direction,
+                       points=points, mae=mae, is_open=is_open)
+
+
+def test_evaluate_trades_skips_open_trade():
+    # 1 closed winner + 1 open trade → only the closed one counts.
+    trades = (_trade(0, 1, 1.0), _trade(2, 1, 5.0, is_open=True))
+    spread = np.zeros(4)
+    adx = np.full(4, 30.0)
+    core = sv.evaluate_trades(trades, spread_pts=spread, adx=adx, point=1.0)
+    assert core.n_trades == 1
+
+
+def test_evaluate_trades_cost_is_deducted():
+    # raw +10 price points, point=1.0, spread 3 pts at entry → net 7.
+    trades = (_trade(0, 1, 10.0),)
+    spread = np.array([3.0, 0.0])
+    adx = np.array([30.0, 30.0])
+    core = sv.evaluate_trades(trades, spread_pts=spread, adx=adx, point=1.0)
+    assert core.expectancy == pytest.approx(7.0)
+
+
+def test_evaluate_trades_regime_split():
+    # entry 0 in a trend bar (ADX 30), entry 1 in a range bar (ADX 10).
+    trades = (_trade(0, 1, 10.0), _trade(1, 1, -4.0))
+    spread = np.zeros(2)
+    adx = np.array([30.0, 10.0])
+    core = sv.evaluate_trades(trades, spread_pts=spread, adx=adx, point=1.0)
+    assert core.regime_trend.n_trades == 1
+    assert core.regime_range.n_trades == 1
+    assert core.regime_trend.expectancy == pytest.approx(10.0)
+    assert core.regime_range.expectancy == pytest.approx(-4.0)
+
+
+def test_evaluate_trades_empty_is_insufficient():
+    core = sv.evaluate_trades((), spread_pts=np.zeros(1),
+                              adx=np.zeros(1), point=1.0)
+    assert core.n_trades == 0
+    assert core.tier == "データ不足"
+
+
+def test_evaluate_trades_thirds_split():
+    # 30 identical winners → all three thirds have 10 trades, all positive.
+    trades = tuple(_trade(i, 1, 2.0) for i in range(30))
+    spread = np.zeros(31)
+    adx = np.full(31, 30.0)
+    core = sv.evaluate_trades(trades, spread_pts=spread, adx=adx, point=1.0)
+    assert [t.n_trades for t in core.thirds] == [10, 10, 10]
+    assert core.tier == "信頼"

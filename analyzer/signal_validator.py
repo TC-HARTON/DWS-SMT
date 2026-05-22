@@ -223,3 +223,104 @@ def classify_tier(
     if ci_low > breakeven and all(e > 0.0 for e in thirds_expectancy):
         return TIER_TRUSTED
     return TIER_CAUTION
+
+
+def _sub_period(pnls: list[float]) -> SubPeriodStats:
+    """Build a :class:`SubPeriodStats` from one slice of the net-P/L list."""
+    s = summarize_pnls(pnls)
+    return SubPeriodStats(win_rate=s["win_rate"], expectancy=s["expectancy"],
+                          n_trades=int(s["n"]))
+
+
+def _regime(pnls: list[float]) -> RegimeStats:
+    """Build a :class:`RegimeStats` from the net-P/L list of one ADX regime."""
+    s = summarize_pnls(pnls)
+    return RegimeStats(win_rate=s["win_rate"], expectancy=s["expectancy"],
+                       n_trades=int(s["n"]))
+
+
+def evaluate_trades(
+    trades: tuple[DwsSmtTrade, ...],
+    *,
+    spread_pts: np.ndarray,
+    adx: np.ndarray,
+    point: float,
+) -> ValidationCore:
+    """Reduce one DWS window's trades to a :class:`ValidationCore`.
+
+    Args:
+        trades: every trade of the window (open trades are ignored — only
+            realised P/L is validated).
+        spread_pts: per-bar broker spread in points, aligned to the window
+            (index == trade ``entry_idx``).
+        adx: per-bar ADX of the base timeframe, aligned to the window.
+        point: broker ``point`` size, to convert price moves to points.
+
+    Returns:
+        A :class:`ValidationCore`. An empty trade list yields a zeroed core
+        with tier ``データ不足``.
+    """
+    point = point if point > 0.0 else 1.0
+    closed = [t for t in trades if not t.is_open]
+
+    nets: list[float] = []
+    maes: list[float] = []
+    trend_nets: list[float] = []
+    range_nets: list[float] = []
+    for t in closed:
+        cost = float(spread_pts[t.entry_idx]) if t.entry_idx < spread_pts.size else 0.0
+        net = t.points / point - cost
+        nets.append(net)
+        maes.append(t.mae / point)
+        bar_adx = float(adx[t.entry_idx]) if t.entry_idx < adx.size else 0.0
+        if bar_adx >= config.BIAS_REGIME_ADX_HIGH:
+            trend_nets.append(net)
+        else:
+            range_nets.append(net)
+
+    summary = summarize_pnls(nets)
+    n = int(summary["n"])
+    wins = sum(1 for p in nets if p > 0.0)
+    ci_low, ci_high = wilson_interval(wins, n)
+
+    # Chronological 3-way split (closed trades are already in entry order).
+    thirds_lists = _split_three(nets)
+    thirds = (_sub_period(thirds_lists[0]),
+              _sub_period(thirds_lists[1]),
+              _sub_period(thirds_lists[2]))
+
+    tier = classify_tier(
+        n_trades=n,
+        ci_low=ci_low,
+        breakeven=breakeven_win_rate(nets),
+        thirds_expectancy=[t.expectancy for t in thirds],
+    )
+    return ValidationCore(
+        n_trades=n,
+        win_rate=summary["win_rate"],
+        ci_low=ci_low,
+        ci_high=ci_high,
+        profit_factor=summary["profit_factor"],
+        expectancy=summary["expectancy"],
+        max_drawdown=summary["max_drawdown"],
+        avg_mae=(sum(maes) / len(maes)) if maes else 0.0,
+        thirds=thirds,
+        regime_trend=_regime(trend_nets),
+        regime_range=_regime(range_nets),
+        tier=tier,
+    )
+
+
+def _split_three(items: list[float]) -> tuple[list[float], list[float], list[float]]:
+    """Split a list into three contiguous, near-equal slices.
+
+    A remainder is pushed onto the later slices so the first slice is never
+    larger than the last (keeps the "front-loaded edge" check honest).
+    """
+    n = len(items)
+    base = n // 3
+    extra = n - base * 3            # 0, 1 or 2 — added to the last slices
+    cut1 = base
+    cut2 = base + base + (1 if extra >= 1 else 0)
+    # extra == 2 also lengthens the final slice implicitly (slice to end).
+    return items[:cut1], items[cut1:cut2], items[cut2:]
