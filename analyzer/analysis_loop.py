@@ -43,6 +43,7 @@ from analyzer.currency_strength import CurrencyStrengthEngine
 from analyzer.indicator_engine import IndicatorEngine
 from analyzer.line_reader import LINES, LinesState, LinesWatcher
 from analyzer.signal_validator import SignalValidator
+from analyzer.macro_feed import MacroEngine
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
 from analyzer.state import (
     ConnectionStatus,
@@ -80,12 +81,14 @@ class AnalysisLoop:
         performance_engine: PerformanceEngine | None = None,
         calendar_engine: CalendarEngine | None = None,
         signal_validator: SignalValidator | None = None,
+        macro_engine: MacroEngine | None = None,
         price_interval: float = config.PRICE_REFRESH_SEC,
         analysis_interval: float = config.ANALYSIS_REFRESH_SEC,
         heavy_interval: float = config.HEAVY_REFRESH_SEC,
         history_interval: float = config.HISTORY_REFRESH_SEC,
         calendar_interval: float = config.CALENDAR_REFRESH_SEC,
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
+        macro_interval: float = config.MACRO_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
         self._connector = connector
@@ -106,6 +109,11 @@ class AnalysisLoop:
         # VALIDATION_HISTORY_BARS across every symbol/TF takes far longer than
         # the 0.5 s price tick may wait.
         self._validation_inflight = threading.Event()
+        # Macro fetch is pure HTTP (no MT5 connector lock), so it cannot starve
+        # the price tick the way the validation worker can — off-thread only
+        # keeps a slow network call out of the loop.
+        self._macro_engine = macro_engine or MacroEngine()
+        self._macro_inflight = threading.Event()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -132,6 +140,7 @@ class AnalysisLoop:
             # so let warm-up and the first normal cycles settle first.
             _Schedule("validation", validation_interval,
                       next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
+            _Schedule("macro", macro_interval),
         )
 
     # --------------------------------------------------------------- start
@@ -189,6 +198,7 @@ class AnalysisLoop:
             "history": self._do_history_refresh,
             "calendar": self._do_calendar_refresh,
             "validation": self._do_validation_refresh,
+            "macro": self._do_macro_refresh,
         }[name]
         try:
             handler(bases)
@@ -369,6 +379,32 @@ class AnalysisLoop:
             log.exception("signal-validation worker failed")
         finally:
             self._validation_inflight.clear()
+
+    def _do_macro_refresh(self, bases: list[str]) -> None:
+        """Spec Section B: refresh central-bank rates + employment every 6 h.
+
+        Dispatched to a daemon worker — the HTTP fetch can take up to
+        MACRO_FETCH_TIMEOUT_SEC per source. The fetch is plain HTTP and never
+        touches the MT5 connector, so it cannot starve the price tick; the
+        off-thread dispatch only keeps a slow network call out of the loop.
+        """
+        if self._macro_inflight.is_set():
+            log.debug("macro: previous fetch still in flight, skipping tick")
+            return
+        self._macro_inflight.set()
+        worker = threading.Thread(
+            target=self._macro_refresh_worker,
+            name="macro-fetch", daemon=True,
+        )
+        worker.start()
+
+    def _macro_refresh_worker(self) -> None:
+        try:
+            self._state.set_macro(self._macro_engine.compute())
+        except Exception:               # noqa: BLE001 — never reach the loop
+            log.exception("macro worker failed")
+        finally:
+            self._macro_inflight.clear()
 
     # ------------------------------------------------------------- warmup
     def _warmup(self) -> None:
