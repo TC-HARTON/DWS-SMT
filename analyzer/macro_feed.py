@@ -85,6 +85,25 @@ class MacroSnapshot:
     consecutive_failures: int
 
 
+@dataclass(frozen=True)
+class RealYieldSnapshot:
+    """US 10Y TIPS real yield — a daily-moving market signal (spec §B.11).
+
+    Unlike a policy rate (a step function fixed between meetings), the real
+    yield moves every business day. ``gold_dir`` is ``-sign(trend_5d)``: gold
+    moves inverse to real yields, so a rising real yield is a headwind (-1).
+    """
+
+    value: float | None
+    prev_value: float | None
+    change_1d: float | None
+    trend_5d: float | None
+    gold_dir: int               # -1 rising / +1 falling / 0 flat or no data
+    as_of: str
+    stale: bool
+    generated_at: float
+
+
 # --------------------------------------------------------------------------- #
 # Per-pair bias
 # --------------------------------------------------------------------------- #
@@ -257,6 +276,7 @@ class MacroEngine:
         self._last_error: str | None = None
         self._last_fetch_ok = 0.0
         self._cached_rates: dict[str, MacroRate] = {}
+        self._cached_real_yield: RealYieldSnapshot | None = None
         self._bootstrap_from_cache()
 
     # ----------------------------------------------------------- compute
@@ -307,6 +327,53 @@ class MacroEngine:
             last_error=self._last_error,
             consecutive_failures=self._consecutive_failures,
         )
+
+    def fetch_real_yield(self) -> RealYieldSnapshot:
+        """Fetch the US 10Y TIPS real yield (FRED ``DFII10``) — daily-moving.
+
+        Returns latest ``value``, prior-day ``prev_value``, the 1-day and
+        ~5-business-day changes, and ``gold_dir`` = ``-sign(trend_5d)`` with a
+        2 bp dead-band. On a fetch failure the last in-memory value is reused,
+        flagged ``stale``.
+        """
+        try:
+            doc = json.loads(
+                self._fred_get(config.MACRO_FRED_REALYIELD_SERIES, limit=12))
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            log.warning("macro: real-yield fetch failed - %s", exc)
+            prev = self._cached_real_yield
+            if prev is not None:
+                return RealYieldSnapshot(
+                    prev.value, prev.prev_value, prev.change_1d, prev.trend_5d,
+                    prev.gold_dir, prev.as_of, stale=True,
+                    generated_at=time.time())
+            return RealYieldSnapshot(None, None, None, None, 0, "",
+                                     stale=True, generated_at=time.time())
+
+        vals = sorted(
+            ((str(o.get("date") or "")[:10], float(o["value"]))
+             for o in doc.get("observations", [])
+             if (o.get("value") or "").strip() not in ("", ".")),
+            key=lambda t: t[0],
+        )
+        if not vals:
+            return RealYieldSnapshot(None, None, None, None, 0, "",
+                                     stale=True, generated_at=time.time())
+        as_of, value = vals[-1]
+        prev_value = vals[-2][1] if len(vals) >= 2 else None
+        change_1d = (value - prev_value) if prev_value is not None else None
+        ref5 = vals[-6][1] if len(vals) >= 6 else vals[0][1]
+        trend_5d = value - ref5
+        eps = 0.02                              # 2 bp dead-band
+        if abs(trend_5d) <= eps:
+            gold_dir = 0
+        else:
+            gold_dir = -1 if trend_5d > 0 else 1
+        snap = RealYieldSnapshot(value, prev_value, change_1d, trend_5d,
+                                 gold_dir, as_of, stale=False,
+                                 generated_at=time.time())
+        self._cached_real_yield = snap
+        return snap
 
     # ------------------------------------------------------- per-source
     def _fetch_rate(self, ccy: str) -> MacroRate:

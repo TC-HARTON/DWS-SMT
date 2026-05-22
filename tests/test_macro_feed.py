@@ -131,3 +131,47 @@ def test_macro_engine_one_source_failure_is_isolated(monkeypatch, tmp_path):
     assert snap.by_pair["EURGBP"].macro_dir == 0          # 4.0 - 4.0 == 0
     assert "USD" in snap.rates
     assert snap.consecutive_failures == 1
+
+
+# --------------------------------------------------------------- real yield
+import json as _json
+
+
+def _ry_engine(monkeypatch, tmp_path, obs):
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+    monkeypatch.setattr(eng, "_fred_get",
+                        lambda sid, limit=6: _json.dumps({"observations": obs}))
+    return eng
+
+
+def test_fetch_real_yield_rising(monkeypatch, tmp_path):
+    obs = [{"date": f"2026-05-{d:02d}", "value": f"{1.0 + d * 0.05:.4f}"}
+           for d in range(1, 13)]
+    ry = _ry_engine(monkeypatch, tmp_path, obs).fetch_real_yield()
+    assert ry.value == pytest.approx(1.0 + 12 * 0.05)
+    assert ry.change_1d == pytest.approx(0.05)
+    assert ry.gold_dir == -1            # rising real yield → headwind for gold
+    assert ry.stale is False
+
+
+def test_fetch_real_yield_falling(monkeypatch, tmp_path):
+    obs = [{"date": f"2026-05-{d:02d}", "value": f"{3.0 - d * 0.05:.4f}"}
+           for d in range(1, 13)]
+    ry = _ry_engine(monkeypatch, tmp_path, obs).fetch_real_yield()
+    assert ry.gold_dir == 1             # falling real yield → tailwind for gold
+
+
+def test_fetch_real_yield_flat(monkeypatch, tmp_path):
+    obs = [{"date": f"2026-05-{d:02d}", "value": "2.00"} for d in range(1, 13)]
+    ry = _ry_engine(monkeypatch, tmp_path, obs).fetch_real_yield()
+    assert ry.gold_dir == 0
+
+
+def test_fetch_real_yield_failure_is_stale(monkeypatch, tmp_path):
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+    def boom(sid, limit=6):
+        raise ValueError("fred down")
+    monkeypatch.setattr(eng, "_fred_get", boom)
+    ry = eng.fetch_real_yield()
+    assert ry.stale is True
+    assert ry.gold_dir == 0
