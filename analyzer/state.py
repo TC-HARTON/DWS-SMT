@@ -19,6 +19,7 @@ from typing import Optional
 
 from analyzer.account_monitor import PerformanceSnapshot
 from analyzer.calendar_feed import CalendarSnapshot
+from analyzer.signal_validator import ValidationSnapshot
 from analyzer.confluence import ConfluenceCluster
 from analyzer.correlation import CorrelationSnapshot
 from analyzer.currency_strength import StrengthSnapshot
@@ -86,6 +87,7 @@ class LatestState:
         self._correlation: Optional[CorrelationSnapshot] = None
         self._performance: Optional[PerformanceSnapshot] = None
         self._calendar: Optional[CalendarSnapshot] = None
+        self._validation: Optional[ValidationSnapshot] = None
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
@@ -168,6 +170,13 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
+    def set_validation(self, snapshot: ValidationSnapshot) -> None:
+        with self._cond:
+            self._validation = snapshot
+            self._monotonic_version += 1
+            self._analysis_version += 1
+            self._cond.notify_all()
+
     def wait_for_update(self, since_version: int, timeout: float) -> bool:
         """Block until ``self.version > since_version`` or *timeout* elapses.
 
@@ -226,6 +235,11 @@ class LatestState:
             return self._calendar
 
     @property
+    def validation(self) -> ValidationSnapshot | None:
+        with self._lock:
+            return self._validation
+
+    @property
     def version(self) -> int:
         with self._lock:
             return self._monotonic_version
@@ -251,6 +265,7 @@ class LatestState:
                 "correlation": self._correlation,
                 "performance": self._performance,
                 "calendar": self._calendar,
+                "validation": self._validation,
                 "broker_meta": self._broker_meta,
             }
 

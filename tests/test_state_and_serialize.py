@@ -138,3 +138,17 @@ def test_serialize_coerces_nan_to_none():
     ))
     blob = snapshot_to_json(s)
     assert blob["analysis"]["by_symbol"]["EURUSD"]["by_tf"]["H1"]["ema"] is None
+
+
+def test_state_set_and_read_validation():
+    from analyzer.state import LatestState
+    from analyzer.signal_validator import ValidationSnapshot
+
+    st = LatestState()
+    assert st.validation is None
+    before = st.analysis_version
+    snap = ValidationSnapshot(generated_at=1.0, compute_ms=2.0, by_symbol={})
+    st.set_validation(snap)
+    assert st.validation is snap
+    # Validation is a heavy domain → it bumps analysis_version.
+    assert st.analysis_version == before + 1
