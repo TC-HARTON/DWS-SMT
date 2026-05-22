@@ -163,6 +163,18 @@ DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
 
 
 # --------------------------------------------------------------------------- #
+# Signal validation layer (precision-optimization spec, Section A)
+# --------------------------------------------------------------------------- #
+# Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread
+# on its own slow schedule so it never touches the SPEC §19 50 ms budget.
+VALIDATION_REFRESH_SEC: Final[float] = 300.0    # re-validate every 5 minutes
+VALIDATION_HISTORY_BARS: Final[int] = 5000      # base bars fetched per (sym, TF)
+VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ不足"
+# Wilson score interval z for a 95 % two-sided confidence interval.
+VALIDATION_CI_Z: Final[float] = 1.96
+
+
+# --------------------------------------------------------------------------- #
 # Composite BIAS — per-TF tfSignal → regime-gated weighted composite
 # --------------------------------------------------------------------------- #
 # The dashboard computes the *live* BIAS in static/app.js; the backend computes
