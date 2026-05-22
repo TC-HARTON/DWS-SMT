@@ -154,6 +154,21 @@ def test_state_set_and_read_validation():
     assert st.analysis_version == before + 1
 
 
+def test_state_set_and_read_macro():
+    from analyzer.state import LatestState
+    from analyzer.macro_feed import MacroSnapshot
+
+    st = LatestState()
+    assert st.macro is None
+    before = st.analysis_version
+    snap = MacroSnapshot(generated_at=1.0, fetched_at=1.0, rates={},
+                         employment=None, by_pair={}, last_error=None,
+                         consecutive_failures=0)
+    st.set_macro(snap)
+    assert st.macro is snap
+    assert st.analysis_version == before + 1
+
+
 def test_serialize_validation_shape():
     from dashboard.serialize import serialize_validation
     from analyzer.signal_validator import (
