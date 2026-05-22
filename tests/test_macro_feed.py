@@ -93,3 +93,41 @@ def test_parse_boj_html():
     as_of, rate = mf.parse_boj_html(body)
     assert len(as_of) == 10 and as_of[4] == "-"
     assert isinstance(rate, float)
+
+
+# ------------------------------------------------------------------ engine
+def test_macro_engine_compute_with_stub(monkeypatch, tmp_path):
+    # Stub every HTTP fetch so the test is offline + deterministic.
+    fake = {
+        "USD": ("2026-05-01", 4.50), "EUR": ("2026-05-01", 2.00),
+        "GBP": ("2026-05-01", 4.25), "JPY": ("2026-05-01", 0.50),
+        "AUD": ("2026-05-01", 4.10),
+    }
+    eng = mf.MacroEngine(cache_file=tmp_path / "macro_cache.json")
+    monkeypatch.setattr(eng, "_fetch_rate",
+                        lambda ccy: mf.MacroRate(ccy, fake[ccy][1], fake[ccy][0],
+                                                 None, "test", False))
+    monkeypatch.setattr(eng, "_fetch_employment", lambda: None)
+    snap = eng.compute()
+
+    assert isinstance(snap, mf.MacroSnapshot)
+    assert set(snap.rates) == {"USD", "EUR", "GBP", "JPY", "AUD"}
+    assert "USDJPY" in snap.by_pair
+    assert snap.by_pair["USDJPY"].macro_dir == 1          # 4.50 > 0.50
+    assert snap.consecutive_failures == 0
+
+
+def test_macro_engine_one_source_failure_is_isolated(monkeypatch, tmp_path):
+    def flaky(ccy):
+        if ccy == "JPY":
+            raise ValueError("boj down")
+        return mf.MacroRate(ccy, 4.0, "2026-05-01", None, "test", False)
+    eng = mf.MacroEngine(cache_file=tmp_path / "macro_cache.json")
+    monkeypatch.setattr(eng, "_fetch_rate", flaky)
+    monkeypatch.setattr(eng, "_fetch_employment", lambda: None)
+    snap = eng.compute()
+    # JPY missing → pairs with JPY neutral; the other currencies unaffected.
+    assert snap.by_pair["USDJPY"].macro_dir == 0
+    assert snap.by_pair["EURGBP"].macro_dir == 0          # 4.0 - 4.0 == 0
+    assert "USD" in snap.rates
+    assert snap.consecutive_failures == 1

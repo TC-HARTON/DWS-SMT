@@ -21,8 +21,12 @@ import io
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+import requests
 
 import config
 
@@ -219,3 +223,192 @@ def parse_boj_html(body: str) -> tuple[str, float]:
     if last_rate is None:
         raise ValueError("BoJ page had no usable call-rate row")
     return last_date, last_rate
+
+
+# --------------------------------------------------------------------------- #
+# Engine
+# --------------------------------------------------------------------------- #
+
+class MacroEngine:
+    """Fetches every macro source, caches to disk, builds a MacroSnapshot.
+
+    Per-source isolation: a single central bank failing marks only that
+    currency ``stale`` (value re-used from cache when available); the rest of
+    the snapshot is unaffected. Mirrors :class:`analyzer.calendar_feed.CalendarEngine`.
+
+    USD and AUD both come from FRED — the Fed funds target and the RBA cash
+    rate (the RBA's own site blocks automated requests). EUR/GBP/JPY come from
+    the ECB / BoE / BoJ directly. Every fetch is plain HTTP; this engine never
+    touches the MT5 connector.
+    """
+
+    def __init__(
+        self,
+        cache_file: Path = config.MACRO_CACHE_FILE,
+        timeout: float = config.MACRO_FETCH_TIMEOUT_SEC,
+    ) -> None:
+        self._cache_file = Path(cache_file)
+        self._timeout = timeout
+        self._consecutive_failures = 0
+        self._last_error: str | None = None
+        self._last_fetch_ok = 0.0
+        self._cached_rates: dict[str, MacroRate] = {}
+        self._bootstrap_from_cache()
+
+    # ----------------------------------------------------------- compute
+    def compute(self) -> MacroSnapshot:
+        """One refresh cycle: fetch every source, build the snapshot."""
+        rates: dict[str, MacroRate] = {}
+        errors: list[str] = []
+        for ccy in config.MACRO_CURRENCIES:
+            try:
+                rates[ccy] = self._fetch_rate(ccy)
+            except (requests.RequestException, ValueError, KeyError) as exc:
+                errors.append(f"{ccy}: {exc}")
+                cached = self._cached_rates.get(ccy)
+                if cached is not None:
+                    rates[ccy] = MacroRate(
+                        cached.currency, cached.rate, cached.as_of,
+                        cached.prev_rate, cached.source, stale=True)
+
+        try:
+            employment = self._fetch_employment()
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            errors.append(f"employment: {exc}")
+            employment = None
+
+        if errors:
+            self._consecutive_failures += 1
+            self._last_error = "; ".join(errors)
+            log.warning("macro: %d source error(s) — %s",
+                        len(errors), self._last_error)
+        else:
+            self._consecutive_failures = 0
+            self._last_error = None
+            self._last_fetch_ok = time.time()
+
+        if rates:
+            self._cached_rates = dict(rates)
+            self._store_cache(rates)
+
+        by_pair = {
+            s.base: pair_macro_bias(s.base, rates) for s in config.SYMBOLS
+        }
+        return MacroSnapshot(
+            generated_at=time.time(),
+            fetched_at=self._last_fetch_ok,
+            rates=rates,
+            employment=employment,
+            by_pair=by_pair,
+            last_error=self._last_error,
+            consecutive_failures=self._consecutive_failures,
+        )
+
+    # ------------------------------------------------------- per-source
+    def _fetch_rate(self, ccy: str) -> MacroRate:
+        """Fetch one currency's policy rate from its central-bank source."""
+        if ccy == "USD":
+            as_of, rate = parse_fred_json(
+                self._fred_get(config.MACRO_FRED_RATE_SERIES))
+            source = "fred"
+        elif ccy == "AUD":
+            as_of, rate = parse_fred_json(
+                self._fred_get(config.MACRO_FRED_AUD_SERIES))
+            source = "fred"
+        elif ccy == "EUR":
+            as_of, rate = parse_ecb_csv(self._http_get(config.MACRO_ECB_URL))
+            source = "ecb"
+        elif ccy == "GBP":
+            as_of, rate = parse_boe_csv(self._http_get(config.MACRO_BOE_URL))
+            source = "boe"
+        elif ccy == "JPY":
+            as_of, rate = parse_boj_html(self._http_get(config.MACRO_BOJ_URL))
+            source = "boj"
+        else:
+            raise ValueError(f"no macro source for {ccy}")
+        prev = self._cached_rates.get(ccy)
+        if prev is not None and prev.rate != rate:
+            prev_rate: float | None = prev.rate
+        elif prev is not None:
+            prev_rate = prev.prev_rate
+        else:
+            prev_rate = None
+        return MacroRate(ccy, rate, as_of, prev_rate, source, stale=False)
+
+    def _fetch_employment(self) -> MacroEmployment | None:
+        """Fetch US nonfarm-payroll change + unemployment rate from FRED."""
+        as_of, nfp_chg, prev_chg = self._fred_payems_change()
+        _, unrate = parse_fred_json(
+            self._fred_get(config.MACRO_FRED_UNRATE_SERIES))
+        return MacroEmployment(
+            nonfarm_change=nfp_chg,
+            unemployment_rate=unrate,
+            as_of=as_of,
+            prev_nonfarm_change=prev_chg,
+            source="fred",
+        )
+
+    def _fred_payems_change(self) -> tuple[str, float | None, float | None]:
+        """Latest + previous month-over-month change in PAYEMS (thousands)."""
+        doc = json.loads(self._fred_get(config.MACRO_FRED_PAYEMS_SERIES, limit=4))
+        vals = [(o["date"][:10], float(o["value"]))
+                for o in doc.get("observations", [])
+                if (o.get("value") or "").strip() not in ("", ".")]
+        if len(vals) < 2:
+            return (vals[-1][0] if vals else ""), None, None
+        latest = vals[-1][1] - vals[-2][1]
+        prev = vals[-2][1] - vals[-3][1] if len(vals) >= 3 else None
+        return vals[-1][0], latest, prev
+
+    # -------------------------------------------------------------- HTTP
+    def _http_get(self, url: str) -> str:
+        """HTTP GET with the browser User-Agent (BoE rejects bot UAs)."""
+        resp = requests.get(
+            url, timeout=self._timeout,
+            headers={"User-Agent": config.MACRO_HTTP_USER_AGENT},
+        )
+        resp.raise_for_status()
+        return resp.text
+
+    def _fred_get(self, series_id: str, limit: int = 6) -> str:
+        """FRED ``series/observations`` GET — requires ``FRED_API_KEY``."""
+        if not config.FRED_API_KEY:
+            raise ValueError("FRED_API_KEY is not set")
+        url = (
+            "https://api.stlouisfed.org/fred/series/observations"
+            f"?series_id={series_id}&api_key={config.FRED_API_KEY}"
+            f"&file_type=json&sort_order=asc&limit={limit}"
+        )
+        return self._http_get(url)
+
+    # ------------------------------------------------------------- cache
+    def _bootstrap_from_cache(self) -> None:
+        """Load the last good payload so a restart shows data immediately."""
+        if not self._cache_file.exists():
+            return
+        try:
+            doc = json.loads(self._cache_file.read_text(encoding="utf-8"))
+            for ccy, r in (doc.get("rates") or {}).items():
+                self._cached_rates[ccy] = MacroRate(
+                    r["currency"], r["rate"], r["as_of"],
+                    r.get("prev_rate"), r["source"], stale=True)
+            self._last_fetch_ok = float(doc.get("fetched_at") or 0.0)
+        except (OSError, ValueError, KeyError):
+            log.exception("macro: cache bootstrap failed")
+
+    def _store_cache(self, rates: dict[str, MacroRate]) -> None:
+        """Persist the latest rates so a restart shows data immediately."""
+        try:
+            self._cache_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "fetched_at": self._last_fetch_ok,
+                "rates": {
+                    ccy: {"currency": r.currency, "rate": r.rate,
+                          "as_of": r.as_of, "prev_rate": r.prev_rate,
+                          "source": r.source}
+                    for ccy, r in rates.items()
+                },
+            }
+            self._cache_file.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError:
+            log.exception("macro: failed to write cache %s", self._cache_file)
