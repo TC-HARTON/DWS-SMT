@@ -152,3 +152,53 @@ def test_state_set_and_read_validation():
     assert st.validation is snap
     # Validation is a heavy domain → it bumps analysis_version.
     assert st.analysis_version == before + 1
+
+
+def test_serialize_validation_shape():
+    from dashboard.serialize import serialize_validation
+    from analyzer.signal_validator import (
+        RegimeStats, SubPeriodStats, ValidationCore, ValidationStats,
+        ValidationSnapshot,
+    )
+
+    third = SubPeriodStats(win_rate=0.6, expectancy=1.5, n_trades=10)
+    regime = RegimeStats(win_rate=0.5, expectancy=0.5, n_trades=5)
+    core = ValidationCore(
+        n_trades=30, win_rate=0.6, ci_low=0.45, ci_high=0.73,
+        profit_factor=1.8, expectancy=1.2, max_drawdown=8.0, avg_mae=3.0,
+        thirds=(third, third, third), regime_trend=regime, regime_range=regime,
+        tier="信頼",
+    )
+    stats = ValidationStats(symbol="EURUSD", base_tf="M15",
+                            raw=core, macro_filtered=core)
+    snap = ValidationSnapshot(generated_at=1.0, compute_ms=2.0,
+                              by_symbol={"EURUSD": {"M15": stats}})
+
+    out = serialize_validation(snap)
+    assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["tier"] == "信頼"
+    assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["n_trades"] == 30
+    assert len(out["by_symbol"]["EURUSD"]["M15"]["raw"]["thirds"]) == 3
+    assert serialize_validation(None) is None
+
+
+def test_serialize_validation_handles_infinite_pf():
+    from dashboard.serialize import serialize_validation
+    from analyzer.signal_validator import (
+        RegimeStats, SubPeriodStats, ValidationCore, ValidationStats,
+        ValidationSnapshot,
+    )
+    third = SubPeriodStats(win_rate=1.0, expectancy=2.0, n_trades=10)
+    regime = RegimeStats(win_rate=1.0, expectancy=2.0, n_trades=10)
+    core = ValidationCore(
+        n_trades=30, win_rate=1.0, ci_low=0.9, ci_high=1.0,
+        profit_factor=float("inf"), expectancy=2.0, max_drawdown=0.0,
+        avg_mae=0.0, thirds=(third, third, third),
+        regime_trend=regime, regime_range=regime, tier="信頼",
+    )
+    stats = ValidationStats(symbol="EURUSD", base_tf="M15",
+                            raw=core, macro_filtered=core)
+    snap = ValidationSnapshot(generated_at=1.0, compute_ms=2.0,
+                              by_symbol={"EURUSD": {"M15": stats}})
+    # inf must serialise to null — json.dumps would otherwise raise.
+    out = serialize_validation(snap)
+    assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["profit_factor"] is None

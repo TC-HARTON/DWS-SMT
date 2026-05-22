@@ -32,6 +32,13 @@ from analyzer.indicator_engine import (
     SymbolIndicators,
     TimeframeIndicators,
 )
+from analyzer.signal_validator import (
+    RegimeStats,
+    SubPeriodStats,
+    ValidationCore,
+    ValidationSnapshot,
+    ValidationStats,
+)
 from analyzer.mt5_connector import AccountSnapshot, Tick
 from analyzer.price_action import PriceActionEvent
 from analyzer.state import (
@@ -437,6 +444,72 @@ def serialize_calendar(s: CalendarSnapshot | None) -> dict[str, Any] | None:
 
 
 # --------------------------------------------------------------------------- #
+# Signal validation layer (precision-optimization spec, Section A)
+# --------------------------------------------------------------------------- #
+
+def _serialize_sub_period(s: SubPeriodStats) -> dict[str, Any]:
+    return {
+        "win_rate": _opt_float(s.win_rate),
+        "expectancy": _opt_float(s.expectancy),
+        "n_trades": int(s.n_trades),
+    }
+
+
+def _serialize_regime(s: RegimeStats) -> dict[str, Any]:
+    return {
+        "win_rate": _opt_float(s.win_rate),
+        "expectancy": _opt_float(s.expectancy),
+        "n_trades": int(s.n_trades),
+    }
+
+
+def serialize_validation_core(c: ValidationCore) -> dict[str, Any]:
+    """Serialise one :class:`ValidationCore`.
+
+    ``profit_factor`` may be ``inf`` (no losing trades); ``_opt_float`` maps
+    that to ``null`` so ``json.dumps`` never raises.
+    """
+    return {
+        "n_trades": int(c.n_trades),
+        "win_rate": _opt_float(c.win_rate),
+        "ci_low": _opt_float(c.ci_low),
+        "ci_high": _opt_float(c.ci_high),
+        "profit_factor": _opt_float(c.profit_factor),
+        "expectancy": _opt_float(c.expectancy),
+        "max_drawdown": _opt_float(c.max_drawdown),
+        "avg_mae": _opt_float(c.avg_mae),
+        "thirds": [_serialize_sub_period(t) for t in c.thirds],
+        "regime_trend": _serialize_regime(c.regime_trend),
+        "regime_range": _serialize_regime(c.regime_range),
+        "tier": c.tier,
+    }
+
+
+def serialize_validation_stats(s: ValidationStats) -> dict[str, Any]:
+    return {
+        "symbol": s.symbol,
+        "base_tf": s.base_tf,
+        "raw": serialize_validation_core(s.raw),
+        "macro_filtered": serialize_validation_core(s.macro_filtered),
+    }
+
+
+def serialize_validation(s: ValidationSnapshot | None) -> dict[str, Any] | None:
+    """Serialise the whole validation snapshot for the WebSocket payload."""
+    if s is None:
+        return None
+    return {
+        "generated_at": float(s.generated_at),
+        "compute_ms": float(s.compute_ms),
+        "min_trades": int(config.VALIDATION_MIN_TRADES),
+        "by_symbol": {
+            sym: {tf: serialize_validation_stats(st) for tf, st in per_tf.items()}
+            for sym, per_tf in s.by_symbol.items()
+        },
+    }
+
+
+# --------------------------------------------------------------------------- #
 
 
 def _safe_meta(
@@ -486,6 +559,7 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "correlation": serialize_correlation(snap["correlation"]),  # type: ignore[arg-type]
         "performance": serialize_performance(snap["performance"]),  # type: ignore[arg-type]
         "calendar": serialize_calendar(snap["calendar"]),  # type: ignore[arg-type]
+        "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {
             s.base: {
