@@ -352,9 +352,11 @@ class SignalValidator:
         connector,
         *,
         history_bars: int = config.VALIDATION_HISTORY_BARS,
+        fetch_gap_sec: float = config.VALIDATION_FETCH_GAP_SEC,
     ) -> None:
         self._connector = connector
         self._history_bars = history_bars
+        self._fetch_gap_sec = fetch_gap_sec
         # Deep-history fetch specs: same MT5 constants, far deeper bar counts.
         self._deep_specs = tuple(
             config.TimeframeSpec(label, _TF_CONST[label], 0, history_bars)
@@ -369,6 +371,13 @@ class SignalValidator:
     ) -> ValidationSnapshot:
         """Run one validation pass over *bases*.
 
+        Deep history is fetched ONE SYMBOL AT A TIME with a
+        :data:`config.VALIDATION_FETCH_GAP_SEC` pause between symbols. The
+        connector serialises every MT5 call through a single lock, and a cold
+        deep-history fetch can hold that lock (and the GIL) for seconds;
+        fetching per symbol with a gap lets the live 0.5 s price tick and 5 s
+        analysis pass interleave instead of being starved for the whole pass.
+
         Args:
             bases: symbol base names to validate.
             broker_meta: ``{base: {"point": float, ...}}`` — used to convert
@@ -380,10 +389,13 @@ class SignalValidator:
             history are simply absent from ``by_symbol`` — never raised.
         """
         t0 = time.perf_counter()
-        rates = self._connector.fetch_rates_parallel(bases, self._deep_specs)
         by_symbol: dict[str, dict[str, ValidationStats]] = {}
 
-        for base in bases:
+        for i, base in enumerate(bases):
+            if i > 0 and self._fetch_gap_sec > 0.0:
+                # Yield the connector lock / GIL to the live dashboard loop.
+                time.sleep(self._fetch_gap_sec)
+            rates = self._connector.fetch_rates_parallel([base], self._deep_specs)
             frames = {
                 tf: rates[(base, tf)]
                 for tf in _NEEDED_TFS

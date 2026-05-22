@@ -196,7 +196,8 @@ def test_signal_validator_compute_builds_snapshot():
     for tf in ("M15", "H1", "H4", "D1", "W1"):
         frames[("EURUSD", tf)] = _ramp_frame(n)
     conn = _FakeConnector(frames)
-    validator = sv.SignalValidator(conn, history_bars=n)
+    # fetch_gap_sec=0.0 keeps the test fast (no inter-symbol throttle pause).
+    validator = sv.SignalValidator(conn, history_bars=n, fetch_gap_sec=0.0)
     snap = validator.compute(["EURUSD"], broker_meta={"EURUSD": {"point": 0.0001}})
 
     assert isinstance(snap, sv.ValidationSnapshot)
@@ -212,7 +213,23 @@ def test_signal_validator_compute_builds_snapshot():
 
 def test_signal_validator_compute_handles_missing_symbol():
     conn = _FakeConnector({})           # no frames at all
-    validator = sv.SignalValidator(conn, history_bars=100)
+    validator = sv.SignalValidator(conn, history_bars=100, fetch_gap_sec=0.0)
     snap = validator.compute(["EURUSD"], broker_meta={})
     # No data → the symbol simply has no base-TF entries, no crash.
     assert snap.by_symbol.get("EURUSD", {}) == {}
+
+
+def test_signal_validator_compute_multi_symbol():
+    # The per-symbol fetch loop must handle several symbols in one pass.
+    n = 600
+    frames = {}
+    for sym in ("EURUSD", "GBPUSD"):
+        for tf in ("M15", "H1", "H4", "D1", "W1"):
+            frames[(sym, tf)] = _ramp_frame(n)
+    conn = _FakeConnector(frames)
+    validator = sv.SignalValidator(conn, history_bars=n, fetch_gap_sec=0.0)
+    snap = validator.compute(
+        ["EURUSD", "GBPUSD"],
+        broker_meta={"EURUSD": {"point": 0.0001}, "GBPUSD": {"point": 0.0001}},
+    )
+    assert set(snap.by_symbol.keys()) == {"EURUSD", "GBPUSD"}

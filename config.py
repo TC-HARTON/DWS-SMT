@@ -168,10 +168,18 @@ DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
 # Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread
 # on its own slow schedule so it never touches the SPEC §19 50 ms budget.
 VALIDATION_REFRESH_SEC: Final[float] = 300.0    # re-validate every 5 minutes
-VALIDATION_HISTORY_BARS: Final[int] = 5000      # base bars fetched per (sym, TF)
+VALIDATION_HISTORY_BARS: Final[int] = 2000      # base bars fetched per (sym, TF)
 VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ不足"
 # Wilson score interval z for a 95 % two-sided confidence interval.
 VALIDATION_CI_Z: Final[float] = 1.96
+# The connector serialises every MT5 fetch through one lock, and a slow cold
+# deep-history call can hold that lock (and the GIL) for seconds. The validator
+# therefore fetches ONE symbol at a time and sleeps this long between symbols
+# so the 0.5 s price tick and 5 s analysis pass interleave instead of starving.
+VALIDATION_FETCH_GAP_SEC: Final[float] = 2.0
+# Delay the first validation pass after start-up so warm-up and the first few
+# normal cycles finish (and warm the MT5 cache) before the deep fetch begins.
+VALIDATION_STARTUP_DELAY_SEC: Final[float] = 90.0
 
 
 # --------------------------------------------------------------------------- #

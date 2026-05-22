@@ -128,7 +128,10 @@ class AnalysisLoop:
             _Schedule("heavy", heavy_interval),
             _Schedule("history", history_interval),
             _Schedule("calendar", calendar_interval),
-            _Schedule("validation", validation_interval),
+            # Delay the first validation pass: its deep-history fetch is heavy,
+            # so let warm-up and the first normal cycles settle first.
+            _Schedule("validation", validation_interval,
+                      next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
         )
 
     # --------------------------------------------------------------- start
