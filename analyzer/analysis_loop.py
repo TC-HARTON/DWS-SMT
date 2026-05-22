@@ -344,14 +344,19 @@ class AnalysisLoop:
         Dispatched to a daemon worker — the parallel deep-history fetch is far
         too slow to run inside the loop without starving the 0.5 s price tick.
         At most one validation runs at a time; overlapping cycles are skipped.
+
+        Validation covers only the DWS-SMT display symbols (``config.SYMBOLS``):
+        *bases* also carries the currency-strength cross pairs, but those have
+        no DWS panel — validating them is pure wasted fetch + compute load.
         """
         if self._validation_inflight.is_set():
             log.debug("validation: previous pass still in flight, skipping tick")
             return
         self._validation_inflight.set()
+        display_bases = [s.base for s in config.SYMBOLS]
         worker = threading.Thread(
             target=self._validation_refresh_worker,
-            args=(list(bases),),
+            args=(display_bases,),
             name="signal-validation", daemon=True,
         )
         worker.start()
