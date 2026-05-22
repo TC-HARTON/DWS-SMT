@@ -49,3 +49,47 @@ def test_pair_macro_bias_xauusd_uses_us_rate_trend():
 def test_pair_macro_bias_missing_currency_is_neutral():
     b = mf.pair_macro_bias("USDJPY", {"USD": _rate("USD", 4.5)})  # no JPY
     assert b.macro_dir == 0
+
+
+# ----------------------------------------------------------------- parsers
+import pathlib
+
+_FIX = pathlib.Path(__file__).parent / "fixtures" / "macro"
+
+
+def test_parse_fred_json():
+    body = ('{"observations":[{"date":"2026-03-01","value":"4.25"},'
+            '{"date":"2026-04-01","value":"4.50"}]}')
+    as_of, rate = mf.parse_fred_json(body)
+    assert as_of == "2026-04-01"
+    assert rate == pytest.approx(4.50)
+
+
+def test_parse_fred_json_skips_missing():
+    # FRED uses "." for a missing value — the parser must skip it.
+    body = ('{"observations":[{"date":"2026-03-01","value":"4.25"},'
+            '{"date":"2026-04-01","value":"."}]}')
+    as_of, rate = mf.parse_fred_json(body)
+    assert as_of == "2026-03-01"
+    assert rate == pytest.approx(4.25)
+
+
+def test_parse_ecb_csv():
+    body = (_FIX / "ecb_sample.csv").read_text(encoding="utf-8")
+    as_of, rate = mf.parse_ecb_csv(body)
+    assert len(as_of) == 10 and as_of[4] == "-"      # ISO date
+    assert isinstance(rate, float)
+
+
+def test_parse_boe_csv():
+    body = (_FIX / "boe_sample.csv").read_text(encoding="utf-8")
+    as_of, rate = mf.parse_boe_csv(body)
+    assert len(as_of) == 10 and as_of[4] == "-"
+    assert isinstance(rate, float)
+
+
+def test_parse_boj_html():
+    body = (_FIX / "boj_sample.html").read_text(encoding="utf-8")
+    as_of, rate = mf.parse_boj_html(body)
+    assert len(as_of) == 10 and as_of[4] == "-"
+    assert isinstance(rate, float)

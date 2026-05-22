@@ -16,8 +16,13 @@ Every fetch is plain HTTP — this module never touches the MT5 connector.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
+import re
 from dataclasses import dataclass
+from datetime import datetime
 
 import config
 
@@ -126,3 +131,91 @@ def pair_macro_bias(pair: str, rates: dict[str, MacroRate]) -> MacroPairBias:
     else:
         label = "金利差なし"
     return MacroPairBias(pair, base_ccy, quote_ccy, differential, macro_dir, label)
+
+
+# --------------------------------------------------------------------------- #
+# Source parsers — pure functions, each returns (ISO date, rate)
+# --------------------------------------------------------------------------- #
+
+def parse_fred_json(body: str) -> tuple[str, float]:
+    """Parse a FRED ``series/observations`` JSON body → (latest date, value).
+
+    FRED encodes a missing observation as ``"."`` — those rows are skipped so
+    the latest *real* value is returned.
+    """
+    doc = json.loads(body)
+    obs = doc.get("observations") or []
+    for row in reversed(obs):
+        raw = (row.get("value") or "").strip()
+        if raw and raw != ".":
+            return str(row.get("date") or "")[:10], float(raw)
+    raise ValueError("FRED response had no usable observation")
+
+
+def parse_ecb_csv(body: str) -> tuple[str, float]:
+    """Parse an ECB SDMX ``csvdata`` body → (latest date, rate).
+
+    Columns are addressed by header name (``TIME_PERIOD`` / ``OBS_VALUE``) so a
+    column-order change upstream does not break the parser. The last data row
+    is the most recent observation.
+    """
+    reader = csv.DictReader(io.StringIO(body.strip()))
+    rows = [r for r in reader if (r.get("OBS_VALUE") or "").strip()]
+    if not rows:
+        raise ValueError("ECB response had no OBS_VALUE rows")
+    last = rows[-1]
+    return str(last["TIME_PERIOD"])[:10], float(last["OBS_VALUE"])
+
+
+def parse_boe_csv(body: str) -> tuple[str, float]:
+    """Parse the BoE IADB CSV (series IUDBEDR) → (latest date ISO, rate).
+
+    The IADB CSV is ``DATE,IUDBEDR`` with dates like ``02 Jan 2020``. The last
+    non-empty data row is the most recent Bank Rate.
+    """
+    last_date = ""
+    last_rate: float | None = None
+    for row in csv.reader(io.StringIO(body)):
+        if len(row) < 2:
+            continue
+        d, v = row[0].strip(), row[1].strip()
+        if not v or d.upper() in {"DATE", "SERIES"}:
+            continue
+        try:
+            rate = float(v)
+        except ValueError:
+            continue
+        try:
+            iso = datetime.strptime(d, "%d %b %Y").strftime("%Y-%m-%d")
+        except ValueError:
+            iso = d
+        last_date, last_rate = iso, rate
+    if last_rate is None:
+        raise ValueError("BoE CSV had no usable IUDBEDR row")
+    return last_date, last_rate
+
+
+def parse_boj_html(body: str) -> tuple[str, float]:
+    """Parse the BoJ ``fm01_d_1_en.html`` page → (latest date ISO, call rate).
+
+    The page embeds table rows ``<th>YYYY/MM/DD</th><td> value</td>`` for the
+    uncollateralised overnight call rate (the BoJ policy-rate proxy). The most
+    recent non-``NA`` row is returned. Parsed with a regex so no HTML library
+    is needed.
+    """
+    pattern = re.compile(
+        r"(\d{4})/(\d{2})/(\d{2})\s*</[^>]+>\s*<[^>]+>\s*"
+        r"(-?\d+(?:\.\d+)?|NA)",
+        re.IGNORECASE,
+    )
+    last_date = ""
+    last_rate: float | None = None
+    for m in pattern.finditer(body):
+        yyyy, mm, dd, val = m.groups()
+        if val.upper() == "NA":
+            continue
+        last_date = f"{yyyy}-{mm}-{dd}"
+        last_rate = float(val)
+    if last_rate is None:
+        raise ValueError("BoJ page had no usable call-rate row")
+    return last_date, last_rate

@@ -206,7 +206,11 @@ MACRO_HTTP_USER_AGENT: Final[str] = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 # Per-currency policy-rate sources.
+# USD + AUD both go through FRED: the Fed funds target, and the RBA cash rate
+# (the RBA's own site blocks automated requests via TLS fingerprinting, so
+# FRED — which carries the same RBA figure — is the reliable route for AUD).
 MACRO_FRED_RATE_SERIES: Final[str] = "DFEDTARU"      # Fed funds target, upper
+MACRO_FRED_AUD_SERIES: Final[str] = "IRSTCB01AUM156N"  # RBA cash rate (OECD via FRED)
 MACRO_FRED_PAYEMS_SERIES: Final[str] = "PAYEMS"      # nonfarm payrolls, level
 MACRO_FRED_UNRATE_SERIES: Final[str] = "UNRATE"      # unemployment rate
 MACRO_ECB_URL: Final[str] = (
@@ -214,11 +218,10 @@ MACRO_ECB_URL: Final[str] = (
     "D.U2.EUR.4F.KR.DFR.LEV?lastNObservations=8&format=csvdata"
 )
 MACRO_BOE_URL: Final[str] = (
-    "https://www.bankofengland.co.uk/boeapps/database/fromshowcolumns.asp"
+    "https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp"
     "?csv.x=yes&Datefrom=01/Jan/2020&Dateto=now&SeriesCodes=IUDBEDR"
     "&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N"
 )
-MACRO_RBA_URL: Final[str] = "https://www.rba.gov.au/statistics/tables/csv/f1.1-data.csv"
 MACRO_BOJ_URL: Final[str] = "https://www.stat-search.boj.or.jp/ssi/mtshtml/fm01_d_1_en.html"
 # The five fiat currencies whose central-bank rates we track. XAU (gold) has
 # no policy rate — handled specially in pair_macro_bias.
