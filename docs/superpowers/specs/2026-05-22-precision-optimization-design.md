@@ -32,8 +32,18 @@ WS:   既存の light/full 分離に従う。macro/validation の変化は full 
 ```
 
 両 worker は calendar と同じパターン（`threading.Event` の in-flight ガード ＋
-daemon worker thread）。HTTP タイムアウトや深い履歴 fetch が価格 1 秒 tick
-（SPEC §14.4）を絶対にブロックしないことが不変条件。
+daemon worker thread）。
+
+**重要な訂正（統合テストで判明）**: 「off-thread worker だから価格 tick を
+ブロックしない」は誤り。MT5 connector は全スレッドで単一ロックを共有するため、
+深い履歴 fetch がそのロック（と GIL）を数秒占有すると価格 tick が飢餓状態になる。
+検証 worker は次の3点で*スロットル*する必要がある:
+- 1通貨ずつ fetch し、通貨間に `VALIDATION_FETCH_GAP_SEC` のポーズを入れる
+- 上位 TF（D1/W1）の fetch 本数は実在範囲に制限（`VALIDATION_TF_BARS`）。
+  数千本の D1/W1 要求はブローカーの空同期を招きロックを長時間占有する
+- 検証対象は DWS 表示通貨（`config.SYMBOLS`）のみ。強弱用クロスは除外
+初回パスは起動 `VALIDATION_STARTUP_DELAY_SEC` 後に遅延させ、ウォームアップと
+衝突させない。
 
 ---
 
