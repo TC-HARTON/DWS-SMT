@@ -42,6 +42,7 @@ from analyzer.correlation import CorrelationEngine
 from analyzer.currency_strength import CurrencyStrengthEngine
 from analyzer.indicator_engine import IndicatorEngine
 from analyzer.line_reader import LINES, LinesState, LinesWatcher
+from analyzer.signal_validator import SignalValidator
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
 from analyzer.state import (
     ConnectionStatus,
@@ -78,11 +79,13 @@ class AnalysisLoop:
         correlation_engine: CorrelationEngine | None = None,
         performance_engine: PerformanceEngine | None = None,
         calendar_engine: CalendarEngine | None = None,
+        signal_validator: SignalValidator | None = None,
         price_interval: float = config.PRICE_REFRESH_SEC,
         analysis_interval: float = config.ANALYSIS_REFRESH_SEC,
         heavy_interval: float = config.HEAVY_REFRESH_SEC,
         history_interval: float = config.HISTORY_REFRESH_SEC,
         calendar_interval: float = config.CALENDAR_REFRESH_SEC,
+        validation_interval: float = config.VALIDATION_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
         self._connector = connector
@@ -98,6 +101,11 @@ class AnalysisLoop:
         # is up to 30 s on a network outage — blocking the analysis loop
         # would starve the 1 s price refresh (SPEC §14.4).
         self._calendar_inflight = threading.Event()
+        self._signal_validator = signal_validator or SignalValidator(connector)
+        # Deep-history validation runs off-thread — the parallel fetch of
+        # VALIDATION_HISTORY_BARS across every symbol/TF takes far longer than
+        # the 0.5 s price tick may wait.
+        self._validation_inflight = threading.Event()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -120,6 +128,7 @@ class AnalysisLoop:
             _Schedule("heavy", heavy_interval),
             _Schedule("history", history_interval),
             _Schedule("calendar", calendar_interval),
+            _Schedule("validation", validation_interval),
         )
 
     # --------------------------------------------------------------- start
@@ -176,6 +185,7 @@ class AnalysisLoop:
             "heavy": self._do_heavy_refresh,
             "history": self._do_history_refresh,
             "calendar": self._do_calendar_refresh,
+            "validation": self._do_validation_refresh,
         }[name]
         try:
             handler(bases)
@@ -324,6 +334,33 @@ class AnalysisLoop:
             log.exception("calendar worker failed")
         finally:
             self._calendar_inflight.clear()
+
+    def _do_validation_refresh(self, bases: list[str]) -> None:
+        """Spec Section A: deep-history signal validation every 5 minutes.
+
+        Dispatched to a daemon worker — the parallel deep-history fetch is far
+        too slow to run inside the loop without starving the 0.5 s price tick.
+        At most one validation runs at a time; overlapping cycles are skipped.
+        """
+        if self._validation_inflight.is_set():
+            log.debug("validation: previous pass still in flight, skipping tick")
+            return
+        self._validation_inflight.set()
+        worker = threading.Thread(
+            target=self._validation_refresh_worker,
+            args=(list(bases),),
+            name="signal-validation", daemon=True,
+        )
+        worker.start()
+
+    def _validation_refresh_worker(self, bases: list[str]) -> None:
+        try:
+            snap = self._signal_validator.compute(bases, self._state.broker_meta)
+            self._state.set_validation(snap)
+        except Exception:               # noqa: BLE001 — never reach the loop
+            log.exception("signal-validation worker failed")
+        finally:
+            self._validation_inflight.clear()
 
     # ------------------------------------------------------------- warmup
     def _warmup(self) -> None:
