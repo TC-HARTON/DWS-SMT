@@ -210,7 +210,9 @@ MACRO_HTTP_USER_AGENT: Final[str] = (
 # (the RBA's own site blocks automated requests via TLS fingerprinting, so
 # FRED — which carries the same RBA figure — is the reliable route for AUD).
 MACRO_FRED_RATE_SERIES: Final[str] = "DFEDTARU"      # Fed funds target, upper
-MACRO_FRED_AUD_SERIES: Final[str] = "IRSTCB01AUM156N"  # RBA cash rate (OECD via FRED)
+# RBA cash rate via FRED — the call money / interbank overnight rate, which
+# the RBA steers to its cash rate target (monthly, currently updating).
+MACRO_FRED_AUD_SERIES: Final[str] = "IRSTCI01AUM156N"
 MACRO_FRED_PAYEMS_SERIES: Final[str] = "PAYEMS"      # nonfarm payrolls, level
 MACRO_FRED_UNRATE_SERIES: Final[str] = "UNRATE"      # unemployment rate
 MACRO_ECB_URL: Final[str] = (

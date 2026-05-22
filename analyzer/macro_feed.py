@@ -144,16 +144,20 @@ def pair_macro_bias(pair: str, rates: dict[str, MacroRate]) -> MacroPairBias:
 def parse_fred_json(body: str) -> tuple[str, float]:
     """Parse a FRED ``series/observations`` JSON body → (latest date, value).
 
-    FRED encodes a missing observation as ``"."`` — those rows are skipped so
-    the latest *real* value is returned.
+    Returns the observation with the most recent date, independent of the
+    response's sort order. FRED encodes a missing observation as ``"."`` —
+    those rows are skipped.
     """
     doc = json.loads(body)
-    obs = doc.get("observations") or []
-    for row in reversed(obs):
+    usable: list[tuple[str, float]] = []
+    for row in doc.get("observations") or []:
+        date = str(row.get("date") or "")[:10]
         raw = (row.get("value") or "").strip()
-        if raw and raw != ".":
-            return str(row.get("date") or "")[:10], float(raw)
-    raise ValueError("FRED response had no usable observation")
+        if date and raw and raw != ".":
+            usable.append((date, float(raw)))
+    if not usable:
+        raise ValueError("FRED response had no usable observation")
+    return max(usable, key=lambda t: t[0])     # ISO dates sort lexically
 
 
 def parse_ecb_csv(body: str) -> tuple[str, float]:
@@ -280,7 +284,7 @@ class MacroEngine:
         if errors:
             self._consecutive_failures += 1
             self._last_error = "; ".join(errors)
-            log.warning("macro: %d source error(s) — %s",
+            log.warning("macro: %d source error(s) - %s",
                         len(errors), self._last_error)
         else:
             self._consecutive_failures = 0
@@ -354,6 +358,7 @@ class MacroEngine:
         vals = [(o["date"][:10], float(o["value"]))
                 for o in doc.get("observations", [])
                 if (o.get("value") or "").strip() not in ("", ".")]
+        vals.sort(key=lambda t: t[0])          # oldest → newest, regardless of fetch order
         if len(vals) < 2:
             return (vals[-1][0] if vals else ""), None, None
         latest = vals[-1][1] - vals[-2][1]
@@ -374,10 +379,12 @@ class MacroEngine:
         """FRED ``series/observations`` GET — requires ``FRED_API_KEY``."""
         if not config.FRED_API_KEY:
             raise ValueError("FRED_API_KEY is not set")
+        # sort_order=desc → the response window contains the *newest* points;
+        # parse_fred_json then picks the max-date observation from it.
         url = (
             "https://api.stlouisfed.org/fred/series/observations"
             f"?series_id={series_id}&api_key={config.FRED_API_KEY}"
-            f"&file_type=json&sort_order=asc&limit={limit}"
+            f"&file_type=json&sort_order=desc&limit={limit}"
         )
         return self._http_get(url)
 
