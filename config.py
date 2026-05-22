@@ -190,6 +190,42 @@ VALIDATION_STARTUP_DELAY_SEC: Final[float] = 90.0
 
 
 # --------------------------------------------------------------------------- #
+# Macro / rate-differential layer (precision-optimization spec, Section B)
+# --------------------------------------------------------------------------- #
+# Central-bank policy rates change ~8x/year on scheduled dates; a 6 h refresh
+# catches a decision same-day at negligible cost. The fetch is pure HTTP (no
+# MT5 connector lock) and runs off-thread, mirroring the calendar feed.
+MACRO_REFRESH_SEC: Final[float] = 21600.0          # 6 hours
+MACRO_FETCH_TIMEOUT_SEC: Final[float] = 20.0
+MACRO_CACHE_FILE: Final[Path] = PROJECT_ROOT / "external" / "macro" / "macro_cache.json"
+# FRED API key — read from env / .env, never hard-coded.
+FRED_API_KEY: Final[str] = _get_env("FRED_API_KEY", "")
+# A browser UA — the Bank of England IADB returns HTTP 403 to bot UAs.
+MACRO_HTTP_USER_AGENT: Final[str] = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+# Per-currency policy-rate sources.
+MACRO_FRED_RATE_SERIES: Final[str] = "DFEDTARU"      # Fed funds target, upper
+MACRO_FRED_PAYEMS_SERIES: Final[str] = "PAYEMS"      # nonfarm payrolls, level
+MACRO_FRED_UNRATE_SERIES: Final[str] = "UNRATE"      # unemployment rate
+MACRO_ECB_URL: Final[str] = (
+    "https://data-api.ecb.europa.eu/service/data/FM/"
+    "D.U2.EUR.4F.KR.DFR.LEV?lastNObservations=8&format=csvdata"
+)
+MACRO_BOE_URL: Final[str] = (
+    "https://www.bankofengland.co.uk/boeapps/database/fromshowcolumns.asp"
+    "?csv.x=yes&Datefrom=01/Jan/2020&Dateto=now&SeriesCodes=IUDBEDR"
+    "&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N"
+)
+MACRO_RBA_URL: Final[str] = "https://www.rba.gov.au/statistics/tables/csv/f1.1-data.csv"
+MACRO_BOJ_URL: Final[str] = "https://www.stat-search.boj.or.jp/ssi/mtshtml/fm01_d_1_en.html"
+# The five fiat currencies whose central-bank rates we track. XAU (gold) has
+# no policy rate — handled specially in pair_macro_bias.
+MACRO_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD")
+
+
+# --------------------------------------------------------------------------- #
 # Composite BIAS — per-TF tfSignal → regime-gated weighted composite
 # --------------------------------------------------------------------------- #
 # The dashboard computes the *live* BIAS in static/app.js; the backend computes

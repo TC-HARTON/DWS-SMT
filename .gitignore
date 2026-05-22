@@ -15,6 +15,7 @@ logs/*.log.*
 data/cache/*
 data/lines/*
 external/forex_factory_xml/*
+external/macro/*
 !**/.gitkeep
 
 # editor
