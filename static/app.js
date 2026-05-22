@@ -647,6 +647,54 @@ function paintCalendar(snap) {
     updateCountdowns();
 }
 
+/** Paint the macro / rate-differential reference panel.
+ *  One row per pair: base rate, quote rate, differential, macro direction. */
+function paintMacro(snap) {
+    const m = snap.macro;
+    const root = $bind('macro');
+    if (!root) return;
+    if (!changed('macro', m && m.generated_at)) return;
+    const statusEl = $bind('macro-status');
+    if (!m || !m.rates || Object.keys(m.rates).length === 0) {
+        root.innerHTML = '<div class="empty mute">マクロデータ未取得</div>';
+        if (statusEl) statusEl.textContent = '--';
+        return;
+    }
+    if (statusEl) {
+        statusEl.textContent = m.last_error ? '一部ソース障害' : 'central banks';
+        statusEl.className = m.last_error ? 'neg' : 'mute';
+    }
+    const rateStr = ccy => {
+        const r = m.rates[ccy];
+        return r && r.rate != null ? (r.rate.toFixed(2) + (r.stale ? '*' : '')) : '--';
+    };
+    const arrow = d => d > 0 ? '▲' : d < 0 ? '▼' : '·';
+    const rows = (SYMBOL_ORDER || []).map(sym => {
+        const b = m.by_pair && m.by_pair[sym];
+        if (!b) return '';
+        const dirCls = b.macro_dir > 0 ? 'pos' : b.macro_dir < 0 ? 'neg' : 'mute';
+        const diff = b.differential == null ? '--'
+                   : (b.differential >= 0 ? '+' : '') + b.differential.toFixed(2);
+        return `<div class="macro-row">
+            <span class="macro-pair">${esc(sym)}</span>
+            <span class="macro-rate">${esc(rateStr(b.base_ccy))}</span>
+            <span class="macro-rate">${esc(rateStr(b.quote_ccy))}</span>
+            <span class="macro-diff ${dirCls}">${esc(diff)}</span>
+            <span class="macro-dir ${dirCls}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
+        </div>`;
+    }).join('');
+    let emp = '';
+    if (m.employment) {
+        const e = m.employment;
+        const nfp = e.nonfarm_change == null ? '--'
+                  : (e.nonfarm_change >= 0 ? '+' : '') + Math.round(e.nonfarm_change);
+        const ur = e.unemployment_rate == null ? '--'
+                 : e.unemployment_rate.toFixed(1) + '%';
+        emp = `<div class="macro-emp">米雇用 NFP変化 ${esc(nfp)}k · 失業率 ${esc(ur)}</div>`;
+    }
+    root.innerHTML = rows + emp;
+}
+
 function updateCountdowns() {
     const warn = 1800;
     const now = Date.now() / 1000;
@@ -1557,6 +1605,7 @@ function paintAll() {
     paintCorrelationList(latestSnap.correlation);
     paintConcentration(latestSnap);
     paintCalendar(latestSnap);
+    paintMacro(latestSnap);
     paintDws(latestSnap);
 }
 

@@ -1172,3 +1172,28 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    (.dws-num.pos / .dws-num.neg) carry green/red — matches the panel's
    "labels white, numbers coloured" convention. */
 .dws-validation .dws-vmeta { color: #f2f4f9; }
+
+/* Macro / rate-differential panel */
+.macro-row {
+    display: grid;
+    grid-template-columns: 64px 46px 46px 50px 1fr;
+    gap: 6px;
+    font-size: 11px;
+    padding: 2px 4px;
+    align-items: baseline;
+    color: #f2f4f9;
+}
+.macro-row:nth-child(odd) { background: rgba(255, 255, 255, 0.02); }
+.macro-pair { font-weight: 700; }
+.macro-rate { color: #8089a0; text-align: right; }
+.macro-diff { text-align: right; font-weight: 700; }
+.macro-diff.pos, .macro-dir.pos { color: #00d09c; }
+.macro-diff.neg, .macro-dir.neg { color: #ff5b6b; }
+.macro-diff.mute, .macro-dir.mute { color: #8089a0; }
+.macro-emp {
+    font-size: 11px;
+    color: #f2f4f9;
+    padding: 4px;
+    margin-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
