@@ -229,6 +229,12 @@ MACRO_BOJ_URL: Final[str] = "https://www.stat-search.boj.or.jp/ssi/mtshtml/fm01_
 # no policy rate — handled specially in pair_macro_bias.
 MACRO_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD")
 
+# Real-yield layer (spec §B.11). Policy rates are step functions (fixed between
+# meetings); the US 10Y TIPS real yield moves every day, so it gets its own
+# faster schedule than the 6 h policy-rate refresh.
+MACRO_FRED_REALYIELD_SERIES: Final[str] = "DFII10"   # 10Y TIPS real yield, daily
+MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
+
 
 # --------------------------------------------------------------------------- #
 # Composite BIAS — per-TF tfSignal → regime-gated weighted composite
