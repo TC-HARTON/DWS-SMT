@@ -484,35 +484,31 @@ body {
 }
 .dws-sub { font-size: 11px; color: var(--fg-muted); }
 .dws-pills { margin-left: auto; display: flex; gap: 4px; }
+/* Primary status headline — current 3-TF alignment + latest trigger.
+   Left accent bar turns green/red the moment a side is in control. */
 .dws-state {
-    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    font-family: var(--mono); font-size: 14px; font-weight: 800;
     color: var(--fg-muted);
-}
-.dws-state.buy  { color: var(--buy); }
-.dws-state.sell { color: var(--sell); }
-/* BIAS ⇄ DWS alignment banner (recommendation 1). */
-.dws-sync {
-    font-family: var(--mono); font-size: 12px; font-weight: 700;
-    color: var(--fg-muted);
-    padding: 4px 8px; border-radius: 4px;
+    padding: 5px 9px; border-radius: 4px;
     background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid var(--fg-dim);
+}
+.dws-state.buy  { color: var(--buy);  border-left-color: var(--buy); }
+.dws-state.sell { color: var(--sell); border-left-color: var(--sell); }
+/* BIAS ⇄ DWS divergence caveat — secondary line, de-emphasised. */
+.dws-sync {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    color: var(--fg-dim);
+    padding: 3px 9px; border-radius: 4px;
 }
 .dws-sync.buy      { color: var(--buy); }
 .dws-sync.sell     { color: var(--sell); }
 .dws-sync.diverge  { color: var(--warning); background: rgba(255, 183, 77, 0.10); }
 .dws-sync.conflict { color: var(--sell);    background: rgba(255, 91, 107, 0.13); }
-/* Trigger back-test summary — labels white, P/L numbers coloured by sign. */
-.dws-stats {
-    font-family: var(--mono); font-size: 12px;
-    color: var(--fg);
-    display: flex; flex-direction: column; gap: 2px;
-}
-.dws-stat-line { font-weight: 700; line-height: 1.35; }
-.dws-stats .dws-num      { font-weight: 800; }
-.dws-stats .dws-num.pos  { color: var(--buy); }
-.dws-stats .dws-num.neg  { color: var(--sell); }
-.dws-stats .dws-dim      { color: var(--fg-muted); font-weight: 500; }
-.dws-stats .dws-warn     { color: var(--warning); font-weight: 800; }
+/* Signed P/L numbers — green +, red −. Used by the validation block. */
+.dws-num     { font-weight: 800; }
+.dws-num.pos { color: var(--buy); }
+.dws-num.neg { color: var(--sell); }
 .dws-canvas-wrap {
     flex: 1 1 auto; min-height: 200px; position: relative;
 }
@@ -1147,26 +1143,48 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 
 /* DWS-SMT signal-validation confidence block */
 .dws-validation {
-    font-size: 11px;
-    line-height: 1.5;
-    padding: 3px 6px;
-    margin-top: 2px;
-    border-radius: 3px;
+    font-size: 12px;
+    padding: 8px 10px;
+    border-radius: 4px;
     color: #f2f4f9;
     background: rgba(255, 255, 255, 0.03);
 }
+.dws-vhead {
+    display: flex; align-items: center; gap: 7px;
+    margin-bottom: 8px;
+}
 .dws-validation .dws-vtier {
     font-weight: 700;
-    padding: 0 5px;
+    padding: 1px 7px;
     border-radius: 3px;
+    white-space: nowrap;
 }
 .dws-validation.trusted      .dws-vtier { background: #1f6f54; color: #f2f4f9; }
 .dws-validation.caution      .dws-vtier { background: #7a5a1e; color: #f2f4f9; }
 .dws-validation.insufficient .dws-vtier { background: #4a4f5c; color: #f2f4f9; }
-/* Meta text stays white like the rest of the panel; only the signed numbers
-   (.dws-num.pos / .dws-num.neg) carry green/red — matches the panel's
-   "labels white, numbers coloured" convention. */
-.dws-validation .dws-vmeta { color: #f2f4f9; }
+.dws-vlabel {
+    font-size: 11px; letter-spacing: 0.05em;
+    color: var(--fg-muted);
+}
+/* Metric list — one row per figure, label left / value right. The panel
+   column is too narrow to pack two metrics side by side without the old
+   cramped feel, so each gets its own full-width line with a roomy gap. */
+.dws-vstats {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+.dws-vcell {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline; gap: 8px;
+    line-height: 1.5;
+}
+.dws-vk { color: var(--fg-muted); white-space: nowrap; }
+.dws-vv {
+    font-weight: 700; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
 
 /* Macro / rate-differential panel */
 .macro-row {

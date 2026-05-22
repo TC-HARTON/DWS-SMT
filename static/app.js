@@ -1193,9 +1193,8 @@ function ensureDwsSkeleton(sym) {
             ).join('')}</span>
         </div>
         <div class="dws-state" data-bind="dws-state-${sym}">--</div>
-        <div class="dws-sync" data-bind="dws-sync-${sym}">--</div>
-        <div class="dws-stats" data-bind="dws-stats-${sym}">--</div>
         <div class="dws-validation" data-bind="dws-validation-${sym}">--</div>
+        <div class="dws-sync" data-bind="dws-sync-${sym}">--</div>
         <div class="dws-canvas-wrap"><canvas data-bind="dws-canvas-${sym}"></canvas></div>
         <div class="dws-legend">
             <span><i class="sw" style="background:${DWS_CELL[0]}"></i>上</span>
@@ -1386,78 +1385,6 @@ function updateDwsSync(sym, snap, win) {
     el.textContent = txt;
 }
 
-/** Update the trade-record summary line (back-test of the window's triggers).
- *  Close-to-close P/L only — spread/slippage not deducted. */
-function updateDwsStats(sym, snap, win) {
-    const el = $bind('dws-stats-' + sym);
-    if (!el) return;
-    el.className = 'dws-stats';
-    const mult = pointMultiplierFor(sym);
-    const trades = win.trades || [];
-    const done = trades.filter(t => !t.o);
-    const open = trades.find(t => t.o);
-    // Round-trip cost ≈ the current spread (no historical spread is stored).
-    const tk = snap.price && snap.price.ticks && snap.price.ticks[sym];
-    const costPts = (tk && tk.ask != null && tk.bid != null)
-        ? (tk.ask - tk.bid) * mult : 0;
-
-    // Signed P/L → coloured number (green +, red −); labels stay white.
-    const num = v => {
-        const n = Math.round(v);
-        const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
-        return `<span class="dws-num ${cls}">`
-             + `${n >= 0 ? '+' : ''}${n.toLocaleString('en-US')}</span>`;
-    };
-    // Loss-magnitude (drawdown / MAE / cost) → always red, no sign.
-    const loss = v => `<span class="dws-num neg">`
-        + `${Math.round(v).toLocaleString('en-US')}</span>`;
-    const openLine = () => {
-        if (!open) return '';
-        return ` · 進行中 ${open.d > 0 ? '▲' : '▼'} ${num(open.p * mult - costPts)}`;
-    };
-
-    if (done.length === 0) {
-        el.innerHTML =
-            `<div class="dws-stat-line">実績 完了トレードなし${openLine()}</div>`;
-        return;
-    }
-
-    const net = done.map(d => d.p * mult - costPts);     // net of round-trip cost
-    const gross = done.map(d => d.p * mult);
-    const N = net.length;
-    const wins = net.filter(p => p > 0);
-    const losses = net.filter(p => p < 0);
-    const netSum = net.reduce((s, p) => s + p, 0);
-    const grossSum = gross.reduce((s, p) => s + p, 0);
-    const grossWin = wins.reduce((s, p) => s + p, 0);
-    const grossLoss = Math.abs(losses.reduce((s, p) => s + p, 0));
-    // Max drawdown of the cumulative net-equity curve (trades are chronological).
-    let peak = 0, eq = 0, maxDD = 0;
-    for (const p of net) {
-        eq += p;
-        if (eq > peak) peak = eq;
-        if (peak - eq > maxDD) maxDD = peak - eq;
-    }
-    const maxMAE = trades.reduce((m, t) => Math.max(m, t.m * mult), 0);
-
-    // Win rate is only shown once the sample is large enough to mean anything.
-    const rec = N >= 20
-        ? `${wins.length}勝${losses.length}敗 (${Math.round(wins.length / N * 100)}%)`
-        : `${wins.length}勝${losses.length}敗 `
-          + `<span class="dws-warn">N=${N}・サンプル不足</span>`;
-    const pf = grossLoss > 0
-        ? `<span class="dws-num ${grossWin >= grossLoss ? 'pos' : 'neg'}">`
-          + `${(grossWin / grossLoss).toFixed(2)}</span>`
-        : (grossWin > 0 ? '<span class="dws-num pos">∞</span>' : '0');
-
-    el.innerHTML =
-        `<div class="dws-stat-line">実績 ${rec} · 純益 ${num(netSum)}pt `
-        + `<span class="dws-dim">(グロス ${num(grossSum)} / `
-        + `コスト ${loss(costPts * N)})</span></div>`
-        + `<div class="dws-stat-line">リスク PF ${pf} · 期待値 ${num(netSum / N)}pt`
-        + ` · 最大DD ${loss(maxDD)} · 最大MAE ${loss(maxMAE)}${openLine()}</div>`;
-}
-
 /** Render the out-of-sample confidence block for the selected base TF.
  *  Data comes from the validation layer (snap.validation); it refreshes on
  *  its own 5-minute cadence so it is often older than the live histogram. */
@@ -1478,21 +1405,33 @@ function updateDwsValidation(sym, snap) {
     el.className = 'dws-validation ' + tierCls;
 
     const pct = x => (x == null ? '--' : Math.round(x * 100) + '%');
-    const pf = c.profit_factor == null ? '∞'
-             : c.profit_factor.toFixed(2);
-    const exp = c.expectancy == null ? '--' : Math.round(c.expectancy);
+    const pf = c.profit_factor == null ? '∞' : c.profit_factor.toFixed(2);
+    const exp = c.expectancy == null ? null : Math.round(c.expectancy);
     const expCls = c.expectancy > 0 ? 'pos' : c.expectancy < 0 ? 'neg' : '';
-    const ci = `${pct(c.ci_low)}–${pct(c.ci_high)}`;
+    const expTxt = exp == null ? '--' : `${exp >= 0 ? '+' : ''}${exp}pt`;
+    const ci = (c.ci_low == null || c.ci_high == null) ? '--'
+             : `${Math.round(c.ci_low * 100)}–${Math.round(c.ci_high * 100)}%`;
     const thirds = (c.thirds || [])
-        .map(t => (t.expectancy > 0 ? '✓' : '✗')).join('');
+        .map(t => (t.expectancy > 0 ? '✓' : '✗')).join('') || '--';
+
+    // Each metric is its own label/value cell — .dws-vstats stacks them one
+    // per row with a roomy gap so the figures never run together.
+    const cell = (k, v, vcls) =>
+        `<div class="dws-vcell"><span class="dws-vk">${k}</span>`
+      + `<span class="dws-vv ${vcls || ''}">${v}</span></div>`;
 
     el.innerHTML =
-        `<span class="dws-vtier">${esc(c.tier)}</span> `
-      + `<span class="dws-vmeta">OOS検証 N=${c.n_trades} · `
-      + `勝率 ${pct(c.win_rate)} (95%CI ${ci}) · `
-      + `PF ${esc(pf)} · 期待値 <span class="dws-num ${expCls}">`
-      + `${exp >= 0 ? '+' : ''}${exp}</span>pt · `
-      + `安定性 ${esc(thirds)}</span>`;
+        `<div class="dws-vhead">`
+      + `<span class="dws-vtier">${esc(c.tier)}</span>`
+      + `<span class="dws-vlabel">OOS検証 · N=${c.n_trades}</span>`
+      + `</div>`
+      + `<div class="dws-vstats">`
+      + cell('勝率', pct(c.win_rate))
+      + cell('95%CI', esc(ci))
+      + cell('PF', esc(pf))
+      + cell('期待値', esc(expTxt), 'dws-num ' + expCls)
+      + cell('安定性', esc(thirds))
+      + `</div>`;
 }
 
 function drawDwsCanvas(snap, sym) {
@@ -1520,8 +1459,6 @@ function drawDwsCanvas(snap, sym) {
         if (stateEl) { stateEl.textContent = 'データなし'; stateEl.className = 'dws-state'; }
         const syncEl0 = $bind('dws-sync-' + sym);
         if (syncEl0) { syncEl0.textContent = '--'; syncEl0.className = 'dws-sync'; }
-        const statsEl0 = $bind('dws-stats-' + sym);
-        if (statsEl0) { statsEl0.textContent = '--'; statsEl0.className = 'dws-stats'; }
         updateDwsValidation(sym, snap);
         return;
     }
@@ -1602,9 +1539,8 @@ function drawDwsCanvas(snap, sym) {
     }
 
     updateDwsState(stateEl, win);
-    updateDwsSync(sym, snap, win);
-    updateDwsStats(sym, snap, win);
     updateDwsValidation(sym, snap);
+    updateDwsSync(sym, snap, win);
 }
 
 // ------------------------------------------------------------
