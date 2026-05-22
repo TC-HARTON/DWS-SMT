@@ -178,3 +178,48 @@ def summarize_pnls(pnls: list[float]) -> dict[str, float]:
         "expectancy": sum(pnls) / n,
         "max_drawdown": max_drawdown(pnls),
     }
+
+
+TIER_TRUSTED = "信頼"
+TIER_CAUTION = "要注意"
+TIER_INSUFFICIENT = "データ不足"
+
+
+def breakeven_win_rate(pnls: list[float]) -> float:
+    """Win rate at which the realised avg win / avg loss nets to zero.
+
+    ``breakeven = avg_loss / (avg_win + avg_loss)`` using magnitudes. With no
+    losing trades the breakeven is ``0.0`` (any win rate profits); with no
+    winning trades it is ``1.0``.
+    """
+    wins = [p for p in pnls if p > 0.0]
+    losses = [abs(p) for p in pnls if p < 0.0]
+    if not losses:
+        return 0.0
+    if not wins:
+        return 1.0
+    avg_win = sum(wins) / len(wins)
+    avg_loss = sum(losses) / len(losses)
+    return avg_loss / (avg_win + avg_loss)
+
+
+def classify_tier(
+    *,
+    n_trades: int,
+    ci_low: float,
+    breakeven: float,
+    thirds_expectancy: list[float],
+) -> str:
+    """Map a validation result onto one of the three confidence tiers.
+
+    * ``データ不足`` — fewer than :data:`config.VALIDATION_MIN_TRADES` trades.
+    * ``信頼`` — the win-rate CI lower bound clears the breakeven win rate AND
+      every sub-period (third) has positive expectancy.
+    * ``要注意`` — everything else: an edge that is unstable, marginal, or
+      absent. The numeric metrics shown alongside disambiguate.
+    """
+    if n_trades < config.VALIDATION_MIN_TRADES:
+        return TIER_INSUFFICIENT
+    if ci_low > breakeven and all(e > 0.0 for e in thirds_expectancy):
+        return TIER_TRUSTED
+    return TIER_CAUTION

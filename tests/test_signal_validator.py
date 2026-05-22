@@ -66,3 +66,40 @@ def test_summarize_pnls_empty():
     assert s["win_rate"] == 0.0
     assert s["expectancy"] == 0.0
     assert s["profit_factor"] == 0.0
+
+
+# --------------------------------------------------------------- breakeven
+def test_breakeven_win_rate_symmetric():
+    # avg win == avg loss magnitude → breakeven at 50 %.
+    assert sv.breakeven_win_rate([100.0, -100.0, 100.0]) == pytest.approx(0.5)
+
+
+def test_breakeven_win_rate_no_losses():
+    assert sv.breakeven_win_rate([10.0, 20.0]) == pytest.approx(0.0)
+
+
+def test_breakeven_win_rate_no_wins():
+    assert sv.breakeven_win_rate([-10.0, -20.0]) == pytest.approx(1.0)
+
+
+# -------------------------------------------------------------------- tier
+def test_classify_tier_insufficient():
+    assert sv.classify_tier(n_trades=10, ci_low=0.9, breakeven=0.5,
+                             thirds_expectancy=[1.0, 1.0, 1.0]) == "データ不足"
+
+
+def test_classify_tier_trusted():
+    # enough trades, CI lower bound clears breakeven, all thirds positive.
+    assert sv.classify_tier(n_trades=50, ci_low=0.6, breakeven=0.5,
+                            thirds_expectancy=[1.0, 2.0, 0.5]) == "信頼"
+
+
+def test_classify_tier_caution_unstable():
+    # enough trades but one third has negative expectancy.
+    assert sv.classify_tier(n_trades=50, ci_low=0.6, breakeven=0.5,
+                            thirds_expectancy=[1.0, -2.0, 0.5]) == "要注意"
+
+
+def test_classify_tier_caution_ci_below_breakeven():
+    assert sv.classify_tier(n_trades=50, ci_low=0.45, breakeven=0.5,
+                            thirds_expectancy=[1.0, 1.0, 1.0]) == "要注意"
