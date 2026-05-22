@@ -89,6 +89,7 @@ class AnalysisLoop:
         calendar_interval: float = config.CALENDAR_REFRESH_SEC,
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
         macro_interval: float = config.MACRO_REFRESH_SEC,
+        realyield_interval: float = config.MACRO_REALYIELD_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
         self._connector = connector
@@ -114,6 +115,9 @@ class AnalysisLoop:
         # keeps a slow network call out of the loop.
         self._macro_engine = macro_engine or MacroEngine()
         self._macro_inflight = threading.Event()
+        # The real yield moves daily, so it refreshes faster than policy rates
+        # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
+        self._realyield_inflight = threading.Event()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -141,6 +145,7 @@ class AnalysisLoop:
             _Schedule("validation", validation_interval,
                       next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
             _Schedule("macro", macro_interval),
+            _Schedule("realyield", realyield_interval),
         )
 
     # --------------------------------------------------------------- start
@@ -199,6 +204,7 @@ class AnalysisLoop:
             "calendar": self._do_calendar_refresh,
             "validation": self._do_validation_refresh,
             "macro": self._do_macro_refresh,
+            "realyield": self._do_realyield_refresh,
         }[name]
         try:
             handler(bases)
@@ -405,6 +411,27 @@ class AnalysisLoop:
             log.exception("macro worker failed")
         finally:
             self._macro_inflight.clear()
+
+    def _do_realyield_refresh(self, bases: list[str]) -> None:
+        """Spec §B.11: refresh the US 10Y real yield hourly (a daily-moving
+        market signal, faster cadence than the 6 h policy-rate refresh)."""
+        if self._realyield_inflight.is_set():
+            log.debug("realyield: previous fetch still in flight, skipping tick")
+            return
+        self._realyield_inflight.set()
+        worker = threading.Thread(
+            target=self._realyield_refresh_worker,
+            name="realyield-fetch", daemon=True,
+        )
+        worker.start()
+
+    def _realyield_refresh_worker(self) -> None:
+        try:
+            self._state.set_real_yield(self._macro_engine.fetch_real_yield())
+        except Exception:               # noqa: BLE001 — never reach the loop
+            log.exception("realyield worker failed")
+        finally:
+            self._realyield_inflight.clear()
 
     # ------------------------------------------------------------- warmup
     def _warmup(self) -> None:
