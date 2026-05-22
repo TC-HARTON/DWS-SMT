@@ -103,6 +103,13 @@ def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
     return None
 
 
+def _et_to_utc_ts(date_iso: str, hour: int, minute: int) -> float:
+    """Convert a US-Eastern wall time on *date_iso* (YYYY-MM-DD) to a UTC epoch."""
+    dt = datetime.strptime(date_iso, "%Y-%m-%d").replace(
+        hour=hour, minute=minute, tzinfo=_EASTERN)
+    return dt.astimezone(timezone.utc).timestamp()
+
+
 def _title_matches_keywords(
     title: str,
     keywords: Iterable[str] = config.CALENDAR_EVENT_KEYWORDS,
@@ -286,6 +293,81 @@ def _dedupe_events(events: list[CalendarEvent]) -> tuple[CalendarEvent, ...]:
     return tuple(out)
 
 
+def upcoming_fomc_events(
+    now_ts: float,
+    count: int = config.CALENDAR_UPCOMING_COUNT,
+    skip_dates: frozenset[str] = frozenset(),
+) -> list[CalendarEvent]:
+    """The next *count* scheduled FOMC announcements from the published table.
+
+    Forex Factory only covers the current week, so the next rate decision is
+    sourced from the Fed's deterministic meeting schedule (config). *skip_dates*
+    (UTC ``YYYY-MM-DD``) suppresses a meeting already covered by a live feed.
+    """
+    hour, minute = config.FOMC_ANNOUNCE_ET
+    out: list[CalendarEvent] = []
+    for d in config.FOMC_MEETING_DATES:
+        ts = _et_to_utc_ts(d, hour, minute)
+        if ts < now_ts:
+            continue
+        utc_day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        if utc_day in skip_dates:
+            continue
+        out.append(CalendarEvent(
+            release_ts=ts, currency="USD",
+            title="FOMC Meeting (rate decision)", impact="High",
+            forecast="", previous="", source="scheduled"))
+        if len(out) >= count:
+            break
+    return out
+
+
+def fetch_upcoming_nfp_events(
+    now_ts: float,
+    count: int = config.CALENDAR_UPCOMING_COUNT,
+    skip_dates: frozenset[str] = frozenset(),
+    timeout: float = config.CALENDAR_FETCH_TIMEOUT_SEC,
+) -> list[CalendarEvent]:
+    """The next *count* Non-Farm Payroll releases from the FRED release calendar.
+
+    Returns an empty list when ``FRED_API_KEY`` is unset or the request fails —
+    the calendar simply omits the NFP forward entries, it never raises.
+    """
+    if not config.FRED_API_KEY:
+        return []
+    try:
+        resp = requests.get(
+            "https://api.stlouisfed.org/fred/release/dates",
+            params={"release_id": config.FRED_NFP_RELEASE_ID,
+                    "api_key": config.FRED_API_KEY, "file_type": "json",
+                    "include_release_dates_with_no_data": "true",
+                    "sort_order": "asc"},
+            timeout=timeout)
+        resp.raise_for_status()
+        dates = [d.get("date", "") for d in resp.json().get("release_dates", [])]
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        log.warning("calendar: NFP release-date fetch failed - %s", exc)
+        return []
+    hour, minute = config.NFP_RELEASE_ET
+    out: list[CalendarEvent] = []
+    for d in sorted(set(dates)):
+        if not d:
+            continue
+        ts = _et_to_utc_ts(d, hour, minute)
+        if ts < now_ts:
+            continue
+        utc_day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        if utc_day in skip_dates:
+            continue
+        out.append(CalendarEvent(
+            release_ts=ts, currency="USD",
+            title="Non-Farm Payrolls (Employment Situation)", impact="High",
+            forecast="", previous="", source="scheduled"))
+        if len(out) >= count:
+            break
+    return out
+
+
 class CalendarEngine:
     """Pulls + parses + caches the SPEC §15 calendar with auto-fallback."""
 
@@ -373,11 +455,22 @@ class CalendarEngine:
                 self._last_events = tuple(events)
                 self._last_source = "mt5"
 
+        # Always append the forward "next key events" (next FOMC + next NFP)
+        # so the calendar never goes blank once this week's events are past.
+        now_ts = time.time()
+        ff_days = frozenset(
+            datetime.fromtimestamp(e.release_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            for e in self._last_events if e.currency == "USD"
+        )
+        scheduled = (upcoming_fomc_events(now_ts, skip_dates=ff_days)
+                     + fetch_upcoming_nfp_events(now_ts, skip_dates=ff_days))
+        all_events = _dedupe_events(list(self._last_events) + scheduled)
+
         return CalendarSnapshot(
             generated_at=time.time(),
             fetched_at=self._last_fetch_ok,
             source=self._last_source,
-            events=tuple(self._last_events),
+            events=all_events,
             last_error=self._last_error,
             consecutive_failures=self._consecutive_failures,
         )

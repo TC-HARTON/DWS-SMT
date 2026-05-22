@@ -239,8 +239,11 @@ def test_engine_falls_back_to_mt5_after_threshold(tmp_path, mocker):
     # Second failure — threshold reached, fallback should fire.
     snap2 = eng.compute()
     assert snap2.source == "mt5"
-    assert len(snap2.events) == 1
-    assert snap2.events[0].source == "mt5"
+    # The MT5 event is present (alongside the always-appended scheduled
+    # FOMC/NFP forward events).
+    mt5_events = [e for e in snap2.events if e.source == "mt5"]
+    assert len(mt5_events) == 1
+    assert mt5_events[0].title == "MT5 stub"
 
 
 def test_engine_bootstraps_from_existing_cache(tmp_path, mocker):
@@ -277,10 +280,58 @@ def test_engine_fetches_and_merges_multiple_feeds(tmp_path, mocker):
     mocker.patch("analyzer.calendar_feed.requests.get",
                  return_value=_stub_response(SAMPLE_XML))
     snap = eng.compute()
-    # Both feeds returned the same XML → events merge but de-duplicate.
+    # Both feeds returned the same XML → Forex Factory events merge but
+    # de-duplicate (2, not 4); scheduled forward events are appended on top.
     assert snap.source == "forex_factory"
-    assert len(snap.events) == 2               # not 4
+    ff = [e for e in snap.events if e.source == "forex_factory"]
+    assert len(ff) == 2
     assert cache.exists()                      # primary feed cached
+
+
+def test_upcoming_fomc_events_returns_future_only():
+    from analyzer.calendar_feed import upcoming_fomc_events
+    out = upcoming_fomc_events(now_ts=0.0, count=3)        # now before all dates
+    assert len(out) == 3
+    assert all(e.source == "scheduled" for e in out)
+    assert all(e.currency == "USD" and "FOMC" in e.title for e in out)
+    assert [e.release_ts for e in out] == sorted(e.release_ts for e in out)
+    assert upcoming_fomc_events(now_ts=4e9, count=3) == []  # now after all dates
+
+
+def test_upcoming_fomc_events_skip_dates():
+    from analyzer.calendar_feed import upcoming_fomc_events
+    from datetime import datetime, timezone
+    first = config.FOMC_MEETING_DATES[0]
+    out = upcoming_fomc_events(now_ts=0.0, count=3,
+                               skip_dates=frozenset({first}))
+    days = {datetime.fromtimestamp(e.release_ts, tz=timezone.utc)
+            .strftime("%Y-%m-%d") for e in out}
+    assert first not in days
+
+
+def test_fetch_upcoming_nfp_events(mocker):
+    from analyzer.calendar_feed import fetch_upcoming_nfp_events
+    if not config.FRED_API_KEY:
+        assert fetch_upcoming_nfp_events(now_ts=0.0) == []   # no key → []
+        return
+    resp = MagicMock()
+    resp.json.return_value = {"release_dates": [
+        {"date": "2026-06-05"}, {"date": "2026-07-02"}, {"date": "2026-08-07"}]}
+    resp.raise_for_status.return_value = None
+    mocker.patch("analyzer.calendar_feed.requests.get", return_value=resp)
+    out = fetch_upcoming_nfp_events(now_ts=0.0, count=2)
+    assert len(out) == 2
+    assert all(e.source == "scheduled" and e.currency == "USD" for e in out)
+    assert all("Payroll" in e.title for e in out)
+
+
+def test_fetch_upcoming_nfp_events_http_failure_returns_empty(mocker):
+    from analyzer.calendar_feed import fetch_upcoming_nfp_events
+    if not config.FRED_API_KEY:
+        return
+    mocker.patch("analyzer.calendar_feed.requests.get",
+                 side_effect=requests.ConnectionError("offline"))
+    assert fetch_upcoming_nfp_events(now_ts=0.0) == []
 
 
 def test_engine_corrupt_cache_does_not_crash(tmp_path):

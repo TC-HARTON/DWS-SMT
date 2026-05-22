@@ -356,6 +356,28 @@ CALENDAR_FF_URL: Final[str] = _get_env(
 # therefore needs a different source; CalendarEngine accepts multiple URLs so
 # one can be added here without further code changes.
 CALENDAR_FF_URLS: Final[tuple[str, ...]] = (CALENDAR_FF_URL,)
+
+# Forward "next key events" feed (spec §B.12). Forex Factory only covers the
+# current week, so the next FOMC / NFP are added from deterministic schedules
+# — the calendar then always shows what is coming next.
+#
+# FOMC announcement dates: the Fed's published schedule (second/announcement
+# day). UPDATE ANNUALLY from federalreserve.gov/monetarypolicy/fomccalendars.htm
+# — the Fed publishes ~2 years ahead.
+FOMC_MEETING_DATES: Final[tuple[str, ...]] = (
+    "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17", "2026-07-29",
+    "2026-09-16", "2026-10-28", "2026-12-09",
+    "2027-01-27", "2027-03-17", "2027-04-28", "2027-06-09", "2027-07-28",
+    "2027-09-15", "2027-10-27", "2027-12-08",
+)
+# Release clock times, US Eastern: FOMC statement ~14:00, NFP ~08:30.
+FOMC_ANNOUNCE_ET: Final[tuple[int, int]] = (14, 0)
+NFP_RELEASE_ET: Final[tuple[int, int]] = (8, 30)
+# FRED release id for the Employment Situation report — its release/dates
+# endpoint carries the scheduled future NFP dates.
+FRED_NFP_RELEASE_ID: Final[int] = 50
+# How many upcoming FOMC / NFP events to surface in the forward feed.
+CALENDAR_UPCOMING_COUNT: Final[int] = 3
 CALENDAR_FETCH_TIMEOUT_SEC: Final[float] = 10.0
 CALENDAR_FETCH_RETRIES: Final[int] = 3
 # SPEC §15.4 更新頻度: XML 取得 1 時間に 1 回 (HTTP).
