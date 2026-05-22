@@ -1135,6 +1135,7 @@ function ensureDwsSkeleton(sym) {
         <div class="dws-state" data-bind="dws-state-${sym}">--</div>
         <div class="dws-sync" data-bind="dws-sync-${sym}">--</div>
         <div class="dws-stats" data-bind="dws-stats-${sym}">--</div>
+        <div class="dws-validation" data-bind="dws-validation-${sym}">--</div>
         <div class="dws-canvas-wrap"><canvas data-bind="dws-canvas-${sym}"></canvas></div>
         <div class="dws-legend">
             <span><i class="sw" style="background:${DWS_CELL[0]}"></i>上</span>
@@ -1166,9 +1167,11 @@ function ensureDwsSkeleton(sym) {
 function paintDws(snap) {
     // Skip on price-only frames — the histogram is analysis-derived. The
     // 'dws' stamp is busted on panel expand/collapse and on a TF-pill click
-    // so those still force a redraw.
+    // so those still force a redraw. The validation layer refreshes on its
+    // own cadence, so its timestamp is folded into the stamp key.
     const analysis = snap.analysis;
-    if (analysis && !changed('dws', analysis.generated_at)) return;
+    const vts = (snap.validation && snap.validation.generated_at) || 0;
+    if (analysis && !changed('dws', analysis.generated_at + ':' + vts)) return;
     for (const sym of SYMBOL_ORDER) {
         ensureDwsSkeleton(sym);
         drawDwsCanvas(snap, sym);
@@ -1367,6 +1370,43 @@ function updateDwsStats(sym, snap, win) {
         + ` · 最大DD ${loss(maxDD)} · 最大MAE ${loss(maxMAE)}${openLine()}</div>`;
 }
 
+/** Render the out-of-sample confidence block for the selected base TF.
+ *  Data comes from the validation layer (snap.validation); it refreshes on
+ *  its own 5-minute cadence so it is often older than the live histogram. */
+function updateDwsValidation(sym, snap) {
+    const el = $bind('dws-validation-' + sym);
+    if (!el) return;
+    const v = snap.validation;
+    const stats = v && v.by_symbol && v.by_symbol[sym]
+                  && v.by_symbol[sym][UI.dwsBase];
+    if (!stats || !stats.raw) {
+        el.className = 'dws-validation';
+        el.textContent = '検証 — データ未取得';
+        return;
+    }
+    const c = stats.raw;
+    const tierCls = c.tier === '信頼' ? 'trusted'
+                  : c.tier === '要注意' ? 'caution' : 'insufficient';
+    el.className = 'dws-validation ' + tierCls;
+
+    const pct = x => (x == null ? '--' : Math.round(x * 100) + '%');
+    const pf = c.profit_factor == null ? '∞'
+             : c.profit_factor.toFixed(2);
+    const exp = c.expectancy == null ? '--' : Math.round(c.expectancy);
+    const expCls = c.expectancy > 0 ? 'pos' : c.expectancy < 0 ? 'neg' : '';
+    const ci = `${pct(c.ci_low)}–${pct(c.ci_high)}`;
+    const thirds = (c.thirds || [])
+        .map(t => (t.expectancy > 0 ? '✓' : '✗')).join('');
+
+    el.innerHTML =
+        `<span class="dws-vtier">${esc(c.tier)}</span> `
+      + `<span class="dws-vmeta">OOS検証 N=${c.n_trades} · `
+      + `勝率 ${pct(c.win_rate)} (95%CI ${ci}) · `
+      + `PF ${esc(pf)} · 期待値 <span class="dws-num ${expCls}">`
+      + `${exp >= 0 ? '+' : ''}${exp}</span>pt · `
+      + `安定性 ${esc(thirds)}</span>`;
+}
+
 function drawDwsCanvas(snap, sym) {
     const canvas = $bind('dws-canvas-' + sym);
     if (!canvas) return;
@@ -1394,6 +1434,7 @@ function drawDwsCanvas(snap, sym) {
         if (syncEl0) { syncEl0.textContent = '--'; syncEl0.className = 'dws-sync'; }
         const statsEl0 = $bind('dws-stats-' + sym);
         if (statsEl0) { statsEl0.textContent = '--'; statsEl0.className = 'dws-stats'; }
+        updateDwsValidation(sym, snap);
         return;
     }
 
@@ -1467,6 +1508,7 @@ function drawDwsCanvas(snap, sym) {
     updateDwsState(stateEl, win);
     updateDwsSync(sym, snap, win);
     updateDwsStats(sym, snap, win);
+    updateDwsValidation(sym, snap);
 }
 
 // ------------------------------------------------------------

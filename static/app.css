@@ -1149,3 +1149,23 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+/* DWS-SMT signal-validation confidence block */
+.dws-validation {
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 3px 6px;
+    margin-top: 2px;
+    border-radius: 3px;
+    color: #c5ccd8;
+    background: rgba(255, 255, 255, 0.03);
+}
+.dws-validation .dws-vtier {
+    font-weight: 700;
+    padding: 0 5px;
+    border-radius: 3px;
+}
+.dws-validation.trusted      .dws-vtier { background: #1f6f54; color: #eafff7; }
+.dws-validation.caution      .dws-vtier { background: #7a5a1e; color: #fff3da; }
+.dws-validation.insufficient .dws-vtier { background: #4a4f5c; color: #c5ccd8; }
+.dws-validation .dws-vmeta { color: #8089a0; }
