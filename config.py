@@ -168,7 +168,14 @@ DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
 # Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread
 # on its own slow schedule so it never touches the SPEC §19 50 ms budget.
 VALIDATION_REFRESH_SEC: Final[float] = 300.0    # re-validate every 5 minutes
-VALIDATION_HISTORY_BARS: Final[int] = 2000      # base bars fetched per (sym, TF)
+VALIDATION_HISTORY_BARS: Final[int] = 2000      # base bars evaluated per window
+# Per-timeframe FETCH depth. Base TFs (M15/H1/H4) get the full window; the
+# higher row TFs only need enough bars to span it. Requesting years of D1/W1
+# history makes MT5 attempt a slow broker sync that returns empty and freezes
+# the dashboard, so D1/W1 are capped to what the broker actually holds.
+VALIDATION_TF_BARS: Final[dict[str, int]] = {
+    "M15": 2000, "H1": 2000, "H4": 2000, "D1": 800, "W1": 200,
+}
 VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ不足"
 # Wilson score interval z for a 95 % two-sided confidence interval.
 VALIDATION_CI_Z: Final[float] = 1.96

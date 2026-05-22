@@ -357,9 +357,16 @@ class SignalValidator:
         self._connector = connector
         self._history_bars = history_bars
         self._fetch_gap_sec = fetch_gap_sec
-        # Deep-history fetch specs: same MT5 constants, far deeper bar counts.
+        # Deep-history fetch specs. Bar count is per-timeframe
+        # (config.VALIDATION_TF_BARS): the base TFs get the full window, but
+        # the higher row TFs (D1/W1) are capped to what the broker holds —
+        # requesting years of D1/W1 history triggers a slow empty broker sync
+        # that holds the connector lock and freezes the dashboard.
         self._deep_specs = tuple(
-            config.TimeframeSpec(label, _TF_CONST[label], 0, history_bars)
+            config.TimeframeSpec(
+                label, _TF_CONST[label], 0,
+                config.VALIDATION_TF_BARS.get(label, history_bars),
+            )
             for label in _NEEDED_TFS
             if label in _TF_CONST
         )
