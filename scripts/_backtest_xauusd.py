@@ -70,8 +70,9 @@ _DATE_RANGE: dict[str, str] = {
     "M15": "2010.01.01_2025.12.31",
 }
 
-# MT5 point size for XAUUSD (5-digit pricing).
-XAUUSD_POINT: float = 0.01
+# MT5 point size for XAUUSD on Exness (3-digit pricing — verified in
+# analyzer/mt5_connector.py:325 and against the broker's `symbol_info().point`).
+XAUUSD_POINT: float = 0.001
 
 
 # --------------------------------------------------------------------------- #

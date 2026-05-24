@@ -57,7 +57,8 @@ _DATE_RANGE = {
     "H1":  "2010.01.01_2025.12.31",
     "M15": "2010.01.01_2025.12.31",
 }
-XAUUSD_POINT = 0.01
+# 3-digit pricing on Exness — matches analyzer/mt5_connector.py:325.
+XAUUSD_POINT = 0.001
 
 
 def _load_csv(tf: str, side: str) -> pd.DataFrame:

@@ -42,9 +42,10 @@ from analyzer.signal_validator import evaluate_trades  # noqa: E402
 # Per-symbol layout
 # --------------------------------------------------------------------------- #
 
-# MT5 "point" size — verified against actual CSV decimal precision.
+# MT5 "point" size — matches the live broker (Exness Trial) per
+# analyzer/mt5_connector.py:325; XAUUSD uses 3-digit pricing → point=0.001.
 POINT_BY_SYMBOL: dict[str, float] = {
-    "XAUUSD": 0.01,
+    "XAUUSD": 0.001,
     "USDJPY": 0.001, "EURJPY": 0.001, "GBPJPY": 0.001, "AUDJPY": 0.001,
     "EURUSD": 0.00001, "GBPUSD": 0.00001, "AUDUSD": 0.00001,
     "EURGBP": 0.00001, "EURAUD": 0.00001,
