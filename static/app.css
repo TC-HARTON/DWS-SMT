@@ -479,6 +479,7 @@ body {
     padding-bottom: 6px;
 }
 .dws-title {
+    font-family: var(--mono);
     font-size: 13px; font-weight: 800; letter-spacing: 0.1em;
     color: var(--fg); text-transform: uppercase;
 }
@@ -1141,29 +1142,42 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 ::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
 
-/* DWS-SMT signal-validation confidence block */
+/* DWS-SMT signal-validation confidence block — the panel's headline
+   "is this signal trustworthy?" block, emphasised over the surrounding
+   state/sync lines via a slightly larger font, more padding, a brighter
+   background and a tier-coloured left accent bar. Uses the same monospace
+   family as the rest of the DWS panel (.dws-state / .dws-sync) and the
+   broader app-wide numeric convention (.bias chip / .stat-val / .acc-val). */
 .dws-validation {
-    font-size: 12px;
-    padding: 8px 10px;
-    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 5px;
     color: #f2f4f9;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.055);
+    border-left: 3px solid var(--fg-dim);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
+.dws-validation.trusted      { border-left-color: #2da27c; }
+.dws-validation.caution      { border-left-color: #c08a2a; }
+.dws-validation.insufficient { border-left-color: #6a7180; }
 .dws-vhead {
-    display: flex; align-items: center; gap: 7px;
-    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 9px;
 }
 .dws-validation .dws-vtier {
-    font-weight: 700;
-    padding: 1px 7px;
+    font-weight: 800;
+    padding: 2px 9px;
     border-radius: 3px;
     white-space: nowrap;
+    font-size: 12px;
+    letter-spacing: 0.04em;
 }
 .dws-validation.trusted      .dws-vtier { background: #1f6f54; color: #f2f4f9; }
 .dws-validation.caution      .dws-vtier { background: #7a5a1e; color: #f2f4f9; }
 .dws-validation.insufficient .dws-vtier { background: #4a4f5c; color: #f2f4f9; }
 .dws-vlabel {
-    font-size: 11px; letter-spacing: 0.05em;
+    font-size: 11px; letter-spacing: 0.06em;
     color: var(--fg-muted);
 }
 /* Metric list — one row per figure, label left / value right. The panel
@@ -1180,10 +1194,16 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     align-items: baseline; gap: 8px;
     line-height: 1.5;
 }
-.dws-vk { color: var(--fg-muted); white-space: nowrap; }
+.dws-vk {
+    color: var(--fg);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
 .dws-vv {
-    font-weight: 700; white-space: nowrap;
+    font-weight: 800; white-space: nowrap;
     font-variant-numeric: tabular-nums;
+    font-size: 14px;
 }
 
 /* Macro / rate-differential panel */
