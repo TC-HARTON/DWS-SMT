@@ -23,3 +23,17 @@ external/macro/*
 .idea/
 *.swp
 .gstack/
+
+# Dukascopy historical OHLC CSV data at the project root (Bid+Ask for 10
+# symbols × 5 TFs, ~700 MB total). Used by scripts/_backtest_*.py — kept out
+# of git since it is bulk external data and trivially re-downloadable.
+/XAUUSD_*.csv
+/USDJPY_*.csv
+/EURUSD_*.csv
+/GBPUSD_*.csv
+/AUDUSD_*.csv
+/EURJPY_*.csv
+/GBPJPY_*.csv
+/AUDJPY_*.csv
+/EURGBP_*.csv
+/EURAUD_*.csv
