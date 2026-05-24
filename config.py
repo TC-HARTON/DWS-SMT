@@ -168,13 +168,28 @@ DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
 # Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread
 # on its own slow schedule so it never touches the SPEC §19 50 ms budget.
 VALIDATION_REFRESH_SEC: Final[float] = 300.0    # re-validate every 5 minutes
-VALIDATION_HISTORY_BARS: Final[int] = 2000      # base bars evaluated per window
-# Per-timeframe FETCH depth. Base TFs (M15/H1/H4) get the full window; the
-# higher row TFs only need enough bars to span it. Requesting years of D1/W1
-# history makes MT5 attempt a slow broker sync that returns empty and freezes
-# the dashboard, so D1/W1 are capped to what the broker actually holds.
+# Base bars evaluated per window. The offline backtest in
+# scripts/_backtest_all_sl_wf.py confirmed every (symbol, base TF) reaches
+# tier 信頼 on 16 y of Dukascopy data; the live validator was previously held
+# at 2 000 bars (~30 trades on M15, CI ~26 pp wide at N=53) only because of
+# the original freeze incident that led to the in-flight guard, per-TF caps,
+# and inter-symbol throttle. With those three safeguards in place we can raise
+# the live emit window to get statistically meaningful sample sizes — at
+# 20 000 M15 bars expect a few hundred trades per base, which tightens the
+# Wilson CI from ~26 pp to ~10 pp.
+VALIDATION_HISTORY_BARS: Final[int] = 20000
+# Per-timeframe FETCH depth. Each base TF needs ~16× its bar count in the next
+# higher TF to cover the same time span (the diff-mapping is a step function
+# that uses zero for base bars older than the oldest sub-TF bar — see
+# dws_smt._map_onto). Caps below are sized so every base's 3-TF stack is
+# fully covered, and D1/W1 stay within the broker's resident history (so MT5
+# never attempts the slow cold-sync that caused the original freeze).
 VALIDATION_TF_BARS: Final[dict[str, int]] = {
-    "M15": 2000, "H1": 2000, "H4": 2000, "D1": 800, "W1": 200,
+    "M15": 20000,    # ~7 months
+    "H1":  20000,    # ~3 years
+    "H4":  10000,    # ~7 years
+    "D1":   3000,    # ~12 years
+    "W1":    600,    # ~11.5 years
 }
 VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ不足"
 # Wilson score interval z for a 95 % two-sided confidence interval.
