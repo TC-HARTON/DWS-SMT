@@ -40,10 +40,22 @@ _RESTART_SCRIPT = config.PROJECT_ROOT / "Dashboard.bat"
 
 def _rewrite_env_terminal_path(new_path: str) -> None:
     """Replace (or append) the MT5_TERMINAL_PATH line in .env, preserving
-    every other line and the file's UTF-8 BOM-less encoding."""
-    lines: list[str] = []
+    every other line.
+
+    Reads as bytes and strips a leading UTF-8 BOM if present — earlier
+    revisions accidentally introduced one (PowerShell's
+    ``Set-Content -Encoding utf8`` writes a BOM, and python-dotenv then
+    reads the first key as ``\\ufeffFRED_API_KEY`` so the var never lands
+    in ``os.environ``, breaking every dotenv-keyed setting downstream).
+    Writes back without a BOM via ``encoding='utf-8'`` (Python's default).
+    """
+    raw = b""
     if _ENV_FILE.exists():
-        lines = _ENV_FILE.read_text(encoding="utf-8").splitlines()
+        raw = _ENV_FILE.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
+    text = raw.decode("utf-8", errors="replace")
+    lines = text.splitlines()
     target = f"MT5_TERMINAL_PATH={new_path}"
     replaced = False
     for i, line in enumerate(lines):
