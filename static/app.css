@@ -1290,22 +1290,22 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     display: flex; align-items: center; gap: 8px;
     margin-top: 8px;
     padding-top: 7px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.10);
-    font-size: 10px;
-    color: var(--fg-dim);
+    border-top: 1px dashed rgba(255, 255, 255, 0.18);
+    font-size: 11px;
+    color: var(--fg);
     line-height: 1.4;
     flex-wrap: wrap;
 }
 .dws-vbase-label {
     font-weight: 800; letter-spacing: 0.08em;
-    color: var(--fg-muted);
+    color: var(--fg);
     text-transform: uppercase;
     flex: 0 0 auto;
 }
 .dws-vbase-fig {
-    font-weight: 600;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: var(--fg-muted);
+    color: var(--fg);
     flex: 1 1 auto;
 }
 .dws-vbase-tier {
