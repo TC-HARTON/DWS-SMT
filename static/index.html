@@ -29,7 +29,14 @@
 
   <aside class="side">
     <div class="card account-card">
-      <div class="card-title"><span class="title-accent">Account</span><span data-bind="acc-identity">--</span></div>
+      <div class="card-title">
+        <span class="title-accent">Account</span>
+        <span class="acc-identity-wrap">
+          <span data-bind="acc-identity">--</span>
+          <button class="broker-toggle" data-bind="broker-toggle" title="ブローカー切替" aria-haspopup="menu">▾</button>
+          <div class="broker-menu" data-bind="broker-menu" hidden></div>
+        </span>
+      </div>
       <div class="acc-grid">
         <div class="acc-cell"><div class="acc-label">Balance</div><div class="acc-val mono" data-bind="acc-balance">--</div></div>
         <div class="acc-cell"><div class="acc-label">Equity</div><div class="acc-val mono" data-bind="acc-equity">--</div></div>

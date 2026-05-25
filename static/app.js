@@ -1625,6 +1625,82 @@ function startTickers() {
 }
 
 // ------------------------------------------------------------
+// Broker switcher — click the ▾ next to the ACCOUNT identity to swap
+// MT5 terminals. The server writes .env and self-restarts; the existing
+// WebSocket reconnect loop picks the new instance up automatically.
+// ------------------------------------------------------------
+
+async function setupBrokerSwitcher() {
+    const toggle = $bind('broker-toggle');
+    const menu = $bind('broker-menu');
+    if (!toggle || !menu) return;
+
+    let info;
+    try {
+        info = await fetch('/api/broker').then(r => r.json());
+    } catch (e) {
+        toggle.disabled = true;
+        return;
+    }
+    const current = info.current_path || '';
+    const presets = info.presets || {};
+
+    menu.innerHTML = Object.entries(presets).map(([name, path]) => {
+        const active = path === current ? ' active' : '';
+        return `<button class="broker-opt${active}" data-name="${esc(name)}">`
+             + `<span class="broker-check">${path === current ? '●' : '○'}</span>`
+             + `<span>${esc(name)}</span></button>`;
+    }).join('');
+
+    toggle.onclick = (ev) => {
+        ev.stopPropagation();
+        menu.hidden = !menu.hidden;
+    };
+    document.addEventListener('click', (ev) => {
+        if (!menu.hidden && !menu.contains(ev.target) && ev.target !== toggle) {
+            menu.hidden = true;
+        }
+    });
+
+    menu.querySelectorAll('.broker-opt').forEach(btn => {
+        btn.onclick = async (ev) => {
+            ev.stopPropagation();
+            const name = btn.dataset.name;
+            if (btn.classList.contains('active')) { menu.hidden = true; return; }
+            menu.hidden = true;
+            showSwitchOverlay(`Switching to ${name}…`);
+            try {
+                const res = await fetch('/api/broker', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name}),
+                }).then(r => r.json());
+                if (!res.ok) {
+                    showSwitchOverlay(`切替失敗: ${res.error || 'unknown'}`, true);
+                    return;
+                }
+                showSwitchOverlay(
+                    `Switching to ${name}…  サーバー再起動中(約7秒)`,
+                    false);
+            } catch (e) {
+                showSwitchOverlay('サーバー再起動中…', false);
+            }
+        };
+    });
+}
+
+function showSwitchOverlay(msg, isError) {
+    let ov = document.getElementById('broker-switch-overlay');
+    if (!ov) {
+        ov = document.createElement('div');
+        ov.id = 'broker-switch-overlay';
+        document.body.appendChild(ov);
+    }
+    ov.textContent = msg;
+    ov.className = isError ? 'err' : '';
+}
+
+// ------------------------------------------------------------
 // Boot
 // ------------------------------------------------------------
 
@@ -1633,5 +1709,6 @@ document.addEventListener('DOMContentLoaded', () => {
     buildStrengthRows();
     buildCorrelationButtons();
     startTickers();
+    setupBrokerSwitcher();
     connect();
 });

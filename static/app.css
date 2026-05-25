@@ -934,6 +934,83 @@ body {
    ============================================================ */
 
 .account-card { flex: 0 0 auto; }
+/* Broker switcher attached to the ACCOUNT identity in the card title. */
+.acc-identity-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.broker-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-muted);
+    border-radius: 3px;
+    padding: 0 5px;
+    margin-left: 4px;
+    font-size: 10px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.broker-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.broker-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.broker-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    min-width: 180px;
+    overflow: hidden;
+}
+.broker-menu[hidden] { display: none; }
+.broker-opt {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 10px;
+    text-align: left;
+    cursor: pointer;
+}
+.broker-opt:last-child { border-bottom: 0; }
+.broker-opt:hover { background: var(--panel-2); }
+.broker-opt.active {
+    color: var(--accent);
+    cursor: default;
+}
+.broker-opt.active:hover { background: transparent; }
+.broker-check {
+    width: 12px;
+    color: var(--accent);
+    text-align: center;
+    flex: 0 0 auto;
+}
+/* Full-screen overlay while the server restarts for a broker switch. */
+#broker-switch-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 18, 28, 0.85);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+}
+#broker-switch-overlay.err { color: var(--sell); }
 .acc-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

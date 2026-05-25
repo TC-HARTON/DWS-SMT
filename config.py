@@ -50,6 +50,15 @@ MT5_TERMINAL_PATH: Final[str] = _get_env(
     "MT5_TERMINAL_PATH",
     r"C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe",
 )
+
+# Known MT5 broker presets exposed by the in-app broker switcher (the
+# ACCOUNT badge dropdown). Order = display order. The lite_server's
+# /api/switch_broker endpoint validates the user's pick against this map
+# so a malicious WS client can't write an arbitrary path into .env.
+BROKER_PRESETS: Final[dict[str, str]] = {
+    "Exness":     r"C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe",
+    "IC Markets": r"C:\Program Files\MetaTrader 5 IC Markets Global\terminal64.exe",
+}
 MT5_LOGIN: Final[str] = _get_env("MT5_LOGIN", "")  # empty → use saved login
 MT5_PASSWORD: Final[str] = _get_env("MT5_PASSWORD", "")
 MT5_SERVER: Final[str] = _get_env("MT5_SERVER", "")
