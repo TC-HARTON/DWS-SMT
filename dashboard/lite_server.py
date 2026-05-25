@@ -56,34 +56,75 @@ def _rewrite_env_terminal_path(new_path: str) -> None:
     _ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _spawn_restart_then_exit() -> None:
-    """Detach a Dashboard.bat relaunch and exit this process.
+def _spawn_restart_then_exit(new_terminal_path: str) -> None:
+    """Detach a python relaunch and exit this process.
 
-    Sleeps briefly so the HTTP response reaches the browser, then launches
-    Dashboard.bat in a new console window (DETACHED so it survives this
-    process exiting) and calls ``os._exit`` — bypassing Flask's blocking
-    shutdown handshake which doesn't work under Werkzeug's dev server.
-    Dashboard.bat detects port 8050 free once we exit and starts a fresh
-    main.py with the just-written MT5_TERMINAL_PATH.
+    Sleeps briefly so the HTTP response reaches the browser, then asks
+    PowerShell to wait 3 s (long enough for our listen socket to fully
+    release AND for the browser's reconnect loop to start retrying) and
+    then launch ``python.exe main.py`` in a new visible console. Then
+    calls ``os._exit`` — Werkzeug's dev server has no usable graceful
+    shutdown handshake.
+
+    We pass ``MT5_TERMINAL_PATH`` to the child explicitly via ``env=``
+    because ``python-dotenv``'s ``load_dotenv()`` is non-overriding by
+    default: the dying process's environment already contains the OLD
+    path (loaded at startup), and that would shadow the just-rewritten
+    ``.env`` line in the new process. Setting it explicitly forces the
+    child to see the new broker.
+
+    History: an earlier revision tried to chain ``timeout ... & start ...``
+    through ``subprocess.Popen([...], shell=False)``; the shell operators
+    ``>``/``&`` became literal arguments under that form, so the chain
+    never ran and the dashboard froze on the "Switching…" overlay forever.
+    A second revision went through Dashboard.bat, but its ``start "TITLE"
+    cmd /k …`` pattern doesn't survive a PowerShell → cmd → start chain
+    reliably when spawned in detached mode. Launching python directly is
+    simpler and avoids both quoting traps.
     """
+    import sys
     import time
     time.sleep(0.4)
-    # CREATE_NEW_CONSOLE so the child gets its own window like the original
-    # Dashboard.bat launch; DETACHED_PROCESS so it isn't tied to our exit.
-    CREATE_NEW_CONSOLE = 0x00000010
+    # The user's environment puts the running python in a Windows job that
+    # kills "detached" child processes the moment we os._exit — even with
+    # DETACHED_PROCESS / CREATE_NEW_PROCESS_GROUP / CREATE_BREAKAWAY_FROM_JOB
+    # plus DEVNULL stdio (verified empirically: every flag combination still
+    # has the child die within 200 ms of parent exit).
+    #
+    # The one Windows pattern that DOES survive is ``cmd /c start "" …``.
+    # The inner ``start`` command itself spawns truly independently and the
+    # outer ``cmd /c`` exits immediately; the spawned process is owned by
+    # the shell, not by us, so it outlives our ``os._exit``. We use it to
+    # launch a small inline cmd that sleeps 3 s (port-release window),
+    # then starts the new main.py in its own console.
     DETACHED_PROCESS = 0x00000008
+    python_exe = sys.executable
+    project_root = str(config.PROJECT_ROOT)
+    # The inner cmd: wait via ping (cmd's built-in sleep), then start the new
+    # main.py via `start "TITLE" cmd /k python main.py` (same shape Dashboard.bat
+    # uses so the user gets the familiar "MT5 Dashboard" window).
+    inner = (
+        f'ping -n 4 127.0.0.1 >nul && '
+        f'start "MT5 Dashboard" /D "{project_root}" cmd /k "{python_exe}" main.py'
+    )
+    outer = f'cmd /c start "" /MIN cmd /c "{inner}"'
+    child_env = dict(os.environ)
+    child_env["MT5_TERMINAL_PATH"] = new_terminal_path
     try:
         subprocess.Popen(
-            ["cmd", "/c", "timeout", "/t", "3", "/nobreak", ">", "nul", "&",
-             "start", "", str(_RESTART_SCRIPT)],
-            cwd=str(config.PROJECT_ROOT),
-            creationflags=CREATE_NEW_CONSOLE | DETACHED_PROCESS,
+            outer,
+            cwd=project_root,
+            creationflags=DETACHED_PROCESS,
             close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             shell=False,
+            env=child_env,
         )
     except OSError:
         log.exception("broker-switch restart spawn failed")
-    log.info("broker-switch: exiting so Dashboard.bat can take over")
+    log.info("broker-switch: exiting so the new main.py can bind 8050 in ~3 s")
     os._exit(0)
 
 
@@ -125,7 +166,11 @@ def build_app() -> Flask:
             return jsonify({"ok": False, "error": str(exc)}), 500
         log.info("broker-switch requested: %s → %s", name, new_path)
         # Detach the restart so we can return the HTTP response first.
-        threading.Thread(target=_spawn_restart_then_exit, daemon=True).start()
+        threading.Thread(
+            target=_spawn_restart_then_exit,
+            args=(new_path,),
+            daemon=True,
+        ).start()
         return jsonify({"ok": True, "name": name, "path": new_path})
 
     mount_websocket(app)
