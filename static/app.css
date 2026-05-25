@@ -1205,6 +1205,42 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-variant-numeric: tabular-nums;
     font-size: 14px;
 }
+/* 16-year offline reference shown beneath the live metrics. Deliberately
+   compact + dim — the live numbers are the headline, this is the
+   "context" footnote so you can tell if the rolling-window tier matches
+   the long-term baseline. */
+.dws-vbase {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.10);
+    font-size: 10px;
+    color: var(--fg-dim);
+    line-height: 1.4;
+    flex-wrap: wrap;
+}
+.dws-vbase-label {
+    font-weight: 800; letter-spacing: 0.08em;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    flex: 0 0 auto;
+}
+.dws-vbase-fig {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+    flex: 1 1 auto;
+}
+.dws-vbase-tier {
+    font-weight: 700;
+    padding: 0 5px;
+    border-radius: 2px;
+    flex: 0 0 auto;
+    opacity: 0.85;
+}
+.dws-vbase-tier.trusted      { background: #1f6f54; color: #f2f4f9; }
+.dws-vbase-tier.caution      { background: #7a5a1e; color: #f2f4f9; }
+.dws-vbase-tier.insufficient { background: #4a4f5c; color: #f2f4f9; }
 
 /* Macro / rate-differential panel */
 .macro-row {

@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "generated_at": 1779712508.8269951,
+  "generated_at_iso": "2026-05-25T12:35:08Z",
+  "source": "Dukascopy CSV 2010-01-01 → 2025-12-31 (W1 starts 2009-12-28)",
+  "compute_method": "production dws_smt.compute_symbol + signal_validator.evaluate_trades",
+  "signal_out_only": true,
+  "swap_costs_applied": true,
+  "swap_source": "FRED IRSTCI01* policy-rate proxies (monthly, fwd-filled)",
+  "window_years_max": 16,
+  "skipped_warmup_year": 2010,
+  "by_symbol": {
+    "XAUUSD": {
+      "M15": {
+        "n_trades": 11361,
+        "win_rate": 0.3927,
+        "ci_low": 0.3837,
+        "ci_high": 0.4017,
+        "profit_factor": 2.038,
+        "expectancy": 1526.92,
+        "max_drawdown": 101737.66,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2511,
+        "win_rate": 0.444,
+        "ci_low": 0.4247,
+        "ci_high": 0.4636,
+        "profit_factor": 2.8395,
+        "expectancy": 4866.04,
+        "max_drawdown": 88797.43,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 623,
+        "win_rate": 0.4848,
+        "ci_low": 0.4457,
+        "ci_high": 0.524,
+        "profit_factor": 3.1484,
+        "expectancy": 10512.91,
+        "max_drawdown": 122180.0,
+        "tier": "信頼"
+      }
+    },
+    "USDJPY": {
+      "M15": {
+        "n_trades": 11891,
+        "win_rate": 0.4194,
+        "ci_low": 0.4106,
+        "ci_high": 0.4283,
+        "profit_factor": 2.2557,
+        "expectancy": 64.21,
+        "max_drawdown": 2778.52,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2662,
+        "win_rate": 0.4621,
+        "ci_low": 0.4432,
+        "ci_high": 0.481,
+        "profit_factor": 2.9284,
+        "expectancy": 180.35,
+        "max_drawdown": 4469.48,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 625,
+        "win_rate": 0.4976,
+        "ci_low": 0.4585,
+        "ci_high": 0.5367,
+        "profit_factor": 2.9994,
+        "expectancy": 388.09,
+        "max_drawdown": 6333.51,
+        "tier": "信頼"
+      }
+    },
+    "EURUSD": {
+      "M15": {
+        "n_trades": 11886,
+        "win_rate": 0.4229,
+        "ci_low": 0.4141,
+        "ci_high": 0.4318,
+        "profit_factor": 2.2769,
+        "expectancy": 61.47,
+        "max_drawdown": 2437.6,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2661,
+        "win_rate": 0.4547,
+        "ci_low": 0.4359,
+        "ci_high": 0.4737,
+        "profit_factor": 2.4961,
+        "expectancy": 149.37,
+        "max_drawdown": 4311.35,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 671,
+        "win_rate": 0.468,
+        "ci_low": 0.4305,
+        "ci_high": 0.5058,
+        "profit_factor": 2.5312,
+        "expectancy": 296.43,
+        "max_drawdown": 4579.36,
+        "tier": "信頼"
+      }
+    },
+    "GBPUSD": {
+      "M15": {
+        "n_trades": 12294,
+        "win_rate": 0.3989,
+        "ci_low": 0.3903,
+        "ci_high": 0.4076,
+        "profit_factor": 1.9795,
+        "expectancy": 63.73,
+        "max_drawdown": 3108.86,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2633,
+        "win_rate": 0.4489,
+        "ci_low": 0.43,
+        "ci_high": 0.468,
+        "profit_factor": 2.5229,
+        "expectancy": 188.46,
+        "max_drawdown": 3817.14,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 624,
+        "win_rate": 0.4936,
+        "ci_low": 0.4545,
+        "ci_high": 0.5327,
+        "profit_factor": 2.5304,
+        "expectancy": 373.58,
+        "max_drawdown": 6277.08,
+        "tier": "信頼"
+      }
+    },
+    "AUDUSD": {
+      "M15": {
+        "n_trades": 12060,
+        "win_rate": 0.4111,
+        "ci_low": 0.4024,
+        "ci_high": 0.4199,
+        "profit_factor": 1.8907,
+        "expectancy": 42.74,
+        "max_drawdown": 3847.39,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2709,
+        "win_rate": 0.4526,
+        "ci_low": 0.4339,
+        "ci_high": 0.4714,
+        "profit_factor": 2.2312,
+        "expectancy": 112.45,
+        "max_drawdown": 2339.53,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 686,
+        "win_rate": 0.4373,
+        "ci_low": 0.4006,
+        "ci_high": 0.4747,
+        "profit_factor": 2.0187,
+        "expectancy": 190.21,
+        "max_drawdown": 4717.07,
+        "tier": "信頼"
+      }
+    },
+    "GBPJPY": {
+      "M15": {
+        "n_trades": 12277,
+        "win_rate": 0.3951,
+        "ci_low": 0.3865,
+        "ci_high": 0.4038,
+        "profit_factor": 1.83,
+        "expectancy": 80.11,
+        "max_drawdown": 6627.28,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2706,
+        "win_rate": 0.4449,
+        "ci_low": 0.4263,
+        "ci_high": 0.4637,
+        "profit_factor": 2.4357,
+        "expectancy": 253.33,
+        "max_drawdown": 4708.56,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 639,
+        "win_rate": 0.471,
+        "ci_low": 0.4326,
+        "ci_high": 0.5098,
+        "profit_factor": 2.988,
+        "expectancy": 611.19,
+        "max_drawdown": 7355.25,
+        "tier": "信頼"
+      }
+    },
+    "EURJPY": {
+      "M15": {
+        "n_trades": 11982,
+        "win_rate": 0.4169,
+        "ci_low": 0.4081,
+        "ci_high": 0.4257,
+        "profit_factor": 2.0749,
+        "expectancy": 72.78,
+        "max_drawdown": 4323.12,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2632,
+        "win_rate": 0.4647,
+        "ci_low": 0.4457,
+        "ci_high": 0.4838,
+        "profit_factor": 2.6626,
+        "expectancy": 208.25,
+        "max_drawdown": 3680.86,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 668,
+        "win_rate": 0.4656,
+        "ci_low": 0.428,
+        "ci_high": 0.5035,
+        "profit_factor": 2.5261,
+        "expectancy": 401.44,
+        "max_drawdown": 7228.07,
+        "tier": "信頼"
+      }
+    },
+    "AUDJPY": {
+      "M15": {
+        "n_trades": 12272,
+        "win_rate": 0.4109,
+        "ci_low": 0.4022,
+        "ci_high": 0.4196,
+        "profit_factor": 1.8946,
+        "expectancy": 52.46,
+        "max_drawdown": 3060.8,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2764,
+        "win_rate": 0.4381,
+        "ci_low": 0.4197,
+        "ci_high": 0.4567,
+        "profit_factor": 2.2833,
+        "expectancy": 141.43,
+        "max_drawdown": 4121.77,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 651,
+        "win_rate": 0.447,
+        "ci_low": 0.4092,
+        "ci_high": 0.4854,
+        "profit_factor": 2.3163,
+        "expectancy": 290.08,
+        "max_drawdown": 6990.59,
+        "tier": "信頼"
+      }
+    },
+    "EURGBP": {
+      "M15": {
+        "n_trades": 12590,
+        "win_rate": 0.3662,
+        "ci_low": 0.3579,
+        "ci_high": 0.3747,
+        "profit_factor": 1.5911,
+        "expectancy": 23.03,
+        "max_drawdown": 3775.73,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2737,
+        "win_rate": 0.4304,
+        "ci_low": 0.412,
+        "ci_high": 0.449,
+        "profit_factor": 2.1462,
+        "expectancy": 79.13,
+        "max_drawdown": 3491.79,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 662,
+        "win_rate": 0.4804,
+        "ci_low": 0.4425,
+        "ci_high": 0.5184,
+        "profit_factor": 2.4267,
+        "expectancy": 172.78,
+        "max_drawdown": 2923.78,
+        "tier": "信頼"
+      }
+    },
+    "EURAUD": {
+      "M15": {
+        "n_trades": 12299,
+        "win_rate": 0.3926,
+        "ci_low": 0.384,
+        "ci_high": 0.4013,
+        "profit_factor": 1.7379,
+        "expectancy": 62.35,
+        "max_drawdown": 5606.19,
+        "tier": "信頼"
+      },
+      "H1": {
+        "n_trades": 2714,
+        "win_rate": 0.4366,
+        "ci_low": 0.4181,
+        "ci_high": 0.4554,
+        "profit_factor": 2.2567,
+        "expectancy": 186.69,
+        "max_drawdown": 4495.94,
+        "tier": "信頼"
+      },
+      "H4": {
+        "n_trades": 678,
+        "win_rate": 0.4395,
+        "ci_low": 0.4026,
+        "ci_high": 0.4771,
+        "profit_factor": 2.0815,
+        "expectancy": 356.53,
+        "max_drawdown": 7459.5,
+        "tier": "信頼"
+      }
+    }
+  }
+}

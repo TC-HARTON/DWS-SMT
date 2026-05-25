@@ -1391,12 +1391,34 @@ function updateDwsSync(sym, snap, win) {
 function updateDwsValidation(sym, snap) {
     const el = $bind('dws-validation-' + sym);
     if (!el) return;
+    const pct = x => (x == null ? '--' : Math.round(x * 100) + '%');
+
+    // The 16y offline baseline is shipped statically (dashboard/serialize.py
+    // load_oos_baseline()) so it's available even before the live deep-history
+    // validation has finished its first pass — render it in both branches.
+    const base = snap.oos_baseline && snap.oos_baseline.by_symbol
+              && snap.oos_baseline.by_symbol[sym]
+              && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
+    const baselineHtml = base ? (
+        `<div class="dws-vbase">`
+      + `<span class="dws-vbase-label">16y参考</span>`
+      + `<span class="dws-vbase-fig">N=${base.n_trades.toLocaleString('en-US')}`
+      +   ` · PF ${esc(base.profit_factor == null ? '∞' : base.profit_factor.toFixed(2))}`
+      +   ` · 勝率 ${pct(base.win_rate)}</span>`
+      + `<span class="dws-vbase-tier ${
+            base.tier === '信頼' ? 'trusted'
+            : base.tier === '要注意' ? 'caution' : 'insufficient'}">`
+      +   `${esc(base.tier)}</span>`
+      + `</div>`
+    ) : '';
+
     const v = snap.validation;
     const stats = v && v.by_symbol && v.by_symbol[sym]
                   && v.by_symbol[sym][UI.dwsBase];
     if (!stats || !stats.raw) {
         el.className = 'dws-validation';
-        el.textContent = '検証 — データ未取得';
+        el.innerHTML = `<div class="dws-vempty">検証 — データ未取得</div>`
+                     + baselineHtml;
         return;
     }
     const c = stats.raw;
@@ -1404,7 +1426,6 @@ function updateDwsValidation(sym, snap) {
                   : c.tier === '要注意' ? 'caution' : 'insufficient';
     el.className = 'dws-validation ' + tierCls;
 
-    const pct = x => (x == null ? '--' : Math.round(x * 100) + '%');
     const pf = c.profit_factor == null ? '∞' : c.profit_factor.toFixed(2);
     const exp = c.expectancy == null ? null : Math.round(c.expectancy);
     const expCls = c.expectancy > 0 ? 'pos' : c.expectancy < 0 ? 'neg' : '';
@@ -1431,7 +1452,8 @@ function updateDwsValidation(sym, snap) {
       + cell('PF', esc(pf))
       + cell('期待値', esc(expTxt), 'dws-num ' + expCls)
       + cell('安定性', esc(thirds))
-      + `</div>`;
+      + `</div>`
+      + baselineHtml;
 }
 
 function drawDwsCanvas(snap, sym) {
