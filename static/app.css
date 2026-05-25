@@ -24,7 +24,13 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; height: 100vh; }
+/* Auto-fit: the dashboard is laid out at a fixed 2560×1440 "design" and the
+   running browser is scaled to its actual window via transform — see
+   applyDisplayFit() in app.js. The HTML element holds the dark background
+   for any letterbox area; transform-origin keeps the scaled body anchored
+   to the top-left. */
+html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--bg); }
+body { margin: 0; transform-origin: top left; }
 body {
     background: var(--bg);
     color: var(--fg);
@@ -45,6 +51,10 @@ body {
     grid-template-rows: 56px 1fr 280px;
     gap: var(--gap);
     padding: var(--gap);
+    /* Pre-JS fallback so the page is not broken if the script is slow;
+       applyDisplayFit() overrides width / height / transform inline. */
+    width: 100vw;
+    height: 100vh;
 }
 
 .hdr {

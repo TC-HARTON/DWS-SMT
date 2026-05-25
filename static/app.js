@@ -1701,14 +1701,44 @@ function showSwitchOverlay(msg, isError) {
 }
 
 // ------------------------------------------------------------
+// Display auto-fit — render the dashboard at a fixed 2560-wide design
+// and scale it to whatever monitor / window it is shown on, so the
+// layout looks identical on 2560×1440, 1920×1080, ultrawide, half-width
+// windowed, etc. Width drives the scale; the body's logical height is
+// derived so the grid still fills the viewport vertically.
+// ------------------------------------------------------------
+
+const DESIGN_WIDTH = 2560;
+
+function applyDisplayFit() {
+    const scale = Math.min(1, window.innerWidth / DESIGN_WIDTH);
+    const b = document.body;
+    b.style.width = DESIGN_WIDTH + 'px';
+    b.style.height = (window.innerHeight / scale) + 'px';
+    b.style.transform = 'scale(' + scale + ')';
+}
+
+// ------------------------------------------------------------
 // Boot
 // ------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
+    applyDisplayFit();
     buildSymbolGrid();
     buildStrengthRows();
     buildCorrelationButtons();
     startTickers();
     setupBrokerSwitcher();
     connect();
+});
+
+window.addEventListener('resize', () => {
+    applyDisplayFit();
+    // Canvas-drawn elements (DWS-SMT histogram) need an explicit redraw
+    // when the logical viewport height changes — DOM-based panels reflow
+    // via CSS automatically.
+    delete STAMPS['dws'];
+    if (latestSnap && !pendingFrame) {
+        pendingFrame = requestAnimationFrame(paintAll);
+    }
 });
