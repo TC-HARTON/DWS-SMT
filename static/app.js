@@ -1452,6 +1452,48 @@ function updateDwsSync(sym, snap, win) {
     el.textContent = txt;
 }
 
+/** Build the "現在の形状に最も近い過去パターン" block. Returns '' if there's
+ *  no pattern data for this (sym, base_tf) — most non-XAUUSD symbols, or
+ *  when the live trigger has no direction yet.
+ *
+ *  Surfaces the historical win rate of trades whose entry features matched
+ *  the same centroid (in z-space). Includes Wilson 95% CI, sample size, and
+ *  a 高/中/低 reliability tier from walk-forward analysis. M15 is fully
+ *  reliable; H1 mixed; H4 marked 低 because samples ran 30-90 per cluster. */
+function buildPatternMatchHtml(snap, sym, baseTf) {
+    const pm = snap && snap.pattern_matches
+            && snap.pattern_matches[sym] && snap.pattern_matches[sym][baseTf];
+    if (!pm) return '';
+    const wrPct = (pm.win_rate * 100).toFixed(1);
+    const ciLo  = (pm.win_rate_ci_low  * 100).toFixed(0);
+    const ciHi  = (pm.win_rate_ci_high * 100).toFixed(0);
+    const shapeLabel = pm.learned_from_shape === 'win' ? '勝ち型' : '負け型';
+    const shapeCls   = pm.learned_from_shape === 'win' ? 'pos' : 'neg';
+    const relCls = pm.reliability === '高' ? 'high'
+                 : pm.reliability === '中' ? 'mid' : 'low';
+    const medianTxt = pm.median_net_pts >= 0
+        ? `+${Math.round(pm.median_net_pts).toLocaleString('en-US')}pt`
+        : `${Math.round(pm.median_net_pts).toLocaleString('en-US')}pt`;
+    // Distance — bigger = current setup further from any known pattern,
+    // i.e. the surfaced win-rate is less directly comparable. Quietly noted.
+    const distNote = pm.distance_z > 6
+        ? ` <span class="dws-pat-far" title="特徴量空間で過去事例から離れた状態">距離注意</span>`
+        : '';
+    return `<div class="dws-pat">
+        <div class="dws-pat-head">
+          <span class="dws-pat-label">過去類似パターン</span>
+          <span class="dws-pat-shape ${shapeCls}">${shapeLabel}</span>
+          <span class="dws-pat-rel ${relCls}" title="walk-forward 安定度">信頼度 ${esc(pm.reliability)}</span>
+        </div>
+        <div class="dws-pat-stats">
+          <span class="dws-pat-wr">歴史的勝率 <strong>${wrPct}%</strong></span>
+          <span class="dws-pat-ci">95%CI ${ciLo}–${ciHi}%</span>
+          <span class="dws-pat-n">N=${pm.sample_n.toLocaleString('en-US')}</span>
+          <span class="dws-pat-med">中央値 ${medianTxt}</span>${distNote}
+        </div>
+    </div>`;
+}
+
 /** Render the out-of-sample confidence block for the selected base TF.
  *  Data comes from the validation layer (snap.validation); it refreshes on
  *  its own 5-minute cadence so it is often older than the live histogram. */
@@ -1491,7 +1533,8 @@ function updateDwsValidation(sym, snap) {
     if (!stats || !stats.raw) {
         el.className = 'dws-validation';
         el.innerHTML = `<div class="dws-vempty">検証 — データ未取得</div>`
-                     + baselineHtml;
+                     + baselineHtml
+                     + buildPatternMatchHtml(snap, sym, UI.dwsBase);
         return;
     }
     const c = stats.raw;
@@ -1537,6 +1580,11 @@ function updateDwsValidation(sym, snap) {
         ? `<canvas class="dws-vspark" data-bind="dws-vspark-${sym}" width="160" height="22"></canvas>`
         : '';
 
+    // Pattern-similarity block — built from the offline-extracted centroid
+    // table. Reliability tiers (高/中/低) come from walk-forward analysis:
+    // M15 patterns held in train/test split, H1 mixed, H4 too small.
+    const patHtml = buildPatternMatchHtml(snap, sym, UI.dwsBase);
+
     el.innerHTML =
         `<div class="dws-vhead">`
       + `<span class="dws-vtier">${esc(c.tier)}</span>`
@@ -1550,6 +1598,7 @@ function updateDwsValidation(sym, snap) {
       + cell('安定性', esc(thirds))
       + `</div>`
       + baselineHtml
+      + patHtml
       + sparkHtml;
 
     if (sparkHtml) {

@@ -1522,6 +1522,64 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 }
 
 /* ============================================================
+   Pattern-match block — surfaces "current setup resembles past pattern X,
+   which had historical win rate Y%". Sits inside the DWS validation card
+   between the 16y baseline line and the sparkline.
+
+   Reliability tier (高/中/低) is hand-tagged in pattern_matcher.py from
+   walk-forward analysis: M15 = 高 (8/8 stable), H1 = mostly 中 (drift on
+   some win patterns), H4 = 低 (small samples).
+   ============================================================ */
+.dws-pat {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px dashed rgba(255, 255, 255, 0.18);
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: var(--text-xs);
+}
+.dws-pat-head {
+    display: flex; align-items: baseline; gap: 6px;
+    flex-wrap: wrap;
+}
+.dws-pat-label {
+    font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
+    color: var(--fg); text-transform: uppercase; font-size: var(--text-2xs);
+}
+.dws-pat-shape {
+    font-weight: var(--weight-bold); font-size: var(--text-2xs);
+    padding: 1px 6px; border-radius: var(--radius-sm);
+    letter-spacing: var(--track-tight);
+}
+.dws-pat-shape.pos { background: rgba(0, 208, 156, 0.18); color: var(--buy); }
+.dws-pat-shape.neg { background: rgba(255, 91, 107, 0.18); color: var(--sell); }
+.dws-pat-rel {
+    margin-left: auto;
+    font-size: var(--text-2xs);
+    padding: 1px 6px; border-radius: var(--radius-sm);
+    font-weight: var(--weight-medium);
+}
+.dws-pat-rel.high { background: var(--tier-trusted);      color: var(--fg); }
+.dws-pat-rel.mid  { background: var(--tier-caution);      color: var(--fg); }
+.dws-pat-rel.low  { background: var(--tier-insufficient); color: var(--fg); }
+.dws-pat-stats {
+    display: flex; flex-wrap: wrap; gap: 4px 10px;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+.dws-pat-wr strong { font-size: var(--text-md); color: var(--fg); }
+.dws-pat-ci, .dws-pat-n, .dws-pat-med {
+    color: var(--fg-2);
+}
+.dws-pat-far {
+    color: var(--warning);
+    font-size: var(--text-2xs);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 183, 77, 0.12);
+}
+
+/* ============================================================
    Macro / rate-differential panel
    ----------------------------------------------------------------
    Compact 3-col header + full-width direction label:

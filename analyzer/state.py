@@ -26,6 +26,7 @@ from analyzer.correlation import CorrelationSnapshot
 from analyzer.currency_strength import StrengthSnapshot
 from analyzer.indicator_engine import AnalysisSnapshot
 from analyzer.mt5_connector import AccountSnapshot, Tick
+from analyzer.pattern_matcher import SymbolPatternMatches
 from analyzer.price_action import PriceActionEvent
 from analyzer.structure_types import StructureLevel
 
@@ -91,6 +92,10 @@ class LatestState:
         self._validation: Optional[ValidationSnapshot] = None
         self._macro: Optional[MacroSnapshot] = None
         self._real_yield: Optional[RealYieldSnapshot] = None
+        # Per-symbol pattern-similarity matches (only XAUUSD supported today —
+        # the centroid table lives at data/loss_analysis/xauusd_*.json). Keyed
+        # by symbol → SymbolPatternMatches; missing key = no match yet.
+        self._pattern_matches: dict[str, SymbolPatternMatches] = {}
         # Rolling per-cell PF history fed by set_validation(); the live OOS
         # block uses it to draw a tiny sparkline so the user can see if a
         # tier is improving or decaying within the session.
@@ -215,6 +220,14 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
+    def set_pattern_matches(self, by_symbol: dict[str, SymbolPatternMatches]) -> None:
+        """Replace the full pattern-match table. Writer is the analysis loop."""
+        with self._cond:
+            self._pattern_matches = dict(by_symbol)
+            self._monotonic_version += 1
+            self._analysis_version += 1
+            self._cond.notify_all()
+
     def wait_for_update(self, since_version: int, timeout: float) -> bool:
         """Block until ``self.version > since_version`` or *timeout* elapses.
 
@@ -288,6 +301,11 @@ class LatestState:
             return self._real_yield
 
     @property
+    def pattern_matches(self) -> dict[str, SymbolPatternMatches]:
+        with self._lock:
+            return dict(self._pattern_matches)
+
+    @property
     def validation_history(self) -> dict[str, dict[str, list[float | None]]]:
         """Snapshot copy of the per-cell PF history rolling buffer."""
         with self._lock:
@@ -325,6 +343,7 @@ class LatestState:
                 "validation": self._validation,
                 "macro": self._macro,
                 "real_yield": self._real_yield,
+                "pattern_matches": dict(self._pattern_matches),
                 "validation_history": {
                     sym: {tf: list(buf) for tf, buf in per_tf.items()}
                     for sym, per_tf in self._validation_history.items()

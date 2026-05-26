@@ -45,6 +45,7 @@ from analyzer.line_reader import LINES, LinesState, LinesWatcher
 from analyzer.signal_validator import SignalValidator
 from analyzer.macro_feed import MacroEngine
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
+from analyzer.pattern_matcher import PatternMatcher, SymbolPatternMatches
 from analyzer.state import (
     ConnectionStatus,
     LatestState,
@@ -118,6 +119,9 @@ class AnalysisLoop:
         # The real yield moves daily, so it refreshes faster than policy rates
         # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
         self._realyield_inflight = threading.Event()
+        # Pattern matcher — loads the offline-extracted XAUUSD centroid table.
+        # No-op if the JSON is missing (graceful degradation).
+        self._pattern_matcher = PatternMatcher()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -246,8 +250,51 @@ class AnalysisLoop:
         snap = IndicatorEngine.with_broker_names(snap, self._connector.resolved_symbols)
         self._state.set_analysis(snap)
 
+        self._publish_pattern_matches(bases, rates, snap)
         self._publish_structures(bases, rates, snap)
         return len(rates)
+
+    # ------------------------------------------------------ pattern match
+    def _publish_pattern_matches(
+        self,
+        bases: list[str],
+        rates: dict[tuple[str, str], pd.DataFrame],
+        snap,
+    ) -> None:
+        """Match each (supported symbol, base TF) to its nearest pattern.
+
+        The trigger DIRECTION comes from the last non-EXIT trigger inside
+        the DWS-SMT window. ``None`` / ``EXIT`` means "no direction" and
+        skips the match (patterns are direction-signed).
+        """
+        if not self._pattern_matcher.enabled:
+            return
+        out: dict[str, SymbolPatternMatches] = {}
+        for sym in self._pattern_matcher.supported_symbols:
+            if sym not in bases:
+                continue
+            sym_rates = {tf_label: df for (b, tf_label), df in rates.items() if b == sym}
+            sym_snap = snap.by_symbol.get(sym)
+            if sym_snap is None or sym_snap.dws is None:
+                continue
+            bias_by_base: dict[str, int] = {}
+            for base_tf, window in sym_snap.dws.by_base.items():
+                # Walk the trigger stream backwards to find the last BUY/SELL —
+                # this is the side currently "active" (an EXIT later still
+                # means the chart's last directional commitment was the BUY/SELL).
+                side = 0
+                for trig in reversed(window.triggers):
+                    if trig == "BUY":
+                        side = 1; break
+                    if trig == "SELL":
+                        side = -1; break
+                bias_by_base[base_tf] = side
+            matches = self._pattern_matcher.match_symbol(
+                symbol=sym, bias_by_base=bias_by_base, frames=sym_rates,
+            )
+            if matches is not None:
+                out[sym] = matches
+        self._state.set_pattern_matches(out)
 
     # ---------------------------------------------------- structure pass
     def _publish_structures(

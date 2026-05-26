@@ -615,6 +615,36 @@ def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
     }
 
 
+def serialize_pattern_matches(by_symbol: dict[str, Any]) -> dict[str, Any]:
+    """Flatten per-symbol :class:`SymbolPatternMatches` into JSON.
+
+    Structure: ``{symbol: {base_tf: {pattern_id, win_rate, ...} | null}}``.
+    None entries are kept so the front end can show "no direction yet" cells.
+    """
+    out: dict[str, Any] = {}
+    for sym, matches in (by_symbol or {}).items():
+        if matches is None:
+            continue
+        by_base: dict[str, Any] = {}
+        for base_tf, m in matches.by_base.items():
+            if m is None:
+                by_base[base_tf] = None
+                continue
+            by_base[base_tf] = {
+                "pattern_id": m.pattern_id,
+                "learned_from_shape": m.learned_from_shape,
+                "win_rate": _opt_float(m.win_rate),
+                "win_rate_ci_low": _opt_float(m.win_rate_ci_low),
+                "win_rate_ci_high": _opt_float(m.win_rate_ci_high),
+                "sample_n": int(m.sample_n),
+                "median_net_pts": _opt_float(m.median_net_pts),
+                "distance_z": _opt_float(m.distance_z),
+                "reliability": m.reliability,
+            }
+        out[sym] = by_base
+    return out
+
+
 # --------------------------------------------------------------------------- #
 
 
@@ -668,6 +698,7 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
+        "pattern_matches": serialize_pattern_matches(snap.get("pattern_matches") or {}),
         "validation_history": snap.get("validation_history") or {},
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {
