@@ -624,14 +624,41 @@ function paintCalendar(snap) {
         root.innerHTML = '<div class="empty mute">no high-impact events</div>';
         return;
     }
-    // Each row: date · time · event title (JST). No countdown.
-    root.innerHTML = events.map(e => `
-        <div class="cal-row">
+    // Each row: date · time · ccy badge · category badge · title (JST). No countdown.
+    // The currency tag drives a left-border colour and a coloured chip so
+    // the reader can spot e.g. "USD event tomorrow" in one glance, and the
+    // category chip distinguishes rate decisions from labour data.
+    const nowJst = new Date();
+    const todayKey = nowJst.toLocaleDateString('en-CA'); // YYYY-MM-DD JST
+    const tomorrowKey = new Date(nowJst.getTime() + 86400000).toLocaleDateString('en-CA');
+    root.innerHTML = events.map(e => {
+        const cat = calendarCategory(e.title);
+        const dateJst = new Date(e.release_ts * 1000).toLocaleDateString('en-CA');
+        const day = dateJst === todayKey ? ' today' : dateJst === tomorrowKey ? ' tomorrow' : '';
+        return `<div class="cal-row${day}" data-ccy="${esc(e.currency)}">
             <span class="cal-date">${esc(fmtJSTdate(e.release_ts))}</span>
             <span class="time">${esc(fmtJSTclockNoSec(e.release_ts))}</span>
             <span class="ccy">${esc(e.currency)}</span>
+            <span class="cat ${cat.cls}">${cat.label}</span>
             <span class="title" title="${esc(e.title)}">${esc(e.title)}</span>
-        </div>`).join('');
+        </div>`;
+    }).join('');
+}
+
+/** Map an FF calendar event title to a category chip (rate decision vs
+ *  labour data) so the reader gets instant differentiation. Keywords are
+ *  kept in sync with backend config.CALENDAR_EVENT_KEYWORDS — every event
+ *  the backend lets through belongs to one of these two categories, so
+ *  the fallback "指標" is a defensive net rather than a real outcome. */
+function calendarCategory(title) {
+    const t = (title || '').toLowerCase();
+    if (/payroll|nonfarm|non-farm|employment|unemploy|jobless|hourly earnings|earnings index|claimant count|jolts|adp/.test(t)) {
+        return {cls: 'emp', label: '雇用'};
+    }
+    if (/fomc|federal funds rate|bank rate|cash rate|policy rate|refinanc|rate statement|rate decision|monetary policy|interest rate|press conference/.test(t)) {
+        return {cls: 'rate', label: '金利'};
+    }
+    return {cls: 'oth', label: '指標'};
 }
 
 /** Paint the macro / rate-differential reference panel.

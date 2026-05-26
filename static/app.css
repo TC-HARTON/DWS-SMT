@@ -1084,20 +1084,41 @@ body {
 }
 .cal-row {
     display: grid;
-    grid-template-columns: 46px 46px 34px 1fr;
+    grid-template-columns: 46px 46px 34px 36px 1fr;
     gap: 6px;
-    align-items: baseline;
+    align-items: center;
     font-family: var(--mono); font-size: 12px;
-    padding: 4px 6px;
+    padding: 5px 7px;
     background: var(--panel-2);
     border-radius: var(--radius);
     border-left: 3px solid var(--fg-dim);
 }
 .cal-row .cal-date { color: var(--fg-muted); font-weight: 700; }
 .cal-row .time { color: var(--warning); font-weight: 700; }
-.cal-row .ccy  { color: var(--fg);     font-weight: 700; text-align: center; }
+.cal-row .ccy  { color: var(--fg);     font-weight: 800; text-align: center;
+                 padding: 1px 4px; border-radius: 3px;
+                 background: rgba(255, 255, 255, 0.04); }
+.cal-row .cat  { font-size: 10px; font-weight: 800; text-align: center;
+                 padding: 1px 4px; border-radius: 3px; letter-spacing: 0.02em; }
+.cal-row .cat.rate { background: rgba(77, 142, 255, 0.25); color: #cfe0ff; }
+.cal-row .cat.emp  { background: rgba(255, 183, 77, 0.22); color: #ffe2b3; }
+.cal-row .cat.oth  { background: rgba(255, 255, 255, 0.08); color: var(--fg-muted); }
 .cal-row .title{ color: var(--fg); overflow: hidden;
                  text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+/* Currency-coloured left border so the reader can identify which
+   currency's event a row affects without parsing the ccy text. */
+.cal-row[data-ccy="USD"] { border-left-color: #4d8eff; }
+.cal-row[data-ccy="EUR"] { border-left-color: #6f5dc6; }
+.cal-row[data-ccy="GBP"] { border-left-color: #c660bf; }
+.cal-row[data-ccy="JPY"] { border-left-color: #d9395d; }
+.cal-row[data-ccy="AUD"] { border-left-color: #d9853b; }
+.cal-row[data-ccy="CHF"] { border-left-color: #4ac76a; }
+.cal-row[data-ccy="NZD"] { border-left-color: #2a8db5; }
+.cal-row[data-ccy="CAD"] { border-left-color: #d04545; }
+/* Highlight today / tomorrow to give the scan a temporal anchor. */
+.cal-row.today    { background: rgba(255, 183, 77, 0.10); }
+.cal-row.today .cal-date { color: var(--warning); }
+.cal-row.tomorrow .cal-date { color: var(--fg); }
 
 /* ============================================================
    Bottom: strength + correlation
