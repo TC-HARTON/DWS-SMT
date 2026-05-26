@@ -128,7 +128,8 @@ def test_macro_engine_one_source_failure_is_isolated(monkeypatch, tmp_path):
     snap = eng.compute()
     # JPY missing → pairs with JPY neutral; the other currencies unaffected.
     assert snap.by_pair["USDJPY"].macro_dir == 0
-    assert snap.by_pair["EURGBP"].macro_dir == 0          # 4.0 - 4.0 == 0
+    # Same-rate non-JPY pair: differential = 0 → macro_dir 0 (deadband).
+    assert snap.by_pair["EURUSD"].macro_dir == 0          # 4.0 - 4.0 == 0
     assert "USD" in snap.rates
     # A partial failure yields a usable snapshot — it is NOT a failure cycle,
     # so the consecutive-failure counter stays 0; the error is still recorded.

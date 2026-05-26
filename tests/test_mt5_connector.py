@@ -63,8 +63,7 @@ def mt5_stub(mocker):
     fake.symbols_get.return_value = [
         _FakeSymbol("XAUUSD"), _FakeSymbol("USDJPY"), _FakeSymbol("EURUSD"),
         _FakeSymbol("GBPUSD"), _FakeSymbol("AUDUSD"), _FakeSymbol("GBPJPY"),
-        _FakeSymbol("EURJPY"), _FakeSymbol("AUDJPY"), _FakeSymbol("EURGBP"),
-        _FakeSymbol("EURAUD"),
+        _FakeSymbol("EURJPY"), _FakeSymbol("AUDJPY"),
     ]
     fake.symbol_select.return_value = True
     fake.positions_get.return_value = ()
@@ -89,7 +88,7 @@ def test_initialize_resolves_symbols_for_exact_match(mt5_stub):
     assert resolved["XAUUSD"] == "XAUUSD"
     assert resolved["EURUSD"] == "EURUSD"
     # symbol_select was called once per resolved symbol
-    assert mt5_stub.symbol_select.call_count == 10
+    assert mt5_stub.symbol_select.call_count == 8
 
 
 def test_initialize_resolves_symbols_with_broker_suffix(mt5_stub):
@@ -102,8 +101,6 @@ def test_initialize_resolves_symbols_with_broker_suffix(mt5_stub):
         _FakeSymbol("GBPJPYm"),
         _FakeSymbol("EURJPYm"),
         _FakeSymbol("AUDJPYm"),
-        _FakeSymbol("EURGBPm"),
-        _FakeSymbol("EURAUDm"),
     ]
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()
@@ -117,7 +114,7 @@ def test_initialize_prefers_exact_over_suffixed(mt5_stub):
         _FakeSymbol("XAUUSD"),   # exact match
         _FakeSymbol("USDJPY"), _FakeSymbol("EURUSD"), _FakeSymbol("GBPUSD"),
         _FakeSymbol("AUDUSD"), _FakeSymbol("GBPJPY"), _FakeSymbol("EURJPY"),
-        _FakeSymbol("AUDJPY"), _FakeSymbol("EURGBP"), _FakeSymbol("EURAUD"),
+        _FakeSymbol("AUDJPY"),
     ]
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()

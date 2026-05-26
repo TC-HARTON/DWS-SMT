@@ -93,8 +93,6 @@ SYMBOLS: Final[tuple[SymbolSpec, ...]] = (
     SymbolSpec("GBPJPY", "sm", 0.500),
     SymbolSpec("EURJPY", "sm", 0.500),
     SymbolSpec("AUDJPY", "sm", 0.500),
-    SymbolSpec("EURGBP", "sm", 0.01000),
-    SymbolSpec("EURAUD", "sm", 0.01000),
 )
 
 
@@ -488,8 +486,6 @@ ROUND_NUMBER_STEPS: Final[dict[str, float]] = {
     "EURUSD": 0.01000,     # SPEC §10.2: 100pips
     "GBPUSD": 0.01000,
     "AUDUSD": 0.01000,
-    "EURGBP": 0.01000,
-    "EURAUD": 0.01000,
 }
 # How many round-number rungs above and below the current price to publish.
 ROUND_NUMBER_RUNGS: Final[int] = 3

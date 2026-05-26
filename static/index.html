@@ -21,29 +21,6 @@
     <div class="stat"><div class="stat-label">MT5</div><div class="stat-val"><span class="dot off" data-bind="conn-dot"></span><span data-bind="conn-text">offline</span></div></div>
     <div class="stat"><div class="stat-label">CYCLE</div><div class="stat-val" data-bind="compute">-- ms</div></div>
     <div class="stat"><div class="stat-label">VER</div><div class="stat-val" data-bind="version">0</div></div>
-    <div class="notify-wrap">
-      <button class="notify-toggle" data-bind="notify-toggle" title="通知設定" aria-haspopup="dialog">ALERTS</button>
-      <div class="notify-menu" data-bind="notify-menu" hidden>
-        <div class="notify-row">
-          <label><input type="checkbox" data-bind="notify-browser"> ブラウザ通知</label>
-          <span class="notify-perm" data-bind="notify-perm"></span>
-        </div>
-        <div class="notify-row">
-          <label><input type="checkbox" data-bind="notify-discord"> Discord Webhook</label>
-        </div>
-        <input class="notify-webhook" data-bind="notify-webhook" type="text"
-               placeholder="Discord Webhook URL を貼付" autocomplete="off">
-        <div class="notify-row">
-          <label><input type="checkbox" data-bind="notify-trigger-only-trusted" checked>
-            シグナルは tier=信頼 のみ通知</label>
-        </div>
-        <div class="notify-row">
-          <label><input type="checkbox" data-bind="notify-trigger-only-base" checked>
-            選択中の DWS ベース TF のみ通知</label>
-        </div>
-        <button class="notify-test" data-bind="notify-test">テスト送信</button>
-      </div>
-    </div>
   </div>
 </header>
 
