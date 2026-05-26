@@ -125,7 +125,7 @@ body {
 .active-chip.sell         .ac-sym { color: var(--sell); }
 .active-chip.strong-sell {
     border-color: var(--sell);
-    background: rgba(255, 91, 107, 0.22);
+    background: rgba(255, 91, 107, 0.14);     /* lightened from 0.22 so the red text clears 3:1 vs the wash */
     box-shadow: 0 0 0 1px var(--sell), 0 0 16px rgba(255, 91, 107, 0.20);
 }
 .active-chip.strong-sell  .ac-side,
@@ -1139,7 +1139,7 @@ body {
 /* Currency-coloured left border so the reader can identify which
    currency's event a row affects without parsing the ccy text. */
 .cal-row[data-ccy="USD"] { border-left-color: #4d8eff; }
-.cal-row[data-ccy="EUR"] { border-left-color: #6f5dc6; }
+.cal-row[data-ccy="EUR"] { border-left-color: #7e6cd0; }  /* nudged from #6f5dc6 to clear WCAG 3:1 vs --bg */
 .cal-row[data-ccy="GBP"] { border-left-color: #c660bf; }
 .cal-row[data-ccy="JPY"] { border-left-color: #d9395d; }
 .cal-row[data-ccy="AUD"] { border-left-color: #d9853b; }
