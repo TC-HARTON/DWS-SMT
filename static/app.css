@@ -143,11 +143,11 @@ body {
     overflow: hidden;
 }
 .hdr-active .active-label {
-    font-size: 11px; letter-spacing: 0.16em; font-weight: 900;
+    font-size: var(--text-xs); letter-spacing: var(--track-loose); font-weight: var(--weight-heavy);
     color: var(--warning); text-transform: uppercase;
     white-space: nowrap;
     padding: 3px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: rgba(255, 183, 77, 0.12);
 }
 .hdr-active .active-chips {
@@ -155,13 +155,13 @@ body {
     flex: 1 1 auto;
 }
 .hdr-active .active-empty {
-    color: var(--fg-muted); font-size: 12px;
+    color: var(--fg-2); font-size: var(--text-sm);
 }
 .active-chip {
     display: inline-flex; align-items: center; gap: 7px;
     padding: 5px 12px;
     border-radius: 16px;
-    font-family: var(--mono); font-weight: 800; font-size: 14px;
+    font-family: var(--mono); font-weight: var(--weight-bold); font-size: var(--text-md);
     background: var(--panel-2);
     border: 1px solid var(--border);
     white-space: nowrap;
@@ -174,8 +174,9 @@ body {
     border-color: var(--border-hover);
 }
 .active-chip .ac-sym   { color: var(--fg); }
-.active-chip .ac-side  { font-size: 12px; letter-spacing: 0.08em; font-weight: 800; }
-.active-chip .ac-score { color: var(--fg-muted); font-size: 11px; }
+.active-chip .ac-side  { font-size: var(--text-sm); letter-spacing: var(--track-normal);
+                         font-weight: var(--weight-bold); }
+.active-chip .ac-score { color: var(--fg-2); font-size: var(--text-xs); }
 /* Strong tier: 1-px coloured ring is enough — the 16px outer glow was
    stacking with .active-chip:hover shadow + .ac-score colour into visual
    noise. Single ring keeps the urgency without the after-effects look. */
@@ -282,7 +283,7 @@ body {
 .corr-card      { border-left-color: var(--warning); }
 .card-title {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+    font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
     text-transform: uppercase;
     border-bottom: 1px solid var(--border);
     padding-bottom: 4px;
@@ -470,10 +471,13 @@ body {
 .comp-gauge-fill.buy  { background: var(--buy); }
 .comp-gauge-fill.sell { background: var(--sell); }
 .comp-gauge-fill.strong { box-shadow: inset 0 0 4px rgba(255,255,255,0.4); }
+/* Gauge axis micro-labels — promoted from 8px (sub-scale) to --text-3xs (9px)
+   so the scale stays consistent. Same physical size after browser hinting,
+   but now part of the canonical type ladder. */
 .comp-gauge-axis {
     display: flex; justify-content: space-between;
-    font-size: 8px; color: var(--fg-dim);
-    letter-spacing: 0.05em; font-weight: 700;
+    font-size: var(--text-3xs); color: var(--fg-3);
+    letter-spacing: var(--track-tight); font-weight: var(--weight-medium);
     padding: 0 1px;
 }
 
@@ -489,13 +493,14 @@ body {
 }
 .anlx-block {
     background: var(--panel-2);
-    border-left: 4px solid var(--accent);
+    /* Normalised to 3px to match .card / .composite border-bar discipline. */
+    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
     padding: 10px 14px;
 }
 .anlx-block.warn { border-left-color: var(--warning); }
 .anlx-title {
-    font-size: 12px; font-weight: 800; letter-spacing: 0.1em;
+    font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
     color: var(--fg); text-transform: uppercase;
     margin-bottom: 6px;
     border-bottom: 1px solid var(--border);
@@ -503,8 +508,8 @@ body {
 }
 .anlx-title.warn { color: var(--warning); }
 .anlx-title .anlx-sub {
-    font-size: 11px; font-weight: 500; letter-spacing: 0;
-    color: var(--fg-muted); text-transform: none;
+    font-size: var(--text-xs); font-weight: var(--weight-normal); letter-spacing: 0;
+    color: var(--fg-2); text-transform: none;
     margin-left: 8px;
 }
 .anlx-grid.trade {
@@ -514,20 +519,20 @@ body {
 }
 .anlx-cell {
     background: var(--bg-soft);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 6px 8px;
     display: flex; flex-direction: column; gap: 3px;
 }
 .anlx-cell .lbl {
-    font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
-    color: var(--fg-muted); text-transform: uppercase;
+    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
+    color: var(--fg-2); text-transform: uppercase;
 }
 .anlx-cell .val {
-    font-family: var(--mono); font-size: 14px; font-weight: 700;
+    font-family: var(--mono); font-size: var(--text-md); font-weight: var(--weight-medium);
     color: var(--fg);
 }
-.anlx-cell .val small { font-size: 10px; color: var(--fg-muted);
-                        font-weight: 500; margin-left: 4px; }
+.anlx-cell .val small { font-size: var(--text-2xs); color: var(--fg-2);
+                        font-weight: var(--weight-normal); margin-left: 4px; }
 .anlx-cell .val.buy  { color: var(--buy); }
 .anlx-cell .val.sell { color: var(--sell); }
 
@@ -598,7 +603,8 @@ body {
     flex-direction: column;
     gap: 8px;
     background: var(--panel-2);
-    border-left: 4px solid var(--accent);
+    /* 3-px accent matches .anlx-block / .composite / .card discipline. */
+    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
     padding: 10px 14px;
     min-height: 0;
@@ -610,27 +616,27 @@ body {
 }
 .dws-title {
     font-family: var(--mono);
-    font-size: 13px; font-weight: 800; letter-spacing: 0.1em;
+    font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
     color: var(--fg); text-transform: uppercase;
 }
-.dws-sub { font-size: 11px; color: var(--fg-muted); }
+.dws-sub { font-size: var(--text-xs); color: var(--fg-2); }
 .dws-pills { margin-left: auto; display: flex; gap: 4px; }
 /* Primary status headline — current 3-TF alignment + latest trigger.
    Left accent bar turns green/red the moment a side is in control. */
 .dws-state {
-    font-family: var(--mono); font-size: 14px; font-weight: 800;
-    color: var(--fg-muted);
-    padding: 5px 9px; border-radius: 4px;
+    font-family: var(--mono); font-size: var(--text-md); font-weight: var(--weight-bold);
+    color: var(--fg-2);
+    padding: 5px 9px; border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.03);
-    border-left: 3px solid var(--fg-dim);
+    border-left: 3px solid var(--fg-3);
 }
 .dws-state.buy  { color: var(--buy);  border-left-color: var(--buy); }
 .dws-state.sell { color: var(--sell); border-left-color: var(--sell); }
 /* BIAS ⇄ DWS divergence caveat — secondary line, de-emphasised. */
 .dws-sync {
-    font-family: var(--mono); font-size: 11px; font-weight: 600;
-    color: var(--fg-dim);
-    padding: 3px 9px; border-radius: 4px;
+    font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-normal);
+    color: var(--fg-3);
+    padding: 3px 9px; border-radius: var(--radius-sm);
 }
 .dws-sync.buy      { color: var(--buy); }
 .dws-sync.sell     { color: var(--sell); }
@@ -702,9 +708,9 @@ body {
 .ind-head { display: flex; align-items: baseline; gap: 8px;
             border-bottom: 1px solid var(--border); padding-bottom: 4px;
             margin-bottom: 6px; }
-.ind-title { font-size: 12px; font-weight: 800; letter-spacing: 0.1em;
+.ind-title { font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
              color: var(--fg); text-transform: uppercase; }
-.ind-sub   { font-size: 10px; color: var(--fg-muted); }
+.ind-sub   { font-size: var(--text-2xs); color: var(--fg-2); }
 .ind-plot {
     position: relative;
     flex: 1 1 auto;
@@ -752,8 +758,8 @@ body {
 .ind-ref::after {
     content: attr(data-label);
     position: absolute; right: -2px; top: -7px;
-    font-family: var(--mono); font-size: 9px;
-    color: var(--fg-dim);
+    font-family: var(--mono); font-size: var(--text-3xs);
+    color: var(--fg-3);
     background: var(--panel-2);
     padding: 0 2px;
 }
@@ -832,11 +838,11 @@ body {
     box-sizing: border-box;
 }
 .tf-chip .tf-name {
-    font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
-    color: var(--fg-muted);
+    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-tight);
+    color: var(--fg-2);
 }
 .tf-chip .tf-val {
-    font-size: 14px; font-weight: 800;
+    font-size: var(--text-md); font-weight: var(--weight-bold);
     color: var(--fg);
 }
 .tf-chip.buy       { border-color: var(--buy);
@@ -858,8 +864,8 @@ body {
 
 /* In expanded mode bump chip value further so it dominates. */
 .panel.expanded .tf-chip { padding: 4px 10px; }
-.panel.expanded .tf-chip .tf-name { font-size: 10px; }
-.panel.expanded .tf-chip .tf-val  { font-size: 17px; }
+.panel.expanded .tf-chip .tf-name { font-size: var(--text-2xs); }
+.panel.expanded .tf-chip .tf-val  { font-size: var(--text-lg); }
 
 .composite.strong-buy  { border-left-color: var(--buy);
                          background: rgba(0,208,156,0.18); }
@@ -903,7 +909,7 @@ body {
    transparent left-border wins without `!important`. */
 .sig-row.sig-head {
     color: var(--fg-2);
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: var(--track-normal);
     text-transform: uppercase;
     font-weight: var(--weight-bold);
@@ -962,12 +968,14 @@ body {
     display: grid;
     grid-template-columns: 28px minmax(0,1fr) 64px 50px;
     gap: 4px;
-    font-family: var(--mono); font-size: 10px;
+    font-family: var(--mono); font-size: var(--text-2xs);
     padding: 2px 4px;
-    border-left: 2px solid var(--fg-dim);
+    /* 3-px left border to match .sig-row / .composite / card discipline.
+       Was 2px alone, causing 1-px wobble against neighbouring 3-px elements. */
+    border-left: 3px solid var(--fg-3);
     align-items: center;
 }
-.struct-row .cat   { color: var(--accent); font-weight: 700; }
+.struct-row .cat   { color: var(--accent); font-weight: var(--weight-medium); }
 .struct-row .name  { color: var(--fg); overflow: hidden;
                      text-overflow: ellipsis; white-space: nowrap; }
 .struct-row .src   { color: var(--accent); font-size: 0.85em;
@@ -988,14 +996,16 @@ body {
 /* Default 4-col layout maps to: cat | name | price | pip
    (we use pip column slot for the existing 50px "dist" slot)  */
 
+/* Touch state was 4px left-border vs the rest of the row's 2-3px; bumping
+   to 3px keeps the urgency without the +1px wobble vs sibling rows. */
 .struct-row.touch  { background: rgba(255,61,84,0.30);
-                     border-left-color: var(--critical); border-left-width: 4px;
-                     font-weight: 700; }
-.struct-row.near   { border-left-color: var(--warning); border-left-width: 3px; }
+                     border-left-color: var(--critical);
+                     font-weight: var(--weight-medium); }
+.struct-row.near   { border-left-color: var(--warning); }
 .struct-row.far    { border-left-color: var(--warning); }
 .struct-row.struct-head {
-    color: var(--fg-muted); font-size: 9px;
-    letter-spacing: 0.1em; font-weight: 800; text-transform: uppercase;
+    color: var(--fg-2); font-size: var(--text-3xs);
+    letter-spacing: var(--track-loose); font-weight: var(--weight-bold); text-transform: uppercase;
     border-bottom: 1px solid var(--border);
     border-left-color: transparent !important;
     background: transparent;
@@ -1132,8 +1142,8 @@ body {
     background: rgba(15, 18, 28, 0.85);
     color: var(--fg);
     font-family: var(--mono);
-    font-size: 18px;
-    font-weight: 700;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-medium);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1178,15 +1188,15 @@ body {
     display: grid;
     grid-template-columns: 40px 60px 50px 1fr 70px;
     gap: 4px;
-    font-family: var(--mono); font-size: 11px;
+    font-family: var(--mono); font-size: var(--text-xs);
     padding: 3px 6px; margin-bottom: 2px;
     background: var(--panel-2); border-radius: var(--radius);
-    border-left: 3px solid var(--fg-dim);
+    border-left: 3px solid var(--fg-3);
 }
 .pos-row.buy  { border-left-color: var(--buy); }
 .pos-row.sell { border-left-color: var(--sell); }
-.pos-row .type-buy  { color: var(--buy);  font-weight: 700; }
-.pos-row .type-sell { color: var(--sell); font-weight: 700; }
+.pos-row .type-buy  { color: var(--buy);  font-weight: var(--weight-medium); }
+.pos-row .type-sell { color: var(--sell); font-weight: var(--weight-medium); }
 .pos-row .pos-pnl.pos { color: var(--buy); }
 .pos-row .pos-pnl.neg { color: var(--sell); }
 
@@ -1214,18 +1224,22 @@ body {
 /* Background-only hover signals scannability without shifting the row 2px
    to the right — the previous translateX made every cursor pass jitter. */
 .cal-row:hover { background: rgba(255, 255, 255, 0.06); }
-.cal-row .cal-date { color: var(--fg-muted); font-weight: 700; }
-.cal-row .time { color: var(--warning); font-weight: 700; }
-.cal-row .ccy  { color: var(--fg);     font-weight: 800; text-align: center;
-                 padding: 1px 4px; border-radius: 3px;
-                 background: rgba(255, 255, 255, 0.04); }
-.cal-row .cat  { font-size: 10px; font-weight: 800; text-align: center;
-                 padding: 1px 4px; border-radius: 3px; letter-spacing: 0.02em; }
+.cal-row .cal-date { color: var(--fg-2); font-weight: var(--weight-medium); }
+.cal-row .time     { color: var(--warning); font-weight: var(--weight-medium); }
+.cal-row .ccy      { color: var(--fg); font-weight: var(--weight-bold); text-align: center;
+                     padding: 1px 4px; border-radius: 3px;
+                     background: rgba(255, 255, 255, 0.04); }
+.cal-row .cat      { font-size: var(--text-2xs); font-weight: var(--weight-bold);
+                     text-align: center; padding: 1px 4px;
+                     border-radius: 3px; letter-spacing: var(--track-tight); }
+/* Category badges use lighter tints of accent/warning to read against the
+   tinted backgrounds — pulled from the same palette as the .cat.* bg colours
+   so the chip reads as a single coloured unit. */
 .cal-row .cat.rate { background: rgba(77, 142, 255, 0.25); color: #cfe0ff; }
 .cal-row .cat.emp  { background: rgba(255, 183, 77, 0.22); color: #ffe2b3; }
-.cal-row .cat.oth  { background: rgba(255, 255, 255, 0.08); color: var(--fg-muted); }
-.cal-row .title{ color: var(--fg); overflow: hidden;
-                 text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.cal-row .cat.oth  { background: rgba(255, 255, 255, 0.08); color: var(--fg-2); }
+.cal-row .title    { color: var(--fg); font-size: var(--text-xs);
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Currency-coloured left border so the reader can identify which
    currency's event a row affects without parsing the ccy text. */
 .cal-row[data-ccy="USD"] { border-left-color: #4d8eff; }
@@ -1261,16 +1275,16 @@ body {
     display: grid;
     grid-template-columns: 50px 1fr 56px;
     gap: 8px; align-items: center;
-    font-family: var(--mono); font-size: 14px;
+    font-family: var(--mono); font-size: var(--text-md);
 }
-.s-row .ccy { color: var(--fg); font-weight: 800; text-align: right;
+.s-row .ccy { color: var(--fg); font-weight: var(--weight-bold); text-align: right;
               display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 6px; }
 .s-row .ccy-ref {
-    font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
+    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
     color: var(--warning);
     border: 1px solid var(--warning);
     padding: 1px 4px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     cursor: help;
 }
 .s-row .val { color: var(--fg); text-align: right; }
@@ -1306,8 +1320,8 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     padding-right: 4px;
 }
 .corr-section-title {
-    font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
-    color: var(--fg-muted);
+    font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
+    color: var(--fg-2);
     text-transform: uppercase;
     margin: 6px 0 2px;
     border-bottom: 1px dashed var(--border);
@@ -1468,7 +1482,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    broader app-wide numeric convention (.bias chip / .stat-val / .acc-val). */
 .dws-validation {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--text-sm);
     padding: 10px 12px;
     border-radius: var(--radius-sm);
     color: var(--fg);
