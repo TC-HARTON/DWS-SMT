@@ -1639,8 +1639,56 @@ function paintAll() {
     paintConcentration(latestSnap);
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
+    paintSentiment(latestSnap);
     paintDws(latestSnap);
     checkNotifications(latestSnap);
+}
+
+/** Paint the OANDA-client positioning sentiment panel.
+ *  One row per pair: bias chip + long-side avg/P+L + short-side avg/P+L.
+ *  When OANDA_API_TOKEN is unset the panel shows the "token missing"
+ *  notice in the status slot and a one-line empty hint. */
+function paintSentiment(snap) {
+    const s = snap.sentiment;
+    const root = $bind('sentiment');
+    const status = $bind('sentiment-status');
+    if (!root || !status) return;
+    if (!s) { status.textContent = '--'; return; }
+    if (!changed('sentiment', s.generated_at)) return;
+    // Status line: failures / token state / freshness
+    if (s.last_error && (!s.by_symbol || Object.keys(s.by_symbol).length === 0)) {
+        status.textContent = s.last_error.includes('OANDA_API_TOKEN')
+            ? 'トークン未設定' : `失敗 ×${s.consecutive_failures}`;
+        root.innerHTML = `<div class="empty mute">${esc(s.last_error)}</div>`;
+        return;
+    }
+    const ageMin = Math.round((Date.now() / 1000 - s.fetched_at) / 60);
+    status.textContent = `${ageMin}m ago`;
+    const rows = SYMBOL_ORDER.map(sym => {
+        const p = s.by_symbol[sym];
+        if (!p) {
+            return `<div class="sent-row sent-missing" data-sym="${esc(sym)}">`
+                + `<span class="sent-sym">${esc(sym)}</span>`
+                + `<span class="sent-bias mute">—</span></div>`;
+        }
+        const biasCls = p.bias;   // short_squeeze | long_squeeze | neutral
+        const biasLabel = p.bias === 'short_squeeze' ? '↑ 買戻圧'
+                        : p.bias === 'long_squeeze'  ? '↓ 投売圧'
+                        : '— 中立';
+        const longCls = p.long_pnl >= 0 ? 'pos' : 'neg';
+        const shortCls = p.short_pnl >= 0 ? 'pos' : 'neg';
+        return `<div class="sent-row" data-sym="${esc(sym)}">`
+             + `<span class="sent-sym">${esc(sym)}</span>`
+             + `<span class="sent-bias ${biasCls}">${biasLabel}</span>`
+             + `<span class="sent-side">L `
+             +   `<span class="sent-px">${fmtPrice(p.long_avg, 4)}</span>`
+             +   `<span class="sent-pnl ${longCls}">${fmtSigned(p.long_pnl, 3)}</span></span>`
+             + `<span class="sent-side">S `
+             +   `<span class="sent-px">${fmtPrice(p.short_avg, 4)}</span>`
+             +   `<span class="sent-pnl ${shortCls}">${fmtSigned(p.short_pnl, 3)}</span></span>`
+             + `</div>`;
+    }).join('');
+    root.innerHTML = rows;
 }
 
 // 1-second clock + countdown tick (independent of WS)

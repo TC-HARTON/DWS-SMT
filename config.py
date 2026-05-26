@@ -261,6 +261,36 @@ MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
 
 
 # --------------------------------------------------------------------------- #
+# OANDA Sentiment layer (precision-review item ②)
+# --------------------------------------------------------------------------- #
+# OANDA's free practice REST API exposes /positionBook for each tradable
+# instrument — the distribution of open OANDA-client positions across price
+# levels. We aggregate that into a per-pair "long avg price vs short avg
+# price vs market price" sentiment metric: longs in profit + shorts in
+# loss ⇒ short-squeeze pressure (and vice-versa).
+#
+# The token comes from a free OANDA fxTrade Practice account (sign-up
+# takes 5 min, no funding required, and the positionBook data is global
+# OANDA-client positioning — not account-specific). Set OANDA_API_TOKEN
+# in .env; if missing, the dashboard's sentiment panel renders
+# "OANDA: トークン未設定" instead of crashing.
+OANDA_API_TOKEN: Final[str] = _get_env("OANDA_API_TOKEN", "")
+OANDA_API_HOST: Final[str] = _get_env(
+    "OANDA_API_HOST", "https://api-fxpractice.oanda.com")
+OANDA_SENTIMENT_REFRESH_SEC: Final[float] = 14400.0   # 4 hours — OANDA's
+                                                       # internal positionBook
+                                                       # snapshot cadence
+OANDA_HTTP_TIMEOUT_SEC: Final[float] = 20.0
+# Map dashboard symbol → OANDA instrument code (USDJPY → USD_JPY).
+OANDA_SYMBOL_MAP: Final[dict[str, str]] = {
+    "XAUUSD": "XAU_USD", "USDJPY": "USD_JPY", "EURUSD": "EUR_USD",
+    "GBPUSD": "GBP_USD", "AUDUSD": "AUD_USD", "GBPJPY": "GBP_JPY",
+    "EURJPY": "EUR_JPY", "AUDJPY": "AUD_JPY", "EURGBP": "EUR_GBP",
+    "EURAUD": "EUR_AUD",
+}
+
+
+# --------------------------------------------------------------------------- #
 # Composite BIAS — per-TF tfSignal → regime-gated weighted composite
 # --------------------------------------------------------------------------- #
 # The dashboard computes the *live* BIAS in static/app.js; the backend computes
