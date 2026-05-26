@@ -69,46 +69,67 @@ body {
 }
 .hdr-brand { display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; }
 
-/* Active Setups strip — the headline answer to "act now?" */
+/* Active Setups strip — the headline answer to "act now?". Made
+   intentionally loud: the strip is where the trader looks first. */
 .hdr-active {
     flex: 1 1 auto;
-    display: flex; align-items: center; gap: 12px;
+    display: flex; align-items: center; gap: 14px;
     overflow: hidden;
 }
 .hdr-active .active-label {
-    font-size: 10px; letter-spacing: 0.14em; font-weight: 800;
+    font-size: 11px; letter-spacing: 0.16em; font-weight: 900;
     color: var(--warning); text-transform: uppercase;
     white-space: nowrap;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(255, 183, 77, 0.12);
 }
 .hdr-active .active-chips {
-    display: flex; gap: 8px; flex-wrap: nowrap; overflow: hidden;
+    display: flex; gap: 10px; flex-wrap: nowrap; overflow: hidden;
     flex: 1 1 auto;
 }
 .hdr-active .active-empty {
-    color: var(--fg-dim); font-style: italic; font-size: 12px;
+    color: var(--fg-muted); font-size: 12px;
 }
 .active-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 10px;
-    border-radius: 14px;
-    font-family: var(--mono); font-weight: 800; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-family: var(--mono); font-weight: 800; font-size: 14px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     white-space: nowrap;
+    transition: transform 0.15s, box-shadow 0.15s;
 }
-.active-chip .ac-sym  { color: var(--fg); }
-.active-chip .ac-side { font-size: 11px; letter-spacing: 0.08em; }
-.active-chip .ac-score{ color: var(--fg-muted); font-size: 11px; }
-.active-chip.strong-buy   { border-color: var(--buy);
-                             background: rgba(0,208,156,0.18); }
-.active-chip.strong-buy   .ac-side, .active-chip.strong-buy   .ac-sym { color: var(--buy); }
-.active-chip.buy          { border-color: var(--buy); }
-.active-chip.buy          .ac-side, .active-chip.buy          .ac-sym { color: var(--buy); }
-.active-chip.sell         { border-color: var(--sell); }
-.active-chip.sell         .ac-side, .active-chip.sell         .ac-sym { color: var(--sell); }
-.active-chip.strong-sell  { border-color: var(--sell);
-                             background: rgba(255,91,107,0.18); }
-.active-chip.strong-sell  .ac-side, .active-chip.strong-sell  .ac-sym { color: var(--sell); }
+.active-chip:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.active-chip .ac-sym   { color: var(--fg); }
+.active-chip .ac-side  { font-size: 12px; letter-spacing: 0.08em; font-weight: 800; }
+.active-chip .ac-score { color: var(--fg-muted); font-size: 11px; }
+.active-chip.strong-buy {
+    border-color: var(--buy);
+    background: rgba(0, 208, 156, 0.22);
+    box-shadow: 0 0 0 1px var(--buy), 0 0 16px rgba(0, 208, 156, 0.20);
+}
+.active-chip.strong-buy   .ac-side,
+.active-chip.strong-buy   .ac-sym { color: var(--buy); }
+.active-chip.buy          { border-color: var(--buy);
+                            background: rgba(0, 208, 156, 0.10); }
+.active-chip.buy          .ac-side,
+.active-chip.buy          .ac-sym { color: var(--buy); }
+.active-chip.sell         { border-color: var(--sell);
+                            background: rgba(255, 91, 107, 0.10); }
+.active-chip.sell         .ac-side,
+.active-chip.sell         .ac-sym { color: var(--sell); }
+.active-chip.strong-sell {
+    border-color: var(--sell);
+    background: rgba(255, 91, 107, 0.22);
+    box-shadow: 0 0 0 1px var(--sell), 0 0 16px rgba(255, 91, 107, 0.20);
+}
+.active-chip.strong-sell  .ac-side,
+.active-chip.strong-sell  .ac-sym { color: var(--sell); }
 .brand-mark {
     font-size: 22px;
     font-weight: 800;
@@ -172,6 +193,11 @@ body {
     padding: 8px 12px 8px 11px;     /* trim left pad 1 px so the 3 px bar doesn't expand the inner area */
     display: flex; flex-direction: column; gap: 6px;
     min-height: 0;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.card:hover {
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 /* Per-card accent colors give each card a glanceable identity bar. */
 .account-card  { border-left-color: var(--accent); }
@@ -1092,6 +1118,11 @@ body {
     background: var(--panel-2);
     border-radius: var(--radius);
     border-left: 3px solid var(--fg-dim);
+    transition: background 0.12s, transform 0.12s;
+}
+.cal-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateX(2px);
 }
 .cal-row .cal-date { color: var(--fg-muted); font-weight: 700; }
 .cal-row .time { color: var(--warning); font-weight: 700; }
@@ -1238,17 +1269,19 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 /* Pill buttons (window selectors) */
 .pill-group { display: flex; gap: 4px; }
 .pill {
-    background: var(--panel-2); color: var(--fg-muted);
+    background: var(--panel-2); color: var(--fg);
     border: 1px solid var(--border); border-radius: 4px;
-    padding: 2px 10px;
+    padding: 3px 11px;
     font-family: var(--mono); font-size: 11px;
     cursor: pointer; user-select: none;
-    font-weight: 600;
+    font-weight: 700;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.pill:hover { background: var(--panel); color: var(--fg); }
+.pill:hover { background: var(--panel); border-color: var(--accent); }
 .pill.on {
     background: var(--accent); color: white;
     border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
 }
 
 /* Scrollbar */
