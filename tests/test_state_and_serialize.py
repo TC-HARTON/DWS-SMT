@@ -154,6 +154,58 @@ def test_state_set_and_read_validation():
     assert st.analysis_version == before + 1
 
 
+def _make_validation_snap(pfs_by_cell):
+    """Build a tiny ValidationSnapshot with the given (sym, tf) → PF mapping."""
+    from analyzer.signal_validator import (
+        RegimeStats, SubPeriodStats, ValidationCore, ValidationStats,
+        ValidationSnapshot,
+    )
+    third = SubPeriodStats(win_rate=0.5, expectancy=1.0, n_trades=10)
+    regime = RegimeStats(win_rate=0.5, expectancy=1.0, n_trades=10)
+    by_sym = {}
+    for (sym, tf), pf in pfs_by_cell.items():
+        core = ValidationCore(
+            n_trades=100, win_rate=0.5, ci_low=0.4, ci_high=0.6,
+            profit_factor=pf, expectancy=1.0, max_drawdown=10.0, avg_mae=5.0,
+            thirds=(third, third, third), regime_trend=regime, regime_range=regime,
+            tier="信頼",
+        )
+        stats = ValidationStats(symbol=sym, base_tf=tf, raw=core, macro_filtered=core)
+        by_sym.setdefault(sym, {})[tf] = stats
+    return ValidationSnapshot(generated_at=1.0, compute_ms=1.0, by_symbol=by_sym)
+
+
+def test_validation_history_appends_per_cell():
+    from analyzer.state import LatestState
+    st = LatestState()
+    st.set_validation(_make_validation_snap({("EURUSD", "M15"): 2.10}))
+    st.set_validation(_make_validation_snap({("EURUSD", "M15"): 2.15}))
+    st.set_validation(_make_validation_snap({("EURUSD", "M15"): 2.20}))
+    hist = st.validation_history
+    assert hist["EURUSD"]["M15"] == [2.10, 2.15, 2.20]
+
+
+def test_validation_history_trims_to_cap():
+    from analyzer.state import LatestState
+    st = LatestState()
+    # Cap is 24; push 30 entries and confirm only the last 24 survive.
+    for i in range(30):
+        st.set_validation(_make_validation_snap({("EURUSD", "M15"): float(i)}))
+    hist = st.validation_history
+    assert len(hist["EURUSD"]["M15"]) == 24
+    assert hist["EURUSD"]["M15"][0] == 6.0    # entries 0..5 trimmed
+    assert hist["EURUSD"]["M15"][-1] == 29.0
+
+
+def test_validation_history_inf_pf_stored_as_none():
+    import math
+    from analyzer.state import LatestState
+    st = LatestState()
+    st.set_validation(_make_validation_snap({("EURUSD", "M15"): math.inf}))
+    hist = st.validation_history
+    assert hist["EURUSD"]["M15"] == [None]
+
+
 def test_state_set_and_read_macro():
     from analyzer.state import LatestState
     from analyzer.macro_feed import MacroSnapshot

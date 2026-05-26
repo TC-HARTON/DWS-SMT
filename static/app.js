@@ -1439,6 +1439,12 @@ function updateDwsValidation(sym, snap) {
       + `</div>`
     ) : '';
 
+    // Per-cell rolling PF history (last ~24 validation cycles, ≈ 2 h at the
+    // 5-min cadence). Used for the sparkline below the live numbers.
+    const histArr = (snap.validation_history
+                  && snap.validation_history[sym]
+                  && snap.validation_history[sym][UI.dwsBase]) || [];
+
     const v = snap.validation;
     const stats = v && v.by_symbol && v.by_symbol[sym]
                   && v.by_symbol[sym][UI.dwsBase];
@@ -1462,11 +1468,34 @@ function updateDwsValidation(sym, snap) {
     const thirds = (c.thirds || [])
         .map(t => (t.expectancy > 0 ? '✓' : '✗')).join('') || '--';
 
+    // Drift indicator: how far live PF has drifted from the 16y baseline PF.
+    // ±20% is the alarm threshold — outside that, the live signal regime
+    // looks meaningfully different from the long-term baseline (could be a
+    // favourable streak or a strategy-decay warning).
+    let pfDriftHtml = '';
+    if (base && base.profit_factor && c.profit_factor != null
+        && c.profit_factor !== Infinity && base.profit_factor > 0) {
+        const drift = (c.profit_factor - base.profit_factor) / base.profit_factor;
+        const driftPct = Math.round(drift * 100);
+        const driftCls = Math.abs(drift) > 0.20
+            ? (drift > 0 ? 'pos warn' : 'neg warn')
+            : (drift > 0 ? 'pos' : drift < 0 ? 'neg' : '');
+        const arrow = drift > 0 ? '↑' : drift < 0 ? '↓' : '·';
+        pfDriftHtml = ` <span class="dws-pf-drift ${driftCls}">`
+                    + `${arrow}${driftPct > 0 ? '+' : ''}${driftPct}%</span>`;
+    }
+
     // Each metric is its own label/value cell — .dws-vstats stacks them one
     // per row with a roomy gap so the figures never run together.
     const cell = (k, v, vcls) =>
         `<div class="dws-vcell"><span class="dws-vk">${k}</span>`
       + `<span class="dws-vv ${vcls || ''}">${v}</span></div>`;
+
+    // Sparkline canvas placeholder — we draw into it after the
+    // innerHTML write so the canvas exists in the DOM.
+    const sparkHtml = histArr.length >= 2
+        ? `<canvas class="dws-vspark" data-bind="dws-vspark-${sym}" width="160" height="22"></canvas>`
+        : '';
 
     el.innerHTML =
         `<div class="dws-vhead">`
@@ -1476,11 +1505,79 @@ function updateDwsValidation(sym, snap) {
       + `<div class="dws-vstats">`
       + cell('勝率', pct(c.win_rate))
       + cell('95%CI', esc(ci))
-      + cell('PF', esc(pf))
+      + cell('PF', esc(pf) + pfDriftHtml)
       + cell('期待値', esc(expTxt), 'dws-num ' + expCls)
       + cell('安定性', esc(thirds))
       + `</div>`
-      + baselineHtml;
+      + baselineHtml
+      + sparkHtml;
+
+    if (sparkHtml) {
+        drawValidationSparkline(sym, histArr,
+            base ? base.profit_factor : null);
+    }
+}
+
+/** Draw a tiny PF-vs-time sparkline into the validation block's canvas.
+ *  Shows the rolling PF trace, a horizontal 16y-baseline reference line,
+ *  and a final-point marker so the "current vs trend" gap is glanceable. */
+function drawValidationSparkline(sym, history, baselinePF) {
+    const canvas = $bind('dws-vspark-' + sym);
+    if (!canvas) return;
+    const W = canvas.width, H = canvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    const pad = 2;
+    const pts = history.map(v => (v == null ? null : v));
+    const numeric = pts.filter(v => v != null);
+    if (numeric.length === 0) return;
+    let lo = Math.min(...numeric, baselinePF != null ? baselinePF : Infinity);
+    let hi = Math.max(...numeric, baselinePF != null ? baselinePF : -Infinity);
+    if (lo === hi) { lo -= 0.5; hi += 0.5; }
+    const span = hi - lo;
+    const xStep = (W - pad * 2) / Math.max(1, pts.length - 1);
+    const y = v => pad + (H - pad * 2) * (1 - (v - lo) / span);
+
+    // 16y baseline horizontal line (dashed, muted).
+    if (baselinePF != null && isFinite(baselinePF)) {
+        ctx.strokeStyle = 'rgba(212, 218, 230, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        const yb = y(baselinePF);
+        ctx.beginPath();
+        ctx.moveTo(pad, yb);
+        ctx.lineTo(W - pad, yb);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // History trace.
+    ctx.strokeStyle = '#4d8eff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let started = false;
+    pts.forEach((v, i) => {
+        if (v == null) { started = false; return; }
+        const x = pad + i * xStep;
+        const yy = y(v);
+        if (!started) { ctx.moveTo(x, yy); started = true; }
+        else { ctx.lineTo(x, yy); }
+    });
+    ctx.stroke();
+
+    // Final point dot — coloured by drift sign vs baseline (if any).
+    const last = numeric[numeric.length - 1];
+    const lastX = pad + (pts.length - 1) * xStep;
+    const lastY = y(last);
+    let dotCol = '#4d8eff';
+    if (baselinePF != null && baselinePF > 0) {
+        const drift = (last - baselinePF) / baselinePF;
+        dotCol = Math.abs(drift) > 0.20
+            ? (drift > 0 ? '#00d09c' : '#ff5b6b')
+            : '#d0d6e2';
+    }
+    ctx.fillStyle = dotCol;
+    ctx.beginPath(); ctx.arc(lastX, lastY, 2.2, 0, Math.PI * 2); ctx.fill();
 }
 
 function drawDwsCanvas(snap, sym) {

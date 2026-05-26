@@ -1465,6 +1465,28 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-vbase-tier.trusted      { background: #1f6f54; color: #f2f4f9; }
 .dws-vbase-tier.caution      { background: #7a5a1e; color: #f2f4f9; }
 .dws-vbase-tier.insufficient { background: #4a4f5c; color: #f2f4f9; }
+/* PF-vs-baseline drift indicator next to the live PF value. */
+.dws-pf-drift {
+    font-weight: 800;
+    font-size: 11px;
+    margin-left: 4px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+}
+.dws-pf-drift.pos { color: var(--buy); }
+.dws-pf-drift.neg { color: var(--sell); }
+.dws-pf-drift.warn {
+    box-shadow: 0 0 0 1px currentColor;
+    background: rgba(255, 255, 255, 0.10);
+}
+/* Rolling PF sparkline at the bottom of the OOS validation block. */
+.dws-vspark {
+    display: block;
+    width: 100%;
+    height: 22px;
+    margin-top: 6px;
+}
 
 /* Macro / rate-differential panel */
 .macro-row {

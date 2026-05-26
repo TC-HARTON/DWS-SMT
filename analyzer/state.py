@@ -93,6 +93,11 @@ class LatestState:
         self._macro: Optional[MacroSnapshot] = None
         self._real_yield: Optional[RealYieldSnapshot] = None
         self._sentiment: Optional[SentimentSnapshot] = None
+        # Rolling per-cell PF history fed by set_validation(); the live OOS
+        # block uses it to draw a tiny sparkline so the user can see if a
+        # tier is improving or decaying within the session.
+        self._validation_history: dict[str, dict[str, list[float]]] = {}
+        self._validation_history_max_per_cell = 24    # ~2 h at 5-min cadence
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
@@ -178,6 +183,22 @@ class LatestState:
     def set_validation(self, snapshot: ValidationSnapshot) -> None:
         with self._cond:
             self._validation = snapshot
+            # Append this pass's PF to the rolling history bucket per
+            # (sym, base_tf). PF = ∞ is normalised to None (the front end
+            # treats it as "off chart"). Trim to the configured cap.
+            limit = self._validation_history_max_per_cell
+            for sym, per_tf in snapshot.by_symbol.items():
+                sym_buf = self._validation_history.setdefault(sym, {})
+                for tf, stats in per_tf.items():
+                    pf = stats.raw.profit_factor
+                    if pf != pf or pf == float("inf"):     # NaN or inf → None
+                        val = None
+                    else:
+                        val = float(pf)
+                    buf = sym_buf.setdefault(tf, [])
+                    buf.append(val)
+                    if len(buf) > limit:
+                        del buf[: len(buf) - limit]
             self._monotonic_version += 1
             self._analysis_version += 1
             self._cond.notify_all()
@@ -281,6 +302,15 @@ class LatestState:
             return self._sentiment
 
     @property
+    def validation_history(self) -> dict[str, dict[str, list[float | None]]]:
+        """Snapshot copy of the per-cell PF history rolling buffer."""
+        with self._lock:
+            return {
+                sym: {tf: list(buf) for tf, buf in per_tf.items()}
+                for sym, per_tf in self._validation_history.items()
+            }
+
+    @property
     def version(self) -> int:
         with self._lock:
             return self._monotonic_version
@@ -310,6 +340,10 @@ class LatestState:
                 "macro": self._macro,
                 "real_yield": self._real_yield,
                 "sentiment": self._sentiment,
+                "validation_history": {
+                    sym: {tf: list(buf) for tf, buf in per_tf.items()}
+                    for sym, per_tf in self._validation_history.items()
+                },
                 "broker_meta": self._broker_meta,
             }
 

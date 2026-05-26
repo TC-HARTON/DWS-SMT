@@ -692,6 +692,7 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
         "sentiment": serialize_sentiment(snap["sentiment"]),  # type: ignore[arg-type]
+        "validation_history": snap.get("validation_history") or {},
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {
             s.base: {
