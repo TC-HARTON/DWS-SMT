@@ -1524,41 +1524,47 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 /* ============================================================
    Macro / rate-differential panel
    ----------------------------------------------------------------
-   Two-line stacked layout: the per-pair direction label was being
-   visually truncated by the previous single-row grid because the
-   1fr column held only ~50 px inside the 320 px sidebar (root cause
-   of the user's "macro 途切れてる" report). New shape:
+   Compact 3-col header + full-width direction label:
 
-   line 1: [pair]  [base%]  [quote%]  [diff]   <- mono, baseline aligned
-   line 2: [▲ ラベル全文]                       <- full width, wraps cleanly
+     [pair]   [base/quote rates]   [differential]
+     [─────── direction label, allowed to wrap ───────]
 
-   Colours use semantic tokens only — no hardcoded hex.
+   The previous 4-col grid with 1fr 1fr split mis-aligned the two
+   rate cells across rows (right-aligned text in independent cells
+   landed at different X positions). Collapsing base+quote into a
+   SINGLE text element fixes that and frees up the differential to
+   sit as a proper third column.
+
+   Data values render in --fg (white) — the previous --fg-3 dim grey
+   on the rate cells failed the "金利表示は読みやすく" requirement.
    ============================================================ */
 .macro-row {
     display: grid;
-    grid-template-columns: 56px 1fr 1fr 56px;
+    grid-template-columns: 56px 1fr auto;
     grid-template-areas:
-        "pair base quote diff"
-        "dir  dir  dir   dir";
+        "pair rates diff"
+        "dir  dir   dir";
     column-gap: var(--space-3);
-    row-gap: 1px;
+    row-gap: 2px;
     font-size: var(--text-xs);
-    padding: var(--space-2) var(--space-2);
-    align-items: center;
+    padding: var(--space-3) var(--space-2);
+    align-items: baseline;
     color: var(--fg);
 }
 .macro-row + .macro-row { border-top: 1px solid var(--border); }
 .macro-pair  { grid-area: pair;  font-weight: var(--weight-bold); }
-.macro-rate  { color: var(--fg-3); text-align: right; font-family: var(--mono); }
-.macro-rate.base  { grid-area: base;  }
-.macro-rate.quote { grid-area: quote; }
-.macro-diff  { grid-area: diff;  text-align: right;
-               font-weight: var(--weight-medium); font-family: var(--mono); }
+/* Combined "base / quote" rate string — one text node, one alignment,
+   no per-cell drift across rows. All values render in --fg for readability. */
+.macro-rates { grid-area: rates; color: var(--fg); text-align: right;
+               font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.macro-rates .sep { color: var(--fg-3); margin: 0 3px; }
+.macro-diff  { grid-area: diff;  text-align: right; min-width: 48px;
+               font-weight: var(--weight-bold); font-family: var(--mono);
+               font-variant-numeric: tabular-nums; color: var(--fg); }
 .macro-dir   { grid-area: dir;
-               color: var(--fg-2);
+               color: var(--fg);
                font-size: var(--text-2xs);
-               letter-spacing: var(--track-tight);
-               padding-left: 2px; }
+               letter-spacing: var(--track-tight); }
 .macro-diff.pos, .macro-dir.pos  { color: var(--buy); }
 .macro-diff.neg, .macro-dir.neg  { color: var(--sell); }
 .macro-diff.mute, .macro-dir.mute { color: var(--fg-3); }

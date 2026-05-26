@@ -713,20 +713,18 @@ function paintMacro(snap) {
                                    : { short: '実質利回り横ばい',    full: '実質利回り横ばい'           };
     const rows = (SYMBOL_ORDER || []).map(sym => {
         if (sym === 'XAUUSD') {
-            // Gold's macro direction is the US real-yield trend, not a
-            // policy-rate differential (gold moves inverse to real yields).
-            // We repurpose the row columns: base = "RY" tag, quote = current
-            // real-yield %, diff = 5-day trend.
+            // Gold's macro direction is the US 10-year real-yield trend
+            // (gold moves inverse to real yields). Row contents: pair tag |
+            // current real-yield % | 5-day trend (as differential) | label.
             const gd = ry && ry.value != null ? ry.gold_dir : 0;
             const cls = gd > 0 ? 'pos' : gd < 0 ? 'neg' : 'mute';
-            const rv = ry && ry.value != null ? ry.value.toFixed(2) : '--';
+            const rv = ry && ry.value != null ? ry.value.toFixed(2) + '%' : '--';
             const t5 = ry && ry.trend_5d != null
                      ? (ry.trend_5d >= 0 ? '+' : '') + ry.trend_5d.toFixed(2) : '--';
             const lbl = goldLabel(gd);
             return `<div class="macro-row">
                 <span class="macro-pair">XAUUSD</span>
-                <span class="macro-rate base dim">実利</span>
-                <span class="macro-rate quote">${esc(rv)}</span>
+                <span class="macro-rates">実利 ${esc(rv)}</span>
                 <span class="macro-diff ${cls}">${esc(t5)}</span>
                 <span class="macro-dir ${cls}" title="${esc(lbl.full)}">${arrow(gd)} ${esc(lbl.short)}</span>
             </div>`;
@@ -736,10 +734,13 @@ function paintMacro(snap) {
         const dirCls = b.macro_dir > 0 ? 'pos' : b.macro_dir < 0 ? 'neg' : 'mute';
         const diff = b.differential == null ? '--'
                    : (b.differential >= 0 ? '+' : '') + b.differential.toFixed(2);
+        // Single combined rate string — kills the per-column alignment drift
+        // that the previous base/quote 1fr 1fr layout caused across rows.
+        const base = esc(rateStr(b.base_ccy));
+        const quote = esc(rateStr(b.quote_ccy));
         return `<div class="macro-row">
             <span class="macro-pair">${esc(sym)}</span>
-            <span class="macro-rate base">${esc(rateStr(b.base_ccy))}</span>
-            <span class="macro-rate quote">${esc(rateStr(b.quote_ccy))}</span>
+            <span class="macro-rates">${base}<span class="sep">/</span>${quote}</span>
             <span class="macro-diff ${dirCls}">${esc(diff)}</span>
             <span class="macro-dir ${dirCls}" title="${esc(b.label)}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
         </div>`;

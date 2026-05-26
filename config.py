@@ -420,7 +420,11 @@ CALENDAR_WARNING_WINDOW_SEC: Final[int] = 30 * 60
 
 # SPEC §15.3 currencies to surface. Defaults to the same fiat universe as
 # the strength meter so the calendar agrees with the rest of the dashboard.
-CALENDAR_CURRENCIES: Final[frozenset[str]] = frozenset(FIAT_CURRENCIES)
+# Limited to currencies that appear in the display SYMBOLS tuple — there's
+# no value showing NZD / CHF / CAD events when no panel reacts to them.
+CALENDAR_CURRENCIES: Final[frozenset[str]] = frozenset(
+    {"USD", "EUR", "GBP", "JPY", "AUD"}
+)
 
 # Event-type filter: only central-bank rate decisions and employment releases
 # are surfaced (the two highest-impact macro categories). An event passes if
