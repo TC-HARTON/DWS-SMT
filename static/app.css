@@ -167,14 +167,21 @@ body {
 .card {
     background: var(--panel);
     border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    padding: 8px 12px;
+    padding: 8px 12px 8px 11px;     /* trim left pad 1 px so the 3 px bar doesn't expand the inner area */
     display: flex; flex-direction: column; gap: 6px;
     min-height: 0;
 }
+/* Per-card accent colors give each card a glanceable identity bar. */
+.account-card  { border-left-color: var(--accent); }
+.calendar-card { border-left-color: var(--warning); }
+.macro-card    { border-left-color: var(--buy); }
+.strength-card { border-left-color: var(--accent); }
+.corr-card     { border-left-color: var(--warning); }
 .card-title {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
+    font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
     text-transform: uppercase;
     border-bottom: 1px solid var(--border);
     padding-bottom: 4px;
