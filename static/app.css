@@ -1449,6 +1449,16 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     transition: filter 0.12s;
 }
 .notify-test:hover { filter: brightness(1.15); }
+/* Result line inserted by setupNotifyUI after the test button.
+   Surfaces success / failure per channel instead of silent no-op. */
+.notify-test-result {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    color: var(--fg-2);
+    line-height: 1.5;
+    word-break: break-word;
+}
+.notify-test-result.warn { color: var(--warning); }
 
 /* Pill buttons (window selectors) */
 .pill-group { display: flex; gap: 4px; }

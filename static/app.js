@@ -1893,20 +1893,63 @@ function _notifyRefreshPermLabel() {
     el.className = 'notify-perm ' + p;
 }
 
-function dispatchNotification(title, body) {
+/** Fire the notification through every enabled channel.
+ *
+ *  Returns a result object describing what was attempted and what failed,
+ *  so the "テスト送信" button can surface "鳴らない" causes to the user
+ *  instead of swallowing them silently (the previous source of every
+ *  "鳴らねえ" complaint).
+ */
+async function dispatchNotification(title, body) {
     const cfg = _notifyGetCfg();
-    if (cfg.browser && 'Notification' in window && Notification.permission === 'granted') {
-        try { new Notification(title, {body, tag: 'mt5-dashboard'}); }
-        catch (e) { /* ignore */ }
+    const result = { browser: null, discord: null };
+
+    // --- Browser channel ----------------------------------------------
+    if (cfg.browser) {
+        if (!('Notification' in window)) {
+            result.browser = 'unsupported';
+        } else if (Notification.permission !== 'granted') {
+            result.browser = `no-permission:${Notification.permission}`;
+        } else {
+            try {
+                new Notification(title, {body, tag: 'mt5-dashboard'});
+                result.browser = 'ok';
+            } catch (e) {
+                result.browser = `error:${e && e.message || e}`;
+                console.error('[notify] browser channel failed', e);
+            }
+        }
+    } else {
+        result.browser = 'channel-off';
     }
-    if (cfg.discord && cfg.webhook) {
-        // Discord webhooks accept browser POST without CORS issues.
-        fetch(cfg.webhook, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({content: `**${title}** — ${body}`}),
-        }).catch(() => {/* silent — user can re-paste if needed */});
+
+    // --- Discord channel ----------------------------------------------
+    if (cfg.discord) {
+        if (!cfg.webhook) {
+            result.discord = 'no-webhook';
+        } else {
+            try {
+                const r = await fetch(cfg.webhook, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content: `**${title}** — ${body}`}),
+                });
+                if (r.ok) {
+                    result.discord = `ok:${r.status}`;
+                } else {
+                    result.discord = `http:${r.status}`;
+                    console.error('[notify] discord webhook returned', r.status, await r.text().catch(()=>''));
+                }
+            } catch (e) {
+                result.discord = `error:${e && e.message || e}`;
+                console.error('[notify] discord webhook fetch failed', e);
+            }
+        }
+    } else {
+        result.discord = 'channel-off';
     }
+
+    return result;
 }
 
 function checkNotifications(snap) {
@@ -2018,7 +2061,10 @@ function setupNotifyUI() {
         localStorage.setItem(NOTIFY_LS.discord, discordCb.checked ? '1' : '0');
         refreshBell();
     };
-    webhookIn.onchange = () => {
+    // Save on EVERY keystroke / paste — previously was `change` which only
+    // fires on blur, so pasting a webhook and immediately clicking テスト送信
+    // skipped the save and the Discord channel saw an empty URL.
+    webhookIn.oninput = () => {
         localStorage.setItem(NOTIFY_LS.webhook, webhookIn.value.trim());
     };
     trustedCb.onchange = () => {
@@ -2027,10 +2073,54 @@ function setupNotifyUI() {
     baseCb.onchange = () => {
         localStorage.setItem(NOTIFY_LS.onlyBase, baseCb.checked ? '1' : '0');
     };
-    testBtn.onclick = (ev) => {
+    /** Test button — surfaces the result for each channel so silent failures
+     *  (permission denied, webhook 401, channel toggled off) are visible
+     *  instead of looking like a dead button. */
+    testBtn.onclick = async (ev) => {
         ev.stopPropagation();
-        dispatchNotification('MT5 Dashboard テスト',
+        // Flush any unsaved webhook value (paranoia — oninput should have
+        // already done it but the user might have typed in DevTools / etc.)
+        localStorage.setItem(NOTIFY_LS.webhook, webhookIn.value.trim());
+        const cfg = _notifyGetCfg();
+        // If both channels are off the user gets no feedback at all otherwise.
+        // Auto-request browser permission so first click isn't a dead end.
+        if (cfg.browser && 'Notification' in window
+            && Notification.permission === 'default') {
+            await Notification.requestPermission();
+        }
+        const res = await dispatchNotification('MT5 Dashboard テスト',
             `${new Date().toLocaleTimeString('ja-JP')} の通知配信テスト`);
+        // Render a short pass/fail line directly below the test button so
+        // the user can see which channel fired and which failed.
+        let line = testBtn.nextElementSibling;
+        if (!line || !line.classList.contains('notify-test-result')) {
+            line = document.createElement('div');
+            line.className = 'notify-test-result';
+            testBtn.insertAdjacentElement('afterend', line);
+        }
+        const fmt = (label, code) => {
+            if (code === 'ok' || (code && code.startsWith('ok:'))) return `${label} ✓`;
+            if (code === 'channel-off') return null;            // hide
+            if (code === 'no-permission:default')  return `${label} ✗ 権限未承認`;
+            if (code === 'no-permission:denied')   return `${label} ✗ OS でブロック`;
+            if (code === 'no-permission:unsupported') return `${label} ✗ 非対応ブラウザ`;
+            if (code === 'no-webhook')             return `${label} ✗ URL 未入力`;
+            if (code && code.startsWith('http:'))  return `${label} ✗ ${code}`;
+            if (code && code.startsWith('error:')) return `${label} ✗ ${code.slice(6)}`;
+            if (code === 'unsupported')            return `${label} ✗ 非対応`;
+            return `${label} ?:${code}`;
+        };
+        const parts = [fmt('ブラウザ', res.browser), fmt('Discord', res.discord)]
+                        .filter(Boolean);
+        if (parts.length === 0) {
+            line.textContent = '⚠ 通知チャンネルが両方 OFF — まずチェックを入れてください';
+            line.className = 'notify-test-result warn';
+        } else {
+            line.textContent = parts.join(' / ');
+            line.className = 'notify-test-result';
+        }
+        // Console echo for full diagnostic detail.
+        console.info('[notify] test result', res);
     };
 }
 
