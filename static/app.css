@@ -10,8 +10,8 @@
     --panel-2:      #353c50;
     --border:       #3a4258;
     --fg:           #f2f4f9;
-    --fg-muted:     #b4bbcc;
-    --fg-dim:       #8089a0;
+    --fg-muted:     #d0d6e2;   /* was #b4bbcc — bumped for readability on dark bg */
+    --fg-dim:       #a4abc0;   /* was #8089a0 — same reason, secondary text now legible */
     --buy:          #00d09c;
     --sell:         #ff5b6b;
     --warning:      #ffb74d;
