@@ -4,7 +4,7 @@ pattern X, which had historical win rate Y%" on the dashboard.
 The centroid + win-rate table is produced offline by
 ``scripts/_extract_xauusd_patterns.py`` and stored in
 ``data/loss_analysis/xauusd_per_cluster_winrate.json``. This module loads
-that table at startup, computes a 22-feature vector from the live OHLC
+that table at startup, computes a 21-feature vector from the live OHLC
 frames at each analysis cycle, and finds the nearest centroid in the
 same z-space the offline script used.
 
@@ -158,7 +158,7 @@ class PatternMatcher:
         base_tf: str,
         top_df: pd.DataFrame, mid_df: pd.DataFrame, base_df: pd.DataFrame,
     ) -> dict[str, float] | None:
-        """Compute the 22-feature vector at the LATEST closed bar of each TF.
+        """Compute the 21-feature vector at the LATEST closed bar of each TF.
 
         Must produce a vector that is *bit-comparable* to the one the offline
         extractor builds at a historical trade entry — same indicator

@@ -280,14 +280,15 @@ class AnalysisLoop:
             bias_by_base: dict[str, int] = {}
             for base_tf, window in sym_snap.dws.by_base.items():
                 # STRICT entry rule — the pattern WR is only meaningful when
-                # the LATEST closed bar of this base TF is ITSELF an active
-                # BUY/SELL trigger. The centroid table was built from the
-                # feature vector at trigger-fire bars only; comparing against
-                # arbitrary intermediate bars surfaces a phantom WR for a
-                # setup the SPEC rule says we wouldn't be trading. When the
-                # latest bar is not a trigger -> side=0 -> "no match" so the
-                # UI can render an explicit "現在シグナルなし — 待機中" state.
-                latest_trig = window.triggers[-1] if window.triggers else None
+                # the LATEST CLOSED bar of this base TF is ITSELF an active
+                # BUY/SELL trigger. _detect_triggers leaves index n-1 (the
+                # in-progress bar) permanently None (.mq5 OnCalculate's
+                # `bar>=1 && i>0` guard), so the freshest trigger lives at
+                # index n-2. Using triggers[-1] would never fire (the bug in
+                # the previous gating implementation). Using triggers[-2]
+                # finds the genuinely-most-recent CONFIRMED trigger.
+                latest_trig = (window.triggers[-2]
+                               if len(window.triggers) >= 2 else None)
                 if latest_trig == "BUY":
                     bias_by_base[base_tf] = 1
                 elif latest_trig == "SELL":
