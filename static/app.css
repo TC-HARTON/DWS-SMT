@@ -233,16 +233,19 @@ body {
     gap: var(--gap);
     min-height: 0;
 }
+/* 4×2 panel grid — row 1 = 金 + USD majors, row 2 = JPY crosses.
+   Each panel is now ~25% wider than the old 5-col layout, giving the
+   in-panel data (BIAS / signal chips / DWS state) real breathing room. */
 .symbols {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-rows: repeat(2, minmax(0, 1fr));
     gap: var(--gap);
     min-height: 0;
     overflow: hidden;
 }
 /* When one panel is clicked to expand, it takes the entire symbols area
-   and the other 9 panels are hidden. Click again (or press Esc / ✕) to restore. */
+   and the other 7 panels are hidden. Click again (or press Esc / ✕) to restore. */
 .symbols.has-expanded {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;

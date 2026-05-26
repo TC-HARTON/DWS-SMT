@@ -7,8 +7,11 @@
 'use strict';
 
 // Row 1: XAU + USD-quote majors. Row 2: JPY-crosses + EUR-crosses.
-const SYMBOL_ORDER = ["XAUUSD", "USDJPY", "EURUSD", "GBPUSD", "AUDUSD",
-                      "EURJPY", "GBPJPY", "AUDJPY"];
+// 4×2 grid order — mirrors config.SYMBOLS:
+//   row 1 (top)    : gold + USD majors  (金 + ＄)
+//   row 2 (bottom) : JPY crosses        (円)
+const SYMBOL_ORDER = ["XAUUSD", "EURUSD", "GBPUSD", "AUDUSD",
+                      "USDJPY", "EURJPY", "GBPJPY", "AUDJPY"];
 // Strength is a pure 7-fiat metric; XAU is excluded entirely (gold is not
 // a fiat currency). CHF/NZD computed backend-side but not displayed.
 const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD"];

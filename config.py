@@ -83,15 +83,19 @@ class SymbolSpec:
             raise ValueError(f"display_size must be xl|md|sm, got {self.display_size!r}")
 
 
-# Order matters — top-down render order per SPEC 7.1.
+# Order matters — drives the 4×2 panel grid layout in static/app.css:
+#   row 1 (top)    = gold + USD majors  → reads as "USD strength view"
+#   row 2 (bottom) = JPY crosses        → reads as "JPY weakness view"
 SYMBOLS: Final[tuple[SymbolSpec, ...]] = (
+    # --- Row 1: 金 + ＄ ----------------------------------------------------
     SymbolSpec("XAUUSD", "xl", 50.0),       # SPEC 10.2: $50
-    SymbolSpec("USDJPY", "md", 0.500),      # SPEC 10.2: 50pips
     SymbolSpec("EURUSD", "md", 0.01000),    # SPEC 10.2: 100pips
     SymbolSpec("GBPUSD", "md", 0.01000),
     SymbolSpec("AUDUSD", "md", 0.01000),
-    SymbolSpec("GBPJPY", "sm", 0.500),
+    # --- Row 2: 円 ---------------------------------------------------------
+    SymbolSpec("USDJPY", "md", 0.500),      # SPEC 10.2: 50pips
     SymbolSpec("EURJPY", "sm", 0.500),
+    SymbolSpec("GBPJPY", "sm", 0.500),
     SymbolSpec("AUDJPY", "sm", 0.500),
 )
 
