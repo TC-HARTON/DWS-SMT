@@ -44,7 +44,6 @@ from analyzer.indicator_engine import IndicatorEngine
 from analyzer.line_reader import LINES, LinesState, LinesWatcher
 from analyzer.signal_validator import SignalValidator
 from analyzer.macro_feed import MacroEngine
-from analyzer.oanda_sentiment import SentimentEngine
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
 from analyzer.state import (
     ConnectionStatus,
@@ -83,7 +82,6 @@ class AnalysisLoop:
         calendar_engine: CalendarEngine | None = None,
         signal_validator: SignalValidator | None = None,
         macro_engine: MacroEngine | None = None,
-        sentiment_engine: SentimentEngine | None = None,
         price_interval: float = config.PRICE_REFRESH_SEC,
         analysis_interval: float = config.ANALYSIS_REFRESH_SEC,
         heavy_interval: float = config.HEAVY_REFRESH_SEC,
@@ -92,7 +90,6 @@ class AnalysisLoop:
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
         macro_interval: float = config.MACRO_REFRESH_SEC,
         realyield_interval: float = config.MACRO_REALYIELD_REFRESH_SEC,
-        sentiment_interval: float = config.OANDA_SENTIMENT_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
         self._connector = connector
@@ -121,11 +118,6 @@ class AnalysisLoop:
         # The real yield moves daily, so it refreshes faster than policy rates
         # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
         self._realyield_inflight = threading.Event()
-        # OANDA sentiment is a 4h HTTP fetch (one positionBook call per pair,
-        # serial). Runs off-thread so a slow OANDA response never blocks the
-        # 0.5 s price tick.
-        self._sentiment_engine = sentiment_engine or SentimentEngine()
-        self._sentiment_inflight = threading.Event()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -154,7 +146,6 @@ class AnalysisLoop:
                       next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
             _Schedule("macro", macro_interval),
             _Schedule("realyield", realyield_interval),
-            _Schedule("sentiment", sentiment_interval),
         )
 
     # --------------------------------------------------------------- start
@@ -214,7 +205,6 @@ class AnalysisLoop:
             "validation": self._do_validation_refresh,
             "macro": self._do_macro_refresh,
             "realyield": self._do_realyield_refresh,
-            "sentiment": self._do_sentiment_refresh,
         }[name]
         try:
             handler(bases)
@@ -442,29 +432,6 @@ class AnalysisLoop:
             log.exception("realyield worker failed")
         finally:
             self._realyield_inflight.clear()
-
-    def _do_sentiment_refresh(self, bases: list[str]) -> None:
-        """Precision-review ②: refresh OANDA-client positioning every 4 h.
-
-        The fetch is purely HTTP, so it cannot touch the MT5 connector
-        lock; an off-thread worker keeps the price tick uninterrupted.
-        """
-        if self._sentiment_inflight.is_set():
-            log.debug("sentiment: previous fetch still in flight, skipping tick")
-            return
-        self._sentiment_inflight.set()
-        threading.Thread(
-            target=self._sentiment_refresh_worker,
-            name="sentiment-fetch", daemon=True,
-        ).start()
-
-    def _sentiment_refresh_worker(self) -> None:
-        try:
-            self._state.set_sentiment(self._sentiment_engine.compute())
-        except Exception:               # noqa: BLE001 — never reach the loop
-            log.exception("sentiment worker failed")
-        finally:
-            self._sentiment_inflight.clear()
 
     # ------------------------------------------------------------- warmup
     def _warmup(self) -> None:

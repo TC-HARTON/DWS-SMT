@@ -21,7 +21,6 @@ from analyzer.account_monitor import PerformanceSnapshot
 from analyzer.calendar_feed import CalendarSnapshot
 from analyzer.signal_validator import ValidationSnapshot
 from analyzer.macro_feed import MacroSnapshot, RealYieldSnapshot
-from analyzer.oanda_sentiment import SentimentSnapshot
 from analyzer.confluence import ConfluenceCluster
 from analyzer.correlation import CorrelationSnapshot
 from analyzer.currency_strength import StrengthSnapshot
@@ -92,7 +91,6 @@ class LatestState:
         self._validation: Optional[ValidationSnapshot] = None
         self._macro: Optional[MacroSnapshot] = None
         self._real_yield: Optional[RealYieldSnapshot] = None
-        self._sentiment: Optional[SentimentSnapshot] = None
         # Rolling per-cell PF history fed by set_validation(); the live OOS
         # block uses it to draw a tiny sparkline so the user can see if a
         # tier is improving or decaying within the session.
@@ -217,13 +215,6 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
-    def set_sentiment(self, snapshot: SentimentSnapshot) -> None:
-        with self._cond:
-            self._sentiment = snapshot
-            self._monotonic_version += 1
-            self._analysis_version += 1
-            self._cond.notify_all()
-
     def wait_for_update(self, since_version: int, timeout: float) -> bool:
         """Block until ``self.version > since_version`` or *timeout* elapses.
 
@@ -297,11 +288,6 @@ class LatestState:
             return self._real_yield
 
     @property
-    def sentiment(self) -> SentimentSnapshot | None:
-        with self._lock:
-            return self._sentiment
-
-    @property
     def validation_history(self) -> dict[str, dict[str, list[float | None]]]:
         """Snapshot copy of the per-cell PF history rolling buffer."""
         with self._lock:
@@ -339,7 +325,6 @@ class LatestState:
                 "validation": self._validation,
                 "macro": self._macro,
                 "real_yield": self._real_yield,
-                "sentiment": self._sentiment,
                 "validation_history": {
                     sym: {tf: list(buf) for tf, buf in per_tf.items()}
                     for sym, per_tf in self._validation_history.items()

@@ -203,7 +203,6 @@ body {
 .account-card   { border-left-color: var(--accent); }
 .calendar-card  { border-left-color: var(--warning); }
 .macro-card     { border-left-color: var(--buy); }
-.sentiment-card { border-left-color: var(--sell); }
 .strength-card  { border-left-color: var(--accent); }
 .corr-card      { border-left-color: var(--warning); }
 .card-title {
@@ -1507,31 +1506,6 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .macro-diff.mute, .macro-dir.mute { color: #8089a0; }
 /* DWS sync line when the alignment fights the rate differential */
 .dws-sync.macro-counter { color: #ffb74d; }
-/* OANDA Sentiment panel — one row per pair with bias chip + per-side
-   avg/PnL. */
-.sentiment-list { display: flex; flex-direction: column; gap: 2px; }
-.sent-row {
-    display: grid;
-    grid-template-columns: 58px 1fr 1fr 1fr;
-    gap: 6px;
-    align-items: baseline;
-    font-family: var(--mono); font-size: 11px;
-    padding: 3px 4px;
-    color: var(--fg);
-}
-.sent-row:nth-child(odd) { background: rgba(255, 255, 255, 0.02); }
-.sent-sym  { font-weight: 800; }
-.sent-bias { font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
-             padding: 1px 5px; border-radius: 3px; text-align: center; }
-.sent-bias.short_squeeze { background: rgba(0, 208, 156, 0.20); color: #00d09c; }
-.sent-bias.long_squeeze  { background: rgba(255, 91, 107, 0.20); color: #ff5b6b; }
-.sent-bias.neutral       { color: var(--fg-muted); }
-.sent-side { color: var(--fg-muted); font-weight: 600; white-space: nowrap; }
-.sent-px { color: var(--fg); font-weight: 700; margin-left: 2px; }
-.sent-pnl { font-weight: 700; margin-left: 3px; }
-.sent-pnl.pos { color: var(--buy); }
-.sent-pnl.neg { color: var(--sell); }
-.sent-missing { opacity: 0.5; }
 /* Real-yield daily-change figure in the macro panel */
 .macro-rynum.pos { color: #00d09c; }
 .macro-rynum.neg { color: #ff5b6b; }

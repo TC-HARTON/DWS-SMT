@@ -615,29 +615,6 @@ def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
     }
 
 
-def serialize_sentiment(s):
-    """Serialise the OANDA sentiment snapshot for the WebSocket payload."""
-    if s is None:
-        return None
-    return {
-        "generated_at": float(s.generated_at),
-        "fetched_at": float(s.fetched_at),
-        "last_error": s.last_error,
-        "consecutive_failures": int(s.consecutive_failures),
-        "by_symbol": {
-            sym: {
-                "market_price": float(p.market_price),
-                "long_avg": float(p.long_avg),
-                "short_avg": float(p.short_avg),
-                "long_pnl": float(p.long_pnl),
-                "short_pnl": float(p.short_pnl),
-                "bias": p.bias,
-            }
-            for sym, p in s.by_symbol.items()
-        },
-    }
-
-
 # --------------------------------------------------------------------------- #
 
 
@@ -691,7 +668,6 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
-        "sentiment": serialize_sentiment(snap["sentiment"]),  # type: ignore[arg-type]
         "validation_history": snap.get("validation_history") or {},
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {
