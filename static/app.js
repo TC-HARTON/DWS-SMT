@@ -1640,6 +1640,7 @@ function paintAll() {
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
     paintDws(latestSnap);
+    checkNotifications(latestSnap);
 }
 
 // 1-second clock + countdown tick (independent of WS)
@@ -1728,6 +1729,194 @@ function showSwitchOverlay(msg, isError) {
 }
 
 // ------------------------------------------------------------
+// Notification engine — fires browser toasts + Discord webhooks when
+// a NEW DWS-SMT trigger appears, or when a (symbol, base TF) tier flips.
+// State and config live in localStorage so they survive a broker switch.
+// ------------------------------------------------------------
+
+const NOTIFY_LS = {
+    browser: 'notify_browser',
+    discord: 'notify_discord',
+    webhook: 'notify_webhook_url',
+    onlyTrusted: 'notify_only_trusted',
+    onlyBase: 'notify_only_base',
+};
+const _notifyState = {
+    // Per (sym, base_tf) — last bar's epoch ms whose trigger we already saw.
+    // Used so we fire exactly once per fresh trigger bar.
+    lastTrigBar: Object.create(null),
+    // Per (sym, base_tf) — last seen tier label.
+    lastTier: Object.create(null),
+    // Skip the very first snapshot so we don't blast notifications for every
+    // historical trigger when the dashboard boots.
+    primed: false,
+};
+
+function _notifyGetCfg() {
+    return {
+        browser: localStorage.getItem(NOTIFY_LS.browser) === '1',
+        discord: localStorage.getItem(NOTIFY_LS.discord) === '1',
+        webhook: localStorage.getItem(NOTIFY_LS.webhook) || '',
+        onlyTrusted: localStorage.getItem(NOTIFY_LS.onlyTrusted) !== '0',
+        onlyBase: localStorage.getItem(NOTIFY_LS.onlyBase) !== '0',
+    };
+}
+
+function _notifyPermLabel() {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission;   // 'granted' / 'denied' / 'default'
+}
+
+function _notifyRefreshPermLabel() {
+    const el = $bind('notify-perm');
+    if (!el) return;
+    const p = _notifyPermLabel();
+    el.textContent = p === 'granted' ? '✓' : p === 'denied' ? '✗ ブロック中' : '';
+    el.className = 'notify-perm ' + p;
+}
+
+function dispatchNotification(title, body) {
+    const cfg = _notifyGetCfg();
+    if (cfg.browser && 'Notification' in window && Notification.permission === 'granted') {
+        try { new Notification(title, {body, tag: 'mt5-dashboard'}); }
+        catch (e) { /* ignore */ }
+    }
+    if (cfg.discord && cfg.webhook) {
+        // Discord webhooks accept browser POST without CORS issues.
+        fetch(cfg.webhook, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({content: `**${title}** — ${body}`}),
+        }).catch(() => {/* silent — user can re-paste if needed */});
+    }
+}
+
+function checkNotifications(snap) {
+    if (!snap || !snap.analysis || !snap.analysis.by_symbol) return;
+    const cfg = _notifyGetCfg();
+    if (!cfg.browser && !cfg.discord) return;
+    const events = [];
+    // 1) New DWS-SMT trigger detection.
+    for (const sym of SYMBOL_ORDER) {
+        const sa = snap.analysis.by_symbol[sym];
+        if (!sa || !sa.dws || !sa.dws.by_base) continue;
+        for (const [base, win] of Object.entries(sa.dws.by_base)) {
+            if (cfg.onlyBase && base !== UI.dwsBase) continue;
+            const trigs = win.triggers || [];
+            const times = win.times_ms || [];
+            const lastIdx = trigs.length - 1;
+            if (lastIdx < 0) continue;
+            const lastTrig = trigs[lastIdx];
+            const lastT = times[lastIdx];
+            const key = `${sym}|${base}`;
+            const seen = _notifyState.lastTrigBar[key];
+            _notifyState.lastTrigBar[key] = lastT;
+            if (!_notifyState.primed) continue;
+            if (lastTrig && lastT !== seen) {
+                // tier gate
+                if (cfg.onlyTrusted) {
+                    const stats = snap.validation && snap.validation.by_symbol
+                                && snap.validation.by_symbol[sym]
+                                && snap.validation.by_symbol[sym][base];
+                    if (!stats || !stats.raw || stats.raw.tier !== '信頼') continue;
+                }
+                events.push({
+                    title: `${sym} ${base} ${lastTrig}`,
+                    body: `新規シグナル(${base}・最終バー)`,
+                });
+            }
+        }
+    }
+    // 2) Tier-change detection.
+    if (snap.validation && snap.validation.by_symbol) {
+        for (const [sym, perTf] of Object.entries(snap.validation.by_symbol)) {
+            for (const [tf, stats] of Object.entries(perTf)) {
+                if (!stats || !stats.raw) continue;
+                const key = `${sym}|${tf}`;
+                const prev = _notifyState.lastTier[key];
+                const next = stats.raw.tier;
+                _notifyState.lastTier[key] = next;
+                if (!_notifyState.primed) continue;
+                if (prev !== undefined && prev !== next) {
+                    events.push({
+                        title: `${sym} ${tf} tier 変化`,
+                        body: `${prev} → ${next}(N=${stats.raw.n_trades})`,
+                    });
+                }
+            }
+        }
+    }
+    _notifyState.primed = true;
+    for (const e of events) dispatchNotification(e.title, e.body);
+}
+
+function setupNotifyUI() {
+    const toggle = $bind('notify-toggle');
+    const menu = $bind('notify-menu');
+    if (!toggle || !menu) return;
+    const browserCb = $bind('notify-browser');
+    const discordCb = $bind('notify-discord');
+    const webhookIn = $bind('notify-webhook');
+    const trustedCb = $bind('notify-trigger-only-trusted');
+    const baseCb = $bind('notify-trigger-only-base');
+    const testBtn = $bind('notify-test');
+
+    // Restore saved state
+    browserCb.checked = localStorage.getItem(NOTIFY_LS.browser) === '1';
+    discordCb.checked = localStorage.getItem(NOTIFY_LS.discord) === '1';
+    webhookIn.value = localStorage.getItem(NOTIFY_LS.webhook) || '';
+    trustedCb.checked = localStorage.getItem(NOTIFY_LS.onlyTrusted) !== '0';
+    baseCb.checked = localStorage.getItem(NOTIFY_LS.onlyBase) !== '0';
+    _notifyRefreshPermLabel();
+
+    // Light up the bell when at least one channel is on.
+    const refreshBell = () => {
+        const on = browserCb.checked || discordCb.checked;
+        toggle.classList.toggle('on', on);
+    };
+    refreshBell();
+
+    toggle.onclick = (ev) => {
+        ev.stopPropagation();
+        menu.hidden = !menu.hidden;
+    };
+    document.addEventListener('click', (ev) => {
+        if (!menu.hidden && !menu.contains(ev.target) && ev.target !== toggle) {
+            menu.hidden = true;
+        }
+    });
+
+    browserCb.onchange = async () => {
+        if (browserCb.checked && 'Notification' in window
+            && Notification.permission === 'default') {
+            const p = await Notification.requestPermission();
+            if (p !== 'granted') browserCb.checked = false;
+        }
+        localStorage.setItem(NOTIFY_LS.browser, browserCb.checked ? '1' : '0');
+        _notifyRefreshPermLabel();
+        refreshBell();
+    };
+    discordCb.onchange = () => {
+        localStorage.setItem(NOTIFY_LS.discord, discordCb.checked ? '1' : '0');
+        refreshBell();
+    };
+    webhookIn.onchange = () => {
+        localStorage.setItem(NOTIFY_LS.webhook, webhookIn.value.trim());
+    };
+    trustedCb.onchange = () => {
+        localStorage.setItem(NOTIFY_LS.onlyTrusted, trustedCb.checked ? '1' : '0');
+    };
+    baseCb.onchange = () => {
+        localStorage.setItem(NOTIFY_LS.onlyBase, baseCb.checked ? '1' : '0');
+    };
+    testBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        dispatchNotification('MT5 Dashboard テスト',
+            `${new Date().toLocaleTimeString('ja-JP')} の通知配信テスト`);
+    };
+}
+
+// ------------------------------------------------------------
 // Display auto-fit — render the dashboard at a fixed 2560-wide design
 // and scale it to whatever monitor / window it is shown on, so the
 // layout looks identical on 2560×1440, 1920×1080, ultrawide, half-width
@@ -1756,6 +1945,7 @@ document.addEventListener('DOMContentLoaded', () => {
     buildCorrelationButtons();
     startTickers();
     setupBrokerSwitcher();
+    setupNotifyUI();
     connect();
 });
 
