@@ -67,13 +67,25 @@ class CalendarSnapshot:
 # Forex Factory XML parser
 # --------------------------------------------------------------------------- #
 
-# The feed is published in US Eastern time. Python 3.9+ has zoneinfo for
-# DST-aware handling without dragging in pytz.
+# Central-bank wall-time zones. Python 3.9+ has zoneinfo for DST-aware
+# handling without dragging in pytz. Fallbacks to UTC keep tests passing on
+# the rare environment without tzdata.
 try:
     from zoneinfo import ZoneInfo
-    _EASTERN = ZoneInfo("America/New_York")
+    _EASTERN  = ZoneInfo("America/New_York")
+    _LONDON   = ZoneInfo("Europe/London")        # BoE
+    _FRANKFURT = ZoneInfo("Europe/Berlin")       # ECB
+    _TOKYO    = ZoneInfo("Asia/Tokyo")           # BoJ
+    _SYDNEY   = ZoneInfo("Australia/Sydney")     # RBA
 except Exception:  # noqa: BLE001  # pragma: no cover — zoneinfo always on 3.11+
-    _EASTERN = timezone.utc
+    _EASTERN = _LONDON = _FRANKFURT = _TOKYO = _SYDNEY = timezone.utc
+
+
+def _local_wall_to_utc_ts(date_iso: str, hour: int, minute: int, tz) -> float:
+    """Convert a local-zone wall time on *date_iso* (YYYY-MM-DD) to a UTC epoch."""
+    dt = datetime.strptime(date_iso, "%Y-%m-%d").replace(
+        hour=hour, minute=minute, tzinfo=tz)
+    return dt.astimezone(timezone.utc).timestamp()
 
 
 def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
@@ -104,10 +116,12 @@ def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
 
 
 def _et_to_utc_ts(date_iso: str, hour: int, minute: int) -> float:
-    """Convert a US-Eastern wall time on *date_iso* (YYYY-MM-DD) to a UTC epoch."""
-    dt = datetime.strptime(date_iso, "%Y-%m-%d").replace(
-        hour=hour, minute=minute, tzinfo=_EASTERN)
-    return dt.astimezone(timezone.utc).timestamp()
+    """Convert a US-Eastern wall time on *date_iso* (YYYY-MM-DD) to a UTC epoch.
+
+    Kept as a thin alias around the generic ``_local_wall_to_utc_ts`` for
+    backward compatibility with existing FOMC / NFP code paths.
+    """
+    return _local_wall_to_utc_ts(date_iso, hour, minute, _EASTERN)
 
 
 def _title_matches_keywords(
@@ -368,6 +382,42 @@ def fetch_upcoming_nfp_events(
     return out
 
 
+def upcoming_cb_events(
+    now_ts: float,
+    *,
+    currency: str,
+    dates: tuple[str, ...],
+    hour: int,
+    minute: int,
+    tz,
+    title: str,
+    count: int = config.CALENDAR_UPCOMING_COUNT,
+    skip_dates: frozenset[str] = frozenset(),
+) -> list[CalendarEvent]:
+    """Generic forward-feed generator for any central bank's published schedule.
+
+    Forex Factory only covers the current week, so the next ECB / BoE / BoJ /
+    RBA rate decision is sourced from each bank's published meeting calendar
+    in ``config`` (UPDATE ANNUALLY). *skip_dates* (UTC ``YYYY-MM-DD``)
+    suppresses a meeting already covered by a live feed.
+    """
+    out: list[CalendarEvent] = []
+    for d in dates:
+        ts = _local_wall_to_utc_ts(d, hour, minute, tz)
+        if ts < now_ts:
+            continue
+        utc_day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        if utc_day in skip_dates:
+            continue
+        out.append(CalendarEvent(
+            release_ts=ts, currency=currency,
+            title=title, impact="High",
+            forecast="", previous="", source="scheduled"))
+        if len(out) >= count:
+            break
+    return out
+
+
 class CalendarEngine:
     """Pulls + parses + caches the SPEC §15 calendar with auto-fallback."""
 
@@ -455,15 +505,42 @@ class CalendarEngine:
                 self._last_events = tuple(events)
                 self._last_source = "mt5"
 
-        # Always append the forward "next key events" (next FOMC + next NFP)
-        # so the calendar never goes blank once this week's events are past.
+        # Always append the forward "next key events" for every central bank
+        # the user trades, so the calendar never goes blank once this week's
+        # events are past. Per-currency skip-set so a live FF event doesn't
+        # get duplicated by the hardcoded schedule.
         now_ts = time.time()
-        ff_days = frozenset(
-            datetime.fromtimestamp(e.release_ts, tz=timezone.utc).strftime("%Y-%m-%d")
-            for e in self._last_events if e.currency == "USD"
-        )
-        scheduled = (upcoming_fomc_events(now_ts, skip_dates=ff_days)
-                     + fetch_upcoming_nfp_events(now_ts, skip_dates=ff_days))
+        def _live_days(ccy: str) -> frozenset[str]:
+            return frozenset(
+                datetime.fromtimestamp(e.release_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                for e in self._last_events if e.currency == ccy
+            )
+        scheduled: list[CalendarEvent] = []
+        scheduled += upcoming_fomc_events(now_ts, skip_dates=_live_days("USD"))
+        scheduled += fetch_upcoming_nfp_events(now_ts, skip_dates=_live_days("USD"))
+        # Non-USD central banks — hardcoded from each bank's published meeting
+        # calendar in config (UPDATE ANNUALLY).
+        scheduled += upcoming_cb_events(now_ts, currency="EUR",
+            dates=config.ECB_MEETING_DATES, hour=config.ECB_ANNOUNCE_CET[0],
+            minute=config.ECB_ANNOUNCE_CET[1], tz=_FRANKFURT,
+            title="ECB Governing Council (rate decision)",
+            skip_dates=_live_days("EUR"))
+        scheduled += upcoming_cb_events(now_ts, currency="GBP",
+            dates=config.BOE_MEETING_DATES, hour=config.BOE_ANNOUNCE_LON[0],
+            minute=config.BOE_ANNOUNCE_LON[1], tz=_LONDON,
+            title="BoE MPC (Bank Rate decision)",
+            skip_dates=_live_days("GBP"))
+        scheduled += upcoming_cb_events(now_ts, currency="JPY",
+            dates=config.BOJ_MEETING_DATES, hour=config.BOJ_ANNOUNCE_JST[0],
+            minute=config.BOJ_ANNOUNCE_JST[1], tz=_TOKYO,
+            title="BoJ Monetary Policy Meeting (rate decision)",
+            skip_dates=_live_days("JPY"))
+        scheduled += upcoming_cb_events(now_ts, currency="AUD",
+            dates=config.RBA_MEETING_DATES, hour=config.RBA_ANNOUNCE_AET[0],
+            minute=config.RBA_ANNOUNCE_AET[1], tz=_SYDNEY,
+            title="RBA Cash Rate decision",
+            skip_dates=_live_days("AUD"))
+        # _dedupe_events sorts internally by release_ts and returns a tuple.
         all_events = _dedupe_events(list(self._last_events) + scheduled)
 
         return CalendarSnapshot(

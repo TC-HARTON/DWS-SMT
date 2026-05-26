@@ -404,6 +404,50 @@ NFP_RELEASE_ET: Final[tuple[int, int]] = (8, 30)
 FRED_NFP_RELEASE_ID: Final[int] = 50
 # How many upcoming FOMC / NFP events to surface in the forward feed.
 CALENDAR_UPCOMING_COUNT: Final[int] = 3
+
+# --------------------------------------------------------------------------- #
+# Non-USD central bank meeting schedules (SPEC §B.12 forward horizon).
+# Forex Factory only covers the current week, so the next ECB/BoE/BoJ/RBA
+# rate decision is sourced from each bank's published meeting calendar.
+# UPDATE ANNUALLY from the official source listed next to each block.
+# Times are the LOCAL announcement time at the central bank's headquarters
+# (DST handled via zoneinfo at lookup time).
+# --------------------------------------------------------------------------- #
+
+# ECB Governing Council monetary policy meetings — decision Thursdays.
+# https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html
+ECB_MEETING_DATES: Final[tuple[str, ...]] = (
+    "2026-01-29", "2026-03-12", "2026-04-23", "2026-06-04",
+    "2026-07-23", "2026-09-10", "2026-10-29", "2026-12-17",
+)
+# Decision is announced 14:15 CET; the press conference at 14:45 carries the
+# market move — we use 14:15 as the "release_ts".
+ECB_ANNOUNCE_CET: Final[tuple[int, int]] = (14, 15)
+
+# Bank of England MPC "Super Thursdays" — Bank Rate decision.
+# https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates
+BOE_MEETING_DATES: Final[tuple[str, ...]] = (
+    "2026-02-05", "2026-03-19", "2026-05-07", "2026-06-18",
+    "2026-08-06", "2026-09-17", "2026-11-05", "2026-12-17",
+)
+BOE_ANNOUNCE_LON: Final[tuple[int, int]] = (12, 0)
+
+# Bank of Japan Monetary Policy Meeting — announcement on day 2.
+# https://www.boj.or.jp/en/mopo/mpmsche_minu/index.htm
+BOJ_MEETING_DATES: Final[tuple[str, ...]] = (
+    "2026-01-23", "2026-03-19", "2026-04-28", "2026-06-17",
+    "2026-07-31", "2026-09-19", "2026-10-29", "2026-12-18",
+)
+# Announcement timing varies; 12:00 JST is the historical midpoint.
+BOJ_ANNOUNCE_JST: Final[tuple[int, int]] = (12, 0)
+
+# Reserve Bank of Australia cash-rate decision — first Tuesday or as scheduled.
+# https://www.rba.gov.au/schedules-events/
+RBA_MEETING_DATES: Final[tuple[str, ...]] = (
+    "2026-02-18", "2026-04-01", "2026-05-06", "2026-07-01",
+    "2026-08-05", "2026-09-23", "2026-11-04", "2026-12-09",
+)
+RBA_ANNOUNCE_AET: Final[tuple[int, int]] = (14, 30)
 CALENDAR_FETCH_TIMEOUT_SEC: Final[float] = 10.0
 CALENDAR_FETCH_RETRIES: Final[int] = 3
 # SPEC §15.4 更新頻度: XML 取得 1 時間に 1 回 (HTTP).
