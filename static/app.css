@@ -1647,23 +1647,25 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-pat-v.pos { color: var(--buy);  }
 .dws-pat-v.neg { color: var(--sell); }
 
-/* "現在シグナルなし — 待機中" empty state. Same card shell as the active
-   block (so the panel doesn't visually disappear / reflow) but compact
-   single-row, no hero number, dimmer accent. */
+/* "現在 トリガーなし — 待機中" empty state. INHERITS the full standalone
+   card framing from .dws-pat (background, border-radius, --info left
+   accent, padding) so the block stays a single visible box even when
+   no trigger is active — only the content swaps. The placeholder text
+   takes the visual slot of the hero number at the same prominence so
+   the card's vertical footprint doesn't reflow on state change. */
 .dws-pat-empty {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    border-left-color: var(--fg-3);
-    background: rgba(255, 255, 255, 0.025);
-    padding: var(--space-3) var(--space-5);
+    /* No override of background / padding / border-left — KEEP the box. */
+    gap: var(--space-3);
 }
 .dws-pat-empty-msg {
     color: var(--fg-2);
-    font-size: var(--text-sm);
+    font-family: var(--mono);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-medium);
     font-style: italic;
     letter-spacing: var(--track-tight);
+    padding: var(--space-2) 0;
+    line-height: 1.1;
 }
 
 /* ============================================================
