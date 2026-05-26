@@ -1647,6 +1647,25 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-pat-v.pos { color: var(--buy);  }
 .dws-pat-v.neg { color: var(--sell); }
 
+/* "現在シグナルなし — 待機中" empty state. Same card shell as the active
+   block (so the panel doesn't visually disappear / reflow) but compact
+   single-row, no hero number, dimmer accent. */
+.dws-pat-empty {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border-left-color: var(--fg-3);
+    background: rgba(255, 255, 255, 0.025);
+    padding: var(--space-3) var(--space-5);
+}
+.dws-pat-empty-msg {
+    color: var(--fg-2);
+    font-size: var(--text-sm);
+    font-style: italic;
+    letter-spacing: var(--track-tight);
+}
+
 /* ============================================================
    Macro / rate-differential panel
    ----------------------------------------------------------------

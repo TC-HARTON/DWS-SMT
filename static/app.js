@@ -1461,9 +1461,21 @@ function updateDwsSync(sym, snap, win) {
  *  a 高/中/低 reliability tier from walk-forward analysis. M15 is fully
  *  reliable; H1 mixed; H4 marked 低 because samples ran 30-90 per cluster. */
 function buildPatternMatchHtml(snap, sym, baseTf) {
-    const pm = snap && snap.pattern_matches
-            && snap.pattern_matches[sym] && snap.pattern_matches[sym][baseTf];
-    if (!pm) return '';
+    // No pattern_matches data at all for this symbol = symbol has no centroid
+    // table (only XAUUSD has one today). Render nothing.
+    const symPm = snap && snap.pattern_matches && snap.pattern_matches[sym];
+    if (!symPm) return '';
+    // The TF entry is null when the latest closed bar of this base TF is NOT
+    // itself a BUY/SELL trigger — SPEC rule says we wouldn't be entering, so
+    // surfacing a historical WR would be a phantom. Render an explicit empty
+    // state so the user knows the panel is alive but the rule isn't firing.
+    const pm = symPm[baseTf];
+    if (!pm) {
+        return `<div class="dws-pat dws-pat-empty">
+            <span class="dws-pat-label">過去類似パターン</span>
+            <span class="dws-pat-empty-msg">現在 トリガーなし — 待機中</span>
+        </div>`;
+    }
     const wrPct = (pm.win_rate * 100).toFixed(1);
     const ciLo  = (pm.win_rate_ci_low  * 100).toFixed(0);
     const ciHi  = (pm.win_rate_ci_high * 100).toFixed(0);

@@ -279,16 +279,21 @@ class AnalysisLoop:
                 continue
             bias_by_base: dict[str, int] = {}
             for base_tf, window in sym_snap.dws.by_base.items():
-                # Walk the trigger stream backwards to find the last BUY/SELL —
-                # this is the side currently "active" (an EXIT later still
-                # means the chart's last directional commitment was the BUY/SELL).
-                side = 0
-                for trig in reversed(window.triggers):
-                    if trig == "BUY":
-                        side = 1; break
-                    if trig == "SELL":
-                        side = -1; break
-                bias_by_base[base_tf] = side
+                # STRICT entry rule — the pattern WR is only meaningful when
+                # the LATEST closed bar of this base TF is ITSELF an active
+                # BUY/SELL trigger. The centroid table was built from the
+                # feature vector at trigger-fire bars only; comparing against
+                # arbitrary intermediate bars surfaces a phantom WR for a
+                # setup the SPEC rule says we wouldn't be trading. When the
+                # latest bar is not a trigger -> side=0 -> "no match" so the
+                # UI can render an explicit "現在シグナルなし — 待機中" state.
+                latest_trig = window.triggers[-1] if window.triggers else None
+                if latest_trig == "BUY":
+                    bias_by_base[base_tf] = 1
+                elif latest_trig == "SELL":
+                    bias_by_base[base_tf] = -1
+                else:
+                    bias_by_base[base_tf] = 0
             matches = self._pattern_matcher.match_symbol(
                 symbol=sym, bias_by_base=bias_by_base, frames=sym_rates,
             )
