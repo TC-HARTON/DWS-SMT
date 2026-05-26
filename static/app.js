@@ -611,6 +611,11 @@ function paintStrength(strength, force) {
     }
 }
 
+// Currencies that have at least one panel in the display SYMBOLS. Calendar
+// events for any other currency are filtered out client-side as a defence
+// against stale backend cache snapshots that pre-date the config tightening.
+const CALENDAR_DISPLAY_CCY = new Set(['USD', 'EUR', 'GBP', 'JPY', 'AUD']);
+
 function paintCalendar(snap) {
     const cal = snap.calendar;
     if (!cal) return;
@@ -621,8 +626,10 @@ function paintCalendar(snap) {
     if (!changed('cal', cal.generated_at)) return;
     const nowSec = Date.now() / 1000;
     const cutoff = nowSec - (cal.warning_window_sec || 1800);
-    const events = (cal.events || []).filter(e => e.release_ts >= cutoff)
-                                     .slice(0, cal.display_count || 12);
+    const events = (cal.events || [])
+        .filter(e => e.release_ts >= cutoff)
+        .filter(e => CALENDAR_DISPLAY_CCY.has(String(e.currency || '').toUpperCase()))
+        .slice(0, cal.display_count || 12);
     if (events.length === 0) {
         root.innerHTML = '<div class="empty mute">no high-impact events</div>';
         return;
