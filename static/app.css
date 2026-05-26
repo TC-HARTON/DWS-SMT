@@ -1529,55 +1529,123 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    Reliability tier (高/中/低) is hand-tagged in pattern_matcher.py from
    walk-forward analysis: M15 = 高 (8/8 stable), H1 = mostly 中 (drift on
    some win patterns), H4 = 低 (small samples).
+
+   Layout: standalone card-within-card with prominent hero win-rate.
+       [label] [勝ち型/負け型]                    [距離注意?] [信頼度 X]
+       歴史的勝率
+         61.4 %       <- hero, large
+       95%CI ...   N ...   中央値 ±... pt
    ============================================================ */
 .dws-pat {
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
-    border-top: 1px dashed rgba(255, 255, 255, 0.18);
-    display: flex; flex-direction: column; gap: 4px;
-    font-size: var(--text-xs);
+    margin-top: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    background: rgba(255, 255, 255, 0.045);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--info);
+    display: flex; flex-direction: column; gap: var(--space-3);
+    font-size: var(--text-sm);
 }
 .dws-pat-head {
-    display: flex; align-items: baseline; gap: 6px;
+    display: flex; align-items: center; gap: var(--space-3);
     flex-wrap: wrap;
 }
+.dws-pat-spacer { flex: 1 1 auto; }    /* pushes 距離注意/信頼度 chips to the right */
 .dws-pat-label {
-    font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
-    color: var(--fg); text-transform: uppercase; font-size: var(--text-2xs);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--track-normal);
+    color: var(--fg);
+    text-transform: uppercase;
+    font-size: var(--text-sm);
 }
 .dws-pat-shape {
-    font-weight: var(--weight-bold); font-size: var(--text-2xs);
-    padding: 1px 6px; border-radius: var(--radius-sm);
+    font-weight: var(--weight-bold);
+    font-size: var(--text-sm);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
     letter-spacing: var(--track-tight);
 }
-.dws-pat-shape.pos { background: rgba(0, 208, 156, 0.18); color: var(--buy); }
-.dws-pat-shape.neg { background: rgba(255, 91, 107, 0.18); color: var(--sell); }
+.dws-pat-shape.pos { background: rgba(0, 208, 156, 0.20); color: var(--buy); }
+.dws-pat-shape.neg { background: rgba(255, 91, 107, 0.20); color: var(--sell); }
 .dws-pat-rel {
-    margin-left: auto;
-    font-size: var(--text-2xs);
-    padding: 1px 6px; border-radius: var(--radius-sm);
-    font-weight: var(--weight-medium);
+    font-size: var(--text-sm);
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--track-tight);
 }
 .dws-pat-rel.high { background: var(--tier-trusted);      color: var(--fg); }
 .dws-pat-rel.mid  { background: var(--tier-caution);      color: var(--fg); }
 .dws-pat-rel.low  { background: var(--tier-insufficient); color: var(--fg); }
-.dws-pat-stats {
-    display: flex; flex-wrap: wrap; gap: 4px 10px;
-    color: var(--fg);
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-}
-.dws-pat-wr strong { font-size: var(--text-md); color: var(--fg); }
-.dws-pat-ci, .dws-pat-n, .dws-pat-med {
-    color: var(--fg-2);
-}
 .dws-pat-far {
     color: var(--warning);
-    font-size: var(--text-2xs);
-    padding: 1px 5px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+    padding: 3px 10px;
     border-radius: var(--radius-sm);
-    background: rgba(255, 183, 77, 0.12);
+    background: rgba(255, 183, 77, 0.16);
+    border: 1px solid rgba(255, 183, 77, 0.35);
 }
+
+/* Hero row — the headline number a trader looks at first. */
+.dws-pat-hero {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-4);
+    padding-top: var(--space-1);
+}
+.dws-pat-hero-label {
+    color: var(--fg-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--track-tight);
+    flex: 0 0 auto;
+}
+.dws-pat-hero-val {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 36px;            /* deliberately above the type scale —
+                                   this is the hero number, must dominate */
+    font-weight: var(--weight-heavy);
+    color: var(--fg);
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+.dws-pat-hero-val.pos { color: var(--buy);  }
+.dws-pat-hero-val.neg { color: var(--sell); }
+.dws-pat-hero-unit {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    margin-left: 4px;
+    opacity: 0.75;
+}
+
+/* Supporting stats row — CI / N / median in compact labelled chips. */
+.dws-pat-stats {
+    display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5);
+    align-items: baseline;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+}
+.dws-pat-stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+.dws-pat-k {
+    color: var(--fg-3);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--track-normal);
+    text-transform: uppercase;
+    font-weight: var(--weight-medium);
+}
+.dws-pat-v {
+    color: var(--fg);
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+}
+.dws-pat-v.pos { color: var(--buy);  }
+.dws-pat-v.neg { color: var(--sell); }
 
 /* ============================================================
    Macro / rate-differential panel

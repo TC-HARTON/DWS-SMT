@@ -1471,25 +1471,38 @@ function buildPatternMatchHtml(snap, sym, baseTf) {
     const shapeCls   = pm.learned_from_shape === 'win' ? 'pos' : 'neg';
     const relCls = pm.reliability === '高' ? 'high'
                  : pm.reliability === '中' ? 'mid' : 'low';
+    // Hero win-rate also gets a visual valence — green when above the symbol's
+    // population WR, red when below. The pop WR is ~39/44/48% across base TFs
+    // and the validation card already shows it; here we just hint via colour.
+    const heroCls = pm.win_rate >= 0.50 ? 'pos'
+                  : pm.win_rate <= 0.40 ? 'neg' : '';
     const medianTxt = pm.median_net_pts >= 0
-        ? `+${Math.round(pm.median_net_pts).toLocaleString('en-US')}pt`
-        : `${Math.round(pm.median_net_pts).toLocaleString('en-US')}pt`;
+        ? `+${Math.round(pm.median_net_pts).toLocaleString('en-US')} pt`
+        : `${Math.round(pm.median_net_pts).toLocaleString('en-US')} pt`;
+    const medianCls = pm.median_net_pts > 0 ? 'pos'
+                    : pm.median_net_pts < 0 ? 'neg' : '';
     // Distance — bigger = current setup further from any known pattern,
-    // i.e. the surfaced win-rate is less directly comparable. Quietly noted.
-    const distNote = pm.distance_z > 6
-        ? ` <span class="dws-pat-far" title="特徴量空間で過去事例から離れた状態">距離注意</span>`
+    // i.e. the surfaced win-rate is less directly comparable. Surfaced as
+    // an extra warning chip next to the reliability badge in the title row.
+    const distChip = pm.distance_z > 6
+        ? `<span class="dws-pat-far" title="特徴量空間で過去事例から離れた状態">距離注意</span>`
         : '';
     return `<div class="dws-pat">
         <div class="dws-pat-head">
           <span class="dws-pat-label">過去類似パターン</span>
           <span class="dws-pat-shape ${shapeCls}">${shapeLabel}</span>
+          <span class="dws-pat-spacer"></span>
+          ${distChip}
           <span class="dws-pat-rel ${relCls}" title="walk-forward 安定度">信頼度 ${esc(pm.reliability)}</span>
         </div>
+        <div class="dws-pat-hero">
+          <span class="dws-pat-hero-label">歴史的勝率</span>
+          <span class="dws-pat-hero-val ${heroCls}">${wrPct}<span class="dws-pat-hero-unit">%</span></span>
+        </div>
         <div class="dws-pat-stats">
-          <span class="dws-pat-wr">歴史的勝率 <strong>${wrPct}%</strong></span>
-          <span class="dws-pat-ci">95%CI ${ciLo}–${ciHi}%</span>
-          <span class="dws-pat-n">N=${pm.sample_n.toLocaleString('en-US')}</span>
-          <span class="dws-pat-med">中央値 ${medianTxt}</span>${distNote}
+          <span class="dws-pat-stat"><span class="dws-pat-k">95%CI</span><span class="dws-pat-v">${ciLo}–${ciHi}%</span></span>
+          <span class="dws-pat-stat"><span class="dws-pat-k">N</span><span class="dws-pat-v">${pm.sample_n.toLocaleString('en-US')}</span></span>
+          <span class="dws-pat-stat"><span class="dws-pat-k">中央値</span><span class="dws-pat-v ${medianCls}">${medianTxt}</span></span>
         </div>
     </div>`;
 }
