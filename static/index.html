@@ -22,7 +22,7 @@
     <div class="stat"><div class="stat-label">CYCLE</div><div class="stat-val" data-bind="compute">-- ms</div></div>
     <div class="stat"><div class="stat-label">VER</div><div class="stat-val" data-bind="version">0</div></div>
     <div class="notify-wrap">
-      <button class="notify-toggle" data-bind="notify-toggle" title="通知設定" aria-haspopup="dialog">🔔</button>
+      <button class="notify-toggle" data-bind="notify-toggle" title="通知設定" aria-haspopup="dialog">ALERTS</button>
       <div class="notify-menu" data-bind="notify-menu" hidden>
         <div class="notify-row">
           <label><input type="checkbox" data-bind="notify-browser"> ブラウザ通知</label>
@@ -77,12 +77,12 @@
 
     <div class="card calendar-card">
       <div class="card-title"><span class="title-accent">Calendar</span><span data-bind="cal-source" class="mute">--</span></div>
-      <div class="cal-list" data-bind="calendar"></div>
+      <div class="cal-list" data-bind="calendar"><div class="empty mute">読み込み中…</div></div>
     </div>
 
     <div class="card macro-card">
-      <div class="card-title"><span class="title-accent">Macro / 金利差</span><span data-bind="macro-status" class="mute">--</span></div>
-      <div class="macro-list" data-bind="macro"></div>
+      <div class="card-title"><span class="title-accent">Macro Rates</span><span data-bind="macro-status" class="mute">--</span></div>
+      <div class="macro-list" data-bind="macro"><div class="empty mute">読み込み中…</div></div>
     </div>
   </aside>
 </main>

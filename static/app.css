@@ -4,21 +4,70 @@
    ============================================================ */
 
 :root {
+    /* --- Surfaces & lines ---------------------------------------------- */
     --bg:           #1f2532;
     --bg-soft:      #283044;
     --panel:        #2a3142;
     --panel-2:      #353c50;
     --border:       #3a4258;
+    --border-hover: rgba(255, 255, 255, 0.32);  /* card hover, visible Δ */
+
+    /* --- Foreground tiers (3-step) ------------------------------------- */
+    /* --fg     = primary text / numbers
+       --fg-2   = labels, secondary text (>=4.5:1 contrast on --bg)
+       --fg-3   = footnotes, captions, "dim" tier (>=3:1 contrast) */
     --fg:           #f2f4f9;
-    --fg-muted:     #d0d6e2;   /* was #b4bbcc — bumped for readability on dark bg */
-    --fg-dim:       #a4abc0;   /* was #8089a0 — same reason, secondary text now legible */
+    --fg-2:         #d0d6e2;
+    --fg-3:         #a4abc0;
+    --fg-muted:     #d0d6e2;   /* legacy alias for --fg-2 — keep until sweep */
+    --fg-dim:       #a4abc0;   /* legacy alias for --fg-3 */
+
+    /* --- Semantic colours ---------------------------------------------- */
     --buy:          #00d09c;
     --sell:         #ff5b6b;
     --warning:      #ffb74d;
     --critical:     #ff3d54;
     --accent:       #4d8eff;
-    --gap:          8px;
+    --info:         #78aaff;   /* macro-key tint */
+    --tier-trusted:      #1f6f54;
+    --tier-caution:      #7a5a1e;
+    --tier-insufficient: #4a4f5c;
+
+    /* --- Type scale (7-step, pick from these only) --------------------- */
+    --text-3xs:     9px;    /* micro caps inside dense badges */
+    --text-2xs:     10px;   /* table footnote / pill labels */
+    --text-xs:      11px;   /* row text in dense tables */
+    --text-sm:      12px;   /* body / card titles */
+    --text-md:      14px;   /* emphasised values */
+    --text-lg:      16px;   /* hero numbers (acc Equity, P&L) */
+    --text-xl:      20px;   /* P&L when hero, stat-val */
+
+    /* --- Weight scale (4-step) ----------------------------------------- */
+    --weight-normal: 500;
+    --weight-medium: 700;
+    --weight-bold:   800;
+    --weight-heavy:  900;
+
+    /* --- Spacing scale ------------------------------------------------- */
+    --space-1:      2px;
+    --space-2:      4px;
+    --space-3:      6px;
+    --space-4:      8px;     /* primary gap */
+    --space-5:      12px;
+    --space-6:      16px;
+    --space-7:      24px;
+
+    /* --- Letter-spacing (3-step) --------------------------------------- */
+    --track-tight:  0.04em;
+    --track-normal: 0.08em;
+    --track-loose:  0.14em;
+
+    /* --- Shape & motion ------------------------------------------------ */
+    --gap:          8px;     /* legacy alias for --space-4 */
     --radius:       6px;
+    --radius-sm:    4px;     /* tags, chips, micro pills */
+
+    /* --- Typefaces ----------------------------------------------------- */
     --mono:         "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
     --ui:           "Inter", "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
 }
@@ -30,23 +79,17 @@
    for any letterbox area; transform-origin keeps the scaled body anchored
    to the top-left. */
 html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--bg); }
-body { margin: 0; transform-origin: top left; }
+/* Single body block — was previously declared twice with conflicting props
+   (legacy A: typography; legacy B: grid layout). Merged for clarity. */
 body {
+    margin: 0;
+    transform-origin: top left;
     background: var(--bg);
     color: var(--fg);
     font-family: var(--ui);
-    font-size: 16px;
+    font-size: var(--text-lg);
     line-height: 1.4;
     overflow: hidden;
-}
-.mono  { font-family: var(--mono); }
-.mute  { color: var(--fg-muted); }
-
-/* ============================================================
-   Layout: header / main (grid 1fr + 320px aside) / footer (50/50)
-   ============================================================ */
-
-body {
     display: grid;
     grid-template-rows: 56px 1fr 280px;
     gap: var(--gap);
@@ -56,6 +99,29 @@ body {
     width: 100vw;
     height: 100vh;
 }
+
+/* --- Utility classes --------------------------------------------------- */
+.mono     { font-family: var(--mono); }
+.mute     { color: var(--fg-2); }
+.dim      { color: var(--fg-3); }
+/* Single-line truncate with ellipsis. min-width:0 is required so the rule
+   actually works inside grid/flex children (default min-content = auto). */
+.truncate {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Generic surface tile used by row striping, badges, cells — replaces 19+
+   repetitions of `background: var(--panel-2)` scattered through the file. */
+.surface {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+}
+
+/* ============================================================
+   Layout: header / main (grid 1fr + 320px aside) / footer (50/50)
+   ============================================================ */
 
 .hdr {
     background: var(--panel);
@@ -99,19 +165,24 @@ body {
     background: var(--panel-2);
     border: 1px solid var(--border);
     white-space: nowrap;
-    transition: transform 0.15s, box-shadow 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
+/* Hover signals interactivity by brightening the border — no translateY
+   jitter. The chip is a status read-out, not a button, so the lift was
+   visual noise on a data-dense dashboard. */
 .active-chip:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    border-color: var(--border-hover);
 }
 .active-chip .ac-sym   { color: var(--fg); }
 .active-chip .ac-side  { font-size: 12px; letter-spacing: 0.08em; font-weight: 800; }
 .active-chip .ac-score { color: var(--fg-muted); font-size: 11px; }
+/* Strong tier: 1-px coloured ring is enough — the 16px outer glow was
+   stacking with .active-chip:hover shadow + .ac-score colour into visual
+   noise. Single ring keeps the urgency without the after-effects look. */
 .active-chip.strong-buy {
     border-color: var(--buy);
     background: rgba(0, 208, 156, 0.22);
-    box-shadow: 0 0 0 1px var(--buy), 0 0 16px rgba(0, 208, 156, 0.20);
+    box-shadow: 0 0 0 1px var(--buy);
 }
 .active-chip.strong-buy   .ac-side,
 .active-chip.strong-buy   .ac-sym { color: var(--buy); }
@@ -126,24 +197,25 @@ body {
 .active-chip.strong-sell {
     border-color: var(--sell);
     background: rgba(255, 91, 107, 0.14);     /* lightened from 0.22 so the red text clears 3:1 vs the wash */
-    box-shadow: 0 0 0 1px var(--sell), 0 0 16px rgba(255, 91, 107, 0.20);
+    box-shadow: 0 0 0 1px var(--sell);
 }
 .active-chip.strong-sell  .ac-side,
 .active-chip.strong-sell  .ac-sym { color: var(--sell); }
 .brand-mark {
-    font-size: 22px;
-    font-weight: 800;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
     color: var(--accent);
-    letter-spacing: 0.06em;
+    letter-spacing: var(--track-tight);
 }
-.hdr-stats { display: flex; gap: 24px; }
+.hdr-stats { display: flex; gap: var(--space-7); }
 .stat { display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
 .stat-label {
-    font-size: 9px; letter-spacing: 0.1em; font-weight: 700;
-    color: var(--fg-muted); text-transform: uppercase;
+    font-size: var(--text-3xs); letter-spacing: var(--track-loose);
+    font-weight: var(--weight-medium);
+    color: var(--fg-2); text-transform: uppercase;
 }
 .stat-val {
-    font-family: var(--mono); font-size: 17px; font-weight: 600;
+    font-family: var(--mono); font-size: var(--text-lg); font-weight: var(--weight-normal);
     display: flex; align-items: center; gap: 6px;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -195,8 +267,11 @@ body {
     min-height: 0;
     transition: border-color 0.15s, box-shadow 0.15s;
 }
+/* Card hover: previous border-color rgba(.16) had ~1.4:1 contrast vs --bg
+   so the change was invisible. --border-hover brings it to a clearly visible
+   delta while keeping the change subtle on a dense dashboard. */
 .card:hover {
-    border-color: rgba(255, 255, 255, 0.16);
+    border-color: var(--border-hover);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 /* Per-card accent colors give each card a glanceable identity bar. */
@@ -225,22 +300,29 @@ body {
     padding: 8px 10px;
     display: flex; flex-direction: column; gap: 5px;
     min-height: 0; overflow: hidden;
-    transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.15s;
+    transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
     cursor: pointer;
 }
+/* Hover signals "this is clickable" via border-color only — the previous
+   translateY lift jittered the dashboard every time the cursor crossed a
+   symbol panel, which is a frequent action on a data dashboard. */
 .panel:hover {
     border-color: var(--accent);
-    transform: translateY(-1px);
+    box-shadow: 0 0 0 1px var(--accent);
 }
 .panel.quiet  { opacity: 0.6; }
 .panel.quiet:hover { opacity: 1; }
+/* .active and .touch are the highest-signal states (DWS-SMT firing /
+   structure touch). Keep the inner ring; drop the outer glow that was
+   making the dashboard look like an after-effects template. Border colour
+   carries enough urgency. */
 .panel.active {
     border-color: var(--warning);
-    box-shadow: 0 0 0 1px var(--warning), 0 0 16px rgba(255,183,77,0.18);
+    box-shadow: 0 0 0 1px var(--warning);
 }
 .panel.touch {
     border-color: var(--critical);
-    box-shadow: 0 0 0 1px var(--critical), 0 0 20px rgba(255,61,84,0.30);
+    box-shadow: 0 0 0 1px var(--critical);
 }
 
 .panel-head {
@@ -248,23 +330,24 @@ body {
     gap: 8px; flex-wrap: nowrap;
 }
 .panel-sym {
-    font-weight: 800;
+    font-weight: var(--weight-bold);
     color: var(--fg);
-    letter-spacing: 0.04em;
-    font-size: 18px;
+    letter-spacing: var(--track-tight);
+    font-size: var(--text-lg);
 }
 
 .quote {
     display: flex; gap: 8px; align-items: baseline;
-    font-family: var(--mono); font-weight: 700;
-    font-size: 15px;
+    font-family: var(--mono); font-weight: var(--weight-medium);
+    font-size: var(--text-md);
     overflow: hidden;
 }
 .quote .bid { color: var(--sell); }
 .quote .ask { color: var(--buy); }
 .quote .lbl {
-    font-size: 9px; letter-spacing: 0.1em; color: var(--fg-muted);
-    text-transform: uppercase; font-weight: 700;
+    font-size: var(--text-3xs); letter-spacing: var(--track-loose);
+    color: var(--fg-2);
+    text-transform: uppercase; font-weight: var(--weight-medium);
     margin-right: 3px;
 }
 .quote .spread {
@@ -340,23 +423,27 @@ body {
     align-items: center;
     column-gap: 12px;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: var(--text-sm);
     padding: 5px 10px;
     background: var(--panel-2);
     border-radius: var(--radius);
-    border-left: 4px solid var(--fg-dim);
+    /* Normalised to 3px left accent so the composite sits flush with the
+       border-bar discipline used everywhere else (was 4px, caused 1px
+       wobble vs .card and .pos-row siblings). */
+    border-left: 3px solid var(--fg-3);
 }
 .composite .comp-label {
-    font-size: 9px; letter-spacing: 0.12em; font-weight: 800;
-    color: var(--fg-muted); text-transform: uppercase;
+    font-size: var(--text-3xs); letter-spacing: var(--track-loose);
+    font-weight: var(--weight-bold);
+    color: var(--fg-2); text-transform: uppercase;
 }
 .composite .comp-main {
     display: flex; align-items: center; gap: 8px;
 }
-.composite .comp-arrow { font-weight: 900; font-size: 16px; line-height: 1; }
-.composite .comp-text  { font-weight: 800; letter-spacing: 0.04em; }
-.composite .comp-score { color: var(--fg); font-weight: 800; font-size: 13px;
-                         justify-self: end; }
+.composite .comp-arrow { font-weight: var(--weight-heavy); font-size: var(--text-lg); line-height: 1; }
+.composite .comp-text  { font-weight: var(--weight-bold); letter-spacing: var(--track-tight); }
+.composite .comp-score { color: var(--fg); font-weight: var(--weight-bold);
+                         font-size: var(--text-sm); justify-self: end; }
 
 /* Score gauge — shows -10 ... +10 as a horizontal bar. */
 .composite .comp-gauge {
@@ -798,25 +885,30 @@ body {
     padding: 4px 6px;
     flex: 0 0 auto;
 }
+/* sig-row: 6-column layout (TF / TREND / EMA / ADX / DI± / RSI). The
+   3-px transparent left border reserves space so .strong-buy / .strong-sell
+   modifiers can paint into it without shifting the row 3 px to the right. */
 .sig-row {
     display: grid;
-    grid-template-columns: 38px minmax(0,1fr) 56px 56px 64px;
+    grid-template-columns: 28px minmax(0,1fr) 58px 42px 52px 42px;
     gap: 6px;
     align-items: center;
     font-family: var(--mono);
-    padding: 3px 4px;
+    font-size: var(--text-xs);
+    padding: 2px 4px;
     border-left: 3px solid transparent;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
 }
+/* Header row — paint AFTER the colour modifiers below so the .sig-head
+   transparent left-border wins without `!important`. */
 .sig-row.sig-head {
-    color: var(--fg-muted);
-    font-size: 10px;
-    letter-spacing: 0.08em;
+    color: var(--fg-2);
+    font-size: 9px;
+    letter-spacing: var(--track-normal);
     text-transform: uppercase;
-    font-weight: 800;
+    font-weight: var(--weight-bold);
     border-bottom: 1px solid var(--border);
     padding-bottom: 4px;
-    border-left-color: transparent !important;
 }
 /* Numeric column headers must right-align to match the values below them
    (the data cells use text-align:right via .num). Header was left-aligned
@@ -852,16 +944,11 @@ body {
 .sig-row.strong-sell  { border-left-color: var(--sell);
                         background: rgba(255,91,107,0.14); }
 .sig-row.strong-sell  .trend { color: var(--sell); }
-.sig-row.neutral      .trend { color: var(--fg-muted); }
+.sig-row.neutral      .trend { color: var(--fg-2); }
 .sig-row.na           { opacity: 0.4; }
-
-/* Compact sig-row: 6 columns in order TF / TREND / EMA / ADX / DI± / RSI. */
-.sig-row {
-    grid-template-columns: 28px minmax(0,1fr) 58px 42px 52px 42px;
-    font-size: 11px;
-    padding: 2px 4px;
-}
-.sig-row.sig-head { font-size: 9px; }
+/* Header transparent border declared LAST so it wins the cascade over the
+   colour modifiers above without needing !important. */
+.sig-row.sig-head     { border-left-color: transparent; }
 
 /* Structure mini-list — visible in all panels (top 3 in compact mode). */
 .struct {
@@ -1057,31 +1144,35 @@ body {
 .acc-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px;
+    gap: var(--space-2);
 }
 .acc-cell {
     background: var(--panel-2);
     border-radius: var(--radius);
-    padding: 4px 8px;
+    padding: var(--space-2) var(--space-4);
 }
 .acc-cell.pnl { grid-column: span 2; }
 .acc-label {
-    font-size: 10px; font-weight: 700;
-    color: var(--fg-muted);
+    font-size: var(--text-2xs); font-weight: var(--weight-medium);
+    color: var(--fg-2);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: var(--track-normal);
 }
 .acc-val {
     font-family: var(--mono);
-    font-size: 16px; font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
 }
-.acc-val.big { font-size: 20px; }
+/* Today P&L is the hero — clearly larger than the other figures so the
+   trader's eye lands on it first. Other balances stay at --text-md for a
+   single hierarchy step (was the only "big" number in a panel of numbers). */
+.acc-val.big { font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .acc-val.pos { color: var(--buy); }
 .acc-val.neg { color: var(--sell); }
 
-.acc-positions { margin-top: 4px; }
+.acc-positions { margin-top: var(--space-2); }
 .acc-positions .empty {
-    color: var(--fg-dim); font-size: 11px; padding: 4px 0;
+    color: var(--fg-3); font-size: var(--text-xs); padding: 4px 0;
 }
 .pos-row {
     display: grid;
@@ -1113,17 +1204,16 @@ body {
     grid-template-columns: 46px 46px 34px 36px 1fr;
     gap: 6px;
     align-items: center;
-    font-family: var(--mono); font-size: 12px;
+    font-family: var(--mono); font-size: var(--text-sm);
     padding: 5px 7px;
     background: var(--panel-2);
     border-radius: var(--radius);
-    border-left: 3px solid var(--fg-dim);
-    transition: background 0.12s, transform 0.12s;
+    border-left: 3px solid var(--fg-3);
+    transition: background 0.12s;
 }
-.cal-row:hover {
-    background: rgba(255, 255, 255, 0.06);
-    transform: translateX(2px);
-}
+/* Background-only hover signals scannability without shifting the row 2px
+   to the right — the previous translateX made every cursor pass jitter. */
+.cal-row:hover { background: rgba(255, 255, 255, 0.06); }
 .cal-row .cal-date { color: var(--fg-muted); font-weight: 700; }
 .cal-row .time { color: var(--warning); font-weight: 700; }
 .cal-row .ccy  { color: var(--fg);     font-weight: 800; text-align: center;
@@ -1273,18 +1363,23 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     align-items: center;
     margin-left: 8px;
 }
+/* Text button (was a bare 🔔 emoji which clashed against the monospaced
+   header stats). Matches the .pill visual language for stat-strip cohesion. */
 .notify-toggle {
     background: var(--panel-2);
-    color: var(--fg-muted);
+    color: var(--fg-2);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 3px 8px;
-    font-size: 14px;
+    border-radius: var(--radius-sm);
+    padding: 3px 10px;
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--track-loose);
     cursor: pointer;
     transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .notify-toggle:hover { background: var(--panel); border-color: var(--accent); }
-.notify-toggle.on { color: var(--warning); border-color: var(--warning); }
+.notify-toggle.on    { color: var(--warning); border-color: var(--warning); }
 .notify-menu {
     position: absolute;
     top: 100%;
@@ -1330,11 +1425,11 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .notify-webhook:focus { outline: none; border-color: var(--accent); }
 .notify-test {
     background: var(--accent);
-    color: white;
+    color: var(--fg);
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 5px 10px;
-    font-weight: 700;
+    font-weight: var(--weight-medium);
     cursor: pointer;
     align-self: flex-start;
     transition: filter 0.12s;
@@ -1354,7 +1449,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 }
 .pill:hover { background: var(--panel); border-color: var(--accent); }
 .pill.on {
-    background: var(--accent); color: white;
+    background: var(--accent); color: var(--fg);
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
 }
@@ -1375,12 +1470,14 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-family: var(--mono);
     font-size: 13px;
     padding: 10px 12px;
-    border-radius: 5px;
-    color: #f2f4f9;
+    border-radius: var(--radius-sm);
+    color: var(--fg);
     background: rgba(255, 255, 255, 0.055);
-    border-left: 3px solid var(--fg-dim);
+    border-left: 3px solid var(--fg-3);
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
+/* Validation tier accent — same hue family as the chip background swatch so
+   the left border and the chip read as a single visual unit. */
 .dws-validation.trusted      { border-left-color: #2da27c; }
 .dws-validation.caution      { border-left-color: #c08a2a; }
 .dws-validation.insufficient { border-left-color: #6a7180; }
@@ -1396,9 +1493,9 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-size: 12px;
     letter-spacing: 0.04em;
 }
-.dws-validation.trusted      .dws-vtier { background: #1f6f54; color: #f2f4f9; }
-.dws-validation.caution      .dws-vtier { background: #7a5a1e; color: #f2f4f9; }
-.dws-validation.insufficient .dws-vtier { background: #4a4f5c; color: #f2f4f9; }
+.dws-validation.trusted      .dws-vtier { background: var(--tier-trusted);      color: var(--fg); }
+.dws-validation.caution      .dws-vtier { background: var(--tier-caution);      color: var(--fg); }
+.dws-validation.insufficient .dws-vtier { background: var(--tier-insufficient); color: var(--fg); }
 .dws-vlabel {
     font-size: 11px; letter-spacing: 0.06em;
     color: var(--fg-muted);
@@ -1461,9 +1558,9 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     flex: 0 0 auto;
     opacity: 0.85;
 }
-.dws-vbase-tier.trusted      { background: #1f6f54; color: #f2f4f9; }
-.dws-vbase-tier.caution      { background: #7a5a1e; color: #f2f4f9; }
-.dws-vbase-tier.insufficient { background: #4a4f5c; color: #f2f4f9; }
+.dws-vbase-tier.trusted      { background: var(--tier-trusted);      color: var(--fg); }
+.dws-vbase-tier.caution      { background: var(--tier-caution);      color: var(--fg); }
+.dws-vbase-tier.insufficient { background: var(--tier-insufficient); color: var(--fg); }
 /* PF-vs-baseline drift indicator next to the live PF value. */
 .dws-pf-drift {
     font-weight: 800;
@@ -1487,43 +1584,67 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     margin-top: 6px;
 }
 
-/* Macro / rate-differential panel */
+/* ============================================================
+   Macro / rate-differential panel
+   ----------------------------------------------------------------
+   Two-line stacked layout: the per-pair direction label was being
+   visually truncated by the previous single-row grid because the
+   1fr column held only ~50 px inside the 320 px sidebar (root cause
+   of the user's "macro 途切れてる" report). New shape:
+
+   line 1: [pair]  [base%]  [quote%]  [diff]   <- mono, baseline aligned
+   line 2: [▲ ラベル全文]                       <- full width, wraps cleanly
+
+   Colours use semantic tokens only — no hardcoded hex.
+   ============================================================ */
 .macro-row {
     display: grid;
-    grid-template-columns: 64px 46px 46px 50px 1fr;
-    gap: 6px;
-    font-size: 11px;
-    padding: 2px 4px;
-    align-items: baseline;
-    color: #f2f4f9;
+    grid-template-columns: 56px 1fr 1fr 56px;
+    grid-template-areas:
+        "pair base quote diff"
+        "dir  dir  dir   dir";
+    column-gap: var(--space-3);
+    row-gap: 1px;
+    font-size: var(--text-xs);
+    padding: var(--space-2) var(--space-2);
+    align-items: center;
+    color: var(--fg);
 }
-.macro-row:nth-child(odd) { background: rgba(255, 255, 255, 0.02); }
-.macro-pair { font-weight: 700; }
-.macro-rate { color: #8089a0; text-align: right; }
-.macro-diff { text-align: right; font-weight: 700; }
-.macro-diff.pos, .macro-dir.pos { color: #00d09c; }
-.macro-diff.neg, .macro-dir.neg { color: #ff5b6b; }
-.macro-diff.mute, .macro-dir.mute { color: #8089a0; }
+.macro-row + .macro-row { border-top: 1px solid var(--border); }
+.macro-pair  { grid-area: pair;  font-weight: var(--weight-bold); }
+.macro-rate  { color: var(--fg-3); text-align: right; font-family: var(--mono); }
+.macro-rate.base  { grid-area: base;  }
+.macro-rate.quote { grid-area: quote; }
+.macro-diff  { grid-area: diff;  text-align: right;
+               font-weight: var(--weight-medium); font-family: var(--mono); }
+.macro-dir   { grid-area: dir;
+               color: var(--fg-2);
+               font-size: var(--text-2xs);
+               letter-spacing: var(--track-tight);
+               padding-left: 2px; }
+.macro-diff.pos, .macro-dir.pos  { color: var(--buy); }
+.macro-diff.neg, .macro-dir.neg  { color: var(--sell); }
+.macro-diff.mute, .macro-dir.mute { color: var(--fg-3); }
 /* DWS sync line when the alignment fights the rate differential */
-.dws-sync.macro-counter { color: #ffb74d; }
-/* Real-yield daily-change figure in the macro panel */
-.macro-rynum.pos { color: #00d09c; }
-.macro-rynum.neg { color: #ff5b6b; }
-.macro-rynum.mute { color: #8089a0; }
+.dws-sync.macro-counter { color: var(--warning); }
+/* Real-yield daily-change figure in the macro key block */
+.macro-rynum.pos  { color: var(--buy); }
+.macro-rynum.neg  { color: var(--sell); }
+.macro-rynum.mute { color: var(--fg-3); }
 
 /* Key macro indicators (real yield + US employment) — lead the panel,
    visually heavier than the per-pair rows below. */
 .macro-key {
     display: flex;
-    gap: 8px;
-    align-items: baseline;
+    gap: var(--space-4);
+    align-items: center;
     flex-wrap: wrap;
-    font-size: 12px;
-    padding: 5px 7px;
-    margin-bottom: 3px;
+    font-size: var(--text-sm);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-3);
     background: rgba(120, 170, 255, 0.10);
-    border-left: 3px solid #4a9eff;
-    border-radius: 2px;
+    border-left: 3px solid var(--info);
+    border-radius: var(--radius-sm);
 }
-.macro-key-label { color: #c5ccd8; min-width: 96px; }
-.macro-key-val { font-weight: 700; font-size: 14px; color: #f2f4f9; }
+.macro-key-label { color: var(--fg-2); min-width: 96px; font-weight: var(--weight-medium); }
+.macro-key-val   { font-weight: var(--weight-medium); font-size: var(--text-md); color: var(--fg); }

@@ -668,43 +668,64 @@ function paintMacro(snap) {
     const ry = snap.real_yield;
     const root = $bind('macro');
     if (!root) return;
-    // The real yield refreshes on its own (1h) schedule, so fold its
-    // timestamp into the stamp key — otherwise the panel would not repaint
-    // when only the real yield changed.
+    const statusEl = $bind('macro-status');
+    // --- Heartbeat status — ALWAYS updates, regardless of data freshness.
+    // This is what kills the user-perceived "frozen panel" — the rate data
+    // refreshes hourly but the "Xm前" tag now visibly ticks every WS pass.
+    if (statusEl) {
+        if (!m) {
+            statusEl.textContent = '--';
+            statusEl.className = 'mute';
+        } else if (m.last_error) {
+            statusEl.textContent = '一部ソース障害';
+            statusEl.className = 'neg';
+        } else if (m.fetched_at) {
+            const ageMin = Math.max(0, Math.round((Date.now() / 1000 - m.fetched_at) / 60));
+            statusEl.textContent = ageMin < 1 ? '更新直後'
+                                 : ageMin < 60 ? `${ageMin}分前`
+                                 : `${Math.floor(ageMin / 60)}時間前`;
+            statusEl.className = 'mute';
+        } else {
+            statusEl.textContent = '--';
+            statusEl.className = 'mute';
+        }
+    }
+    // --- Expensive DOM rebuild — gated by stamp so we don't re-render the
+    // grid every 0.5 s tick. Only repaints when generated_at actually advances.
     const stamp = (m && m.generated_at || 0) + ':' + (ry && ry.generated_at || 0);
     if (!changed('macro', stamp)) return;
-    const statusEl = $bind('macro-status');
     if (!m || !m.rates || Object.keys(m.rates).length === 0) {
         root.innerHTML = '<div class="empty mute">マクロデータ未取得</div>';
-        if (statusEl) statusEl.textContent = '--';
         return;
-    }
-    if (statusEl) {
-        statusEl.textContent = m.last_error ? '一部ソース障害' : 'central banks';
-        statusEl.className = m.last_error ? 'neg' : 'mute';
     }
     const rateStr = ccy => {
         const r = m.rates[ccy];
         return r && r.rate != null ? (r.rate.toFixed(2) + (r.stale ? '*' : '')) : '--';
     };
     const arrow = d => d > 0 ? '▲' : d < 0 ? '▼' : '·';
+    // Shorter direction labels — full text remains accessible via title="" so
+    // hovering still shows the verbose label even on a narrow sidebar.
+    const goldLabel = gd => gd < 0 ? { short: '実質利回り↑/金逆風',  full: '実質利回り上昇 / 金は逆風'  }
+                          : gd > 0 ? { short: '実質利回り↓/金追風',  full: '実質利回り低下 / 金は追い風' }
+                                   : { short: '実質利回り横ばい',    full: '実質利回り横ばい'           };
     const rows = (SYMBOL_ORDER || []).map(sym => {
         if (sym === 'XAUUSD') {
             // Gold's macro direction is the US real-yield trend, not a
             // policy-rate differential (gold moves inverse to real yields).
+            // We repurpose the row columns: base = "RY" tag, quote = current
+            // real-yield %, diff = 5-day trend.
             const gd = ry && ry.value != null ? ry.gold_dir : 0;
             const cls = gd > 0 ? 'pos' : gd < 0 ? 'neg' : 'mute';
-            const rv = ry && ry.value != null ? '実' + ry.value.toFixed(2) : '--';
+            const rv = ry && ry.value != null ? ry.value.toFixed(2) : '--';
             const t5 = ry && ry.trend_5d != null
                      ? (ry.trend_5d >= 0 ? '+' : '') + ry.trend_5d.toFixed(2) : '--';
-            const lbl = gd < 0 ? '実質利回り上昇/金逆風'
-                      : gd > 0 ? '実質利回り低下/金追風' : '実質利回り横ばい';
+            const lbl = goldLabel(gd);
             return `<div class="macro-row">
                 <span class="macro-pair">XAUUSD</span>
-                <span class="macro-rate">${esc(rv)}</span>
-                <span class="macro-rate">--</span>
+                <span class="macro-rate base dim">実利</span>
+                <span class="macro-rate quote">${esc(rv)}</span>
                 <span class="macro-diff ${cls}">${esc(t5)}</span>
-                <span class="macro-dir ${cls}">${arrow(gd)} ${esc(lbl)}</span>
+                <span class="macro-dir ${cls}" title="${esc(lbl.full)}">${arrow(gd)} ${esc(lbl.short)}</span>
             </div>`;
         }
         const b = m.by_pair && m.by_pair[sym];
@@ -714,10 +735,10 @@ function paintMacro(snap) {
                    : (b.differential >= 0 ? '+' : '') + b.differential.toFixed(2);
         return `<div class="macro-row">
             <span class="macro-pair">${esc(sym)}</span>
-            <span class="macro-rate">${esc(rateStr(b.base_ccy))}</span>
-            <span class="macro-rate">${esc(rateStr(b.quote_ccy))}</span>
+            <span class="macro-rate base">${esc(rateStr(b.base_ccy))}</span>
+            <span class="macro-rate quote">${esc(rateStr(b.quote_ccy))}</span>
             <span class="macro-diff ${dirCls}">${esc(diff)}</span>
-            <span class="macro-dir ${dirCls}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
+            <span class="macro-dir ${dirCls}" title="${esc(b.label)}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
         </div>`;
     }).join('');
     // Key indicators (real yield + US employment) lead the panel — they are
