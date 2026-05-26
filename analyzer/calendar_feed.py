@@ -505,41 +505,61 @@ class CalendarEngine:
                 self._last_events = tuple(events)
                 self._last_source = "mt5"
 
-        # Always append the forward "next key events" for every central bank
-        # the user trades, so the calendar never goes blank once this week's
-        # events are past. Per-currency skip-set so a live FF event doesn't
-        # get duplicated by the hardcoded schedule.
+        # Forward "next key events" — central-bank meeting schedules for any
+        # currency whose panel is displayed. The dispatch table is filtered by
+        # config.CALENDAR_CURRENCIES, which is itself derived from SYMBOLS
+        # (see config._calendar_currencies_from_symbols). Removing EUR from
+        # SYMBOLS removes ECB events automatically — no second list to keep in
+        # sync. Per-currency skip-set so a live FF entry isn't duplicated.
         now_ts = time.time()
         def _live_days(ccy: str) -> frozenset[str]:
             return frozenset(
                 datetime.fromtimestamp(e.release_ts, tz=timezone.utc).strftime("%Y-%m-%d")
                 for e in self._last_events if e.currency == ccy
             )
+        # currency → (callable, kwargs) — callables share the (now_ts, skip_dates)
+        # contract; kwargs cover the rest. None means "USD-specific code path".
+        forward_dispatch = {
+            "USD": [
+                ("FOMC", upcoming_fomc_events, {}),
+                ("NFP",  fetch_upcoming_nfp_events, {}),
+            ],
+            "EUR": [
+                ("ECB", upcoming_cb_events, dict(currency="EUR",
+                    dates=config.ECB_MEETING_DATES,
+                    hour=config.ECB_ANNOUNCE_CET[0],
+                    minute=config.ECB_ANNOUNCE_CET[1], tz=_FRANKFURT,
+                    title="ECB Governing Council (rate decision)")),
+            ],
+            "GBP": [
+                ("BoE", upcoming_cb_events, dict(currency="GBP",
+                    dates=config.BOE_MEETING_DATES,
+                    hour=config.BOE_ANNOUNCE_LON[0],
+                    minute=config.BOE_ANNOUNCE_LON[1], tz=_LONDON,
+                    title="BoE MPC (Bank Rate decision)")),
+            ],
+            "JPY": [
+                ("BoJ", upcoming_cb_events, dict(currency="JPY",
+                    dates=config.BOJ_MEETING_DATES,
+                    hour=config.BOJ_ANNOUNCE_JST[0],
+                    minute=config.BOJ_ANNOUNCE_JST[1], tz=_TOKYO,
+                    title="BoJ Monetary Policy Meeting (rate decision)")),
+            ],
+            "AUD": [
+                ("RBA", upcoming_cb_events, dict(currency="AUD",
+                    dates=config.RBA_MEETING_DATES,
+                    hour=config.RBA_ANNOUNCE_AET[0],
+                    minute=config.RBA_ANNOUNCE_AET[1], tz=_SYDNEY,
+                    title="RBA Cash Rate decision")),
+            ],
+        }
         scheduled: list[CalendarEvent] = []
-        scheduled += upcoming_fomc_events(now_ts, skip_dates=_live_days("USD"))
-        scheduled += fetch_upcoming_nfp_events(now_ts, skip_dates=_live_days("USD"))
-        # Non-USD central banks — hardcoded from each bank's published meeting
-        # calendar in config (UPDATE ANNUALLY).
-        scheduled += upcoming_cb_events(now_ts, currency="EUR",
-            dates=config.ECB_MEETING_DATES, hour=config.ECB_ANNOUNCE_CET[0],
-            minute=config.ECB_ANNOUNCE_CET[1], tz=_FRANKFURT,
-            title="ECB Governing Council (rate decision)",
-            skip_dates=_live_days("EUR"))
-        scheduled += upcoming_cb_events(now_ts, currency="GBP",
-            dates=config.BOE_MEETING_DATES, hour=config.BOE_ANNOUNCE_LON[0],
-            minute=config.BOE_ANNOUNCE_LON[1], tz=_LONDON,
-            title="BoE MPC (Bank Rate decision)",
-            skip_dates=_live_days("GBP"))
-        scheduled += upcoming_cb_events(now_ts, currency="JPY",
-            dates=config.BOJ_MEETING_DATES, hour=config.BOJ_ANNOUNCE_JST[0],
-            minute=config.BOJ_ANNOUNCE_JST[1], tz=_TOKYO,
-            title="BoJ Monetary Policy Meeting (rate decision)",
-            skip_dates=_live_days("JPY"))
-        scheduled += upcoming_cb_events(now_ts, currency="AUD",
-            dates=config.RBA_MEETING_DATES, hour=config.RBA_ANNOUNCE_AET[0],
-            minute=config.RBA_ANNOUNCE_AET[1], tz=_SYDNEY,
-            title="RBA Cash Rate decision",
-            skip_dates=_live_days("AUD"))
+        for ccy, entries in forward_dispatch.items():
+            if ccy not in config.CALENDAR_CURRENCIES:
+                continue            # no panel for this ccy → skip its CB events
+            skip = _live_days(ccy)
+            for _name, fn, kw in entries:
+                scheduled += fn(now_ts, skip_dates=skip, **kw)
         # _dedupe_events sorts internally by release_ts and returns a tuple.
         all_events = _dedupe_events(list(self._last_events) + scheduled)
 
