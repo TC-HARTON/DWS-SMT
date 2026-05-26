@@ -418,13 +418,25 @@ CALENDAR_IMPACT_ALLOW: Final[frozenset[str]] = frozenset({"High"})
 # SPEC §15.3 発表前後 30 分は警告色 (UI window).
 CALENDAR_WARNING_WINDOW_SEC: Final[int] = 30 * 60
 
-# SPEC §15.3 currencies to surface. Defaults to the same fiat universe as
-# the strength meter so the calendar agrees with the rest of the dashboard.
-# Limited to currencies that appear in the display SYMBOLS tuple — there's
-# no value showing NZD / CHF / CAD events when no panel reacts to them.
-CALENDAR_CURRENCIES: Final[frozenset[str]] = frozenset(
-    {"USD", "EUR", "GBP", "JPY", "AUD"}
-)
+# SPEC §15.3 currencies to surface. Derived directly from the SYMBOLS
+# tuple — every currency that appears in at least one displayed pair is
+# included, anything else (NZD, CHF, CAD, …) is filtered out.
+# Adding/removing a panel in SYMBOLS automatically keeps this in sync.
+# XAU is excluded — gold has no calendar events; its USD leg is covered
+# via XAUUSD → USD anyway.
+def _calendar_currencies_from_symbols() -> frozenset[str]:
+    ccys: set[str] = set()
+    for spec in SYMBOLS:
+        s = spec.base
+        if s.startswith("XAU"):
+            ccys.add(s[3:])      # XAUUSD → USD
+            continue
+        if len(s) == 6:
+            ccys.add(s[:3])
+            ccys.add(s[3:])
+    return frozenset(ccys)
+
+CALENDAR_CURRENCIES: Final[frozenset[str]] = _calendar_currencies_from_symbols()
 
 # Event-type filter: only central-bank rate decisions and employment releases
 # are surfaced (the two highest-impact macro categories). An event passes if

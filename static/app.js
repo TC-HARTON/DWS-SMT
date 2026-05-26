@@ -611,10 +611,18 @@ function paintStrength(strength, force) {
     }
 }
 
-// Currencies that have at least one panel in the display SYMBOLS. Calendar
-// events for any other currency are filtered out client-side as a defence
-// against stale backend cache snapshots that pre-date the config tightening.
-const CALENDAR_DISPLAY_CCY = new Set(['USD', 'EUR', 'GBP', 'JPY', 'AUD']);
+// Currencies that have at least one panel in the display SYMBOLS. DERIVED
+// from SYMBOL_ORDER so editing the symbol list automatically keeps the
+// calendar filter in sync — no hand-maintained allow-list to fall out of
+// step with the panels. Mirrors backend config._calendar_currencies_from_symbols.
+const CALENDAR_DISPLAY_CCY = (() => {
+    const out = new Set();
+    for (const s of SYMBOL_ORDER) {
+        if (s.startsWith('XAU')) { out.add(s.slice(3)); continue; }
+        if (s.length === 6) { out.add(s.slice(0, 3)); out.add(s.slice(3)); }
+    }
+    return out;
+})();
 
 function paintCalendar(snap) {
     const cal = snap.calendar;
