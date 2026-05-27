@@ -1460,6 +1460,14 @@ function updateDwsSync(sym, snap, win) {
  *  the same centroid (in z-space). Includes Wilson 95% CI, sample size, and
  *  a 高/中/低 reliability tier from walk-forward analysis. M15 is fully
  *  reliable; H1 mixed; H4 marked 低 because samples ran 30-90 per cluster. */
+// Cached pattern-table fetched at boot. Used by the cluster detail modal
+// so a click on the pattern card can show every cluster's centroid + WR
+// for the currently-selected base TF.
+let PATTERN_TABLE = null;
+fetch('/api/pattern-table').then(r => r.ok ? r.json() : null)
+    .then(t => { PATTERN_TABLE = t; })
+    .catch(() => { /* graceful: no table → no modal */ });
+
 function buildPatternMatchHtml(snap, sym, baseTf) {
     // No pattern_matches data at all for this symbol = symbol has no centroid
     // table (only XAUUSD has one today). Render nothing.
@@ -1516,7 +1524,7 @@ function buildPatternMatchHtml(snap, sym, baseTf) {
     const distChip = pm.distance_z > 6
         ? `<span class="dws-pat-far" title="特徴量空間で過去事例から離れた状態">距離注意</span>`
         : '';
-    return `<div class="dws-pat">
+    return `<div class="dws-pat dws-pat-clickable" data-sym="${esc(sym)}" data-tf="${esc(baseTf)}" data-pid="${esc(pm.pattern_id)}" title="クリックで全クラスタの詳細を見る">
         <div class="dws-pat-head">
           <span class="dws-pat-label">過去類似パターン</span>
           <span class="dws-pat-shape ${shapeCls}">${shapeLabel}</span>
@@ -1527,6 +1535,8 @@ function buildPatternMatchHtml(snap, sym, baseTf) {
         <div class="dws-pat-hero">
           <span class="dws-pat-hero-label">歴史的勝率</span>
           <span class="dws-pat-hero-val ${heroCls}">${wrPct}<span class="dws-pat-hero-unit">%</span></span>
+          <span class="dws-pat-id">${esc(pm.pattern_id)}</span>
+          <span class="dws-pat-zoom">▼ 詳細</span>
         </div>
         <div class="dws-pat-stats">
           <span class="dws-pat-stat"><span class="dws-pat-k">95%CI</span><span class="dws-pat-v">${ciLo}–${ciHi}%</span></span>
@@ -1535,6 +1545,82 @@ function buildPatternMatchHtml(snap, sym, baseTf) {
         </div>
     </div>`;
 }
+
+/** Show all clusters for the given (symbol, base_tf), highlight the
+ *  currently-matched cluster. Click outside or × to close. */
+function showPatternDetailModal(sym, baseTf, currentPatternId) {
+    if (!PATTERN_TABLE) return;
+    const tfTable = PATTERN_TABLE[baseTf];
+    if (!tfTable) return;
+    let modal = document.getElementById('pat-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'pat-modal';
+        modal.className = 'pat-modal';
+        document.body.appendChild(modal);
+    }
+    modal.onclick = (ev) => {
+        if (ev.target === modal || ev.target.classList.contains('pat-modal-close')) {
+            modal.remove();
+        }
+    };
+    const pop = tfTable.population;
+    const feats = tfTable.feature_columns;
+    // Render header + cards for each cluster (sorted by win_rate descending)
+    const clusters = [...tfTable.clusters].sort((a, b) => b.win_rate - a.win_rate);
+    const fmtV = (v) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+    const cards = clusters.map(c => {
+        const isCurrent = c.pattern_id === currentPatternId;
+        const wrPct = (c.win_rate * 100).toFixed(2);
+        const ciLo = (c.win_rate_ci95_low * 100).toFixed(1);
+        const ciHi = (c.win_rate_ci95_high * 100).toFixed(1);
+        const shapeCls = c.learned_from_shape === 'win' ? 'pos' : 'neg';
+        const shapeLbl = c.learned_from_shape === 'win' ? '勝ち型' : '負け型';
+        const heroCls = c.win_rate >= 0.50 ? 'pos' : c.win_rate <= 0.40 ? 'neg' : '';
+        const medianTxt = (c.median_net_pts >= 0 ? '+' : '') +
+            Math.round(c.median_net_pts).toLocaleString('en-US') + ' pt';
+        const featRows = feats.map(f => {
+            const v = c.centroid_raw[f];
+            return `<tr><td>${esc(f)}</td><td class="num">${fmtV(v)}</td></tr>`;
+        }).join('');
+        return `<div class="pat-modal-card${isCurrent ? ' is-current' : ''}">
+            <div class="pat-modal-card-head">
+              <span class="pat-modal-pid">${esc(c.pattern_id)}</span>
+              <span class="dws-pat-shape ${shapeCls}">${shapeLbl}</span>
+              ${isCurrent ? '<span class="pat-modal-now">現在マッチ</span>' : ''}
+            </div>
+            <div class="pat-modal-hero">
+              <span class="dws-pat-hero-val ${heroCls}">${wrPct}<span class="dws-pat-hero-unit">%</span></span>
+            </div>
+            <div class="pat-modal-stats">
+              <span><b>N</b> ${c.assigned_n.toLocaleString('en-US')}</span>
+              <span><b>CI95</b> ${ciLo}–${ciHi}%</span>
+              <span><b>中央値</b> ${medianTxt}</span>
+            </div>
+            <table class="pat-modal-table">${featRows}</table>
+        </div>`;
+    }).join('');
+    modal.innerHTML = `
+        <div class="pat-modal-panel">
+          <div class="pat-modal-bar">
+            <span class="pat-modal-title">${esc(sym)} ${esc(baseTf)} クラスタ詳細
+              <span class="pat-modal-sub">母集団 N=${pop.n_trades.toLocaleString('en-US')}  WR=${(pop.win_rate*100).toFixed(2)}%</span>
+            </span>
+            <button class="pat-modal-close" title="閉じる">×</button>
+          </div>
+          <div class="pat-modal-grid">${cards}</div>
+        </div>`;
+}
+
+// Delegate clicks on any rendered pattern card to the modal opener.
+document.addEventListener('click', (ev) => {
+    const card = ev.target.closest('.dws-pat-clickable');
+    if (!card) return;
+    const sym = card.dataset.sym;
+    const tf  = card.dataset.tf;
+    const pid = card.dataset.pid;
+    if (sym && tf) showPatternDetailModal(sym, tf, pid);
+});
 
 /** Render the out-of-sample confidence block for the selected base TF.
  *  Data comes from the validation layer (snap.validation); it refreshes on

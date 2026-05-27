@@ -1681,6 +1681,148 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     line-height: 36px;        /* match .dws-pat-hero-val line box */
 }
 
+/* Clickable affordance — cursor + hover highlight so the user knows the
+   pattern card opens a detail modal. */
+.dws-pat-clickable { cursor: pointer; transition: border-left-color 0.12s, background 0.12s; }
+.dws-pat-clickable:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-left-color: var(--accent);
+}
+.dws-pat-id {
+    color: var(--fg-2);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    margin-left: var(--space-3);
+    align-self: baseline;
+}
+.dws-pat-zoom {
+    margin-left: auto;
+    color: var(--fg-2);
+    font-size: var(--text-xs);
+    align-self: baseline;
+    letter-spacing: var(--track-tight);
+}
+.dws-pat-clickable:hover .dws-pat-zoom { color: var(--accent); }
+
+/* ============================================================
+   Cluster detail modal — opens on pattern-card click. Shows all
+   clusters of the current (sym, base_tf) side-by-side, with the
+   currently-matched cluster highlighted.
+   ============================================================ */
+.pat-modal {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(2px);
+}
+.pat-modal-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    width: 90vw;
+    max-width: 1600px;
+    max-height: 90vh;
+    display: flex; flex-direction: column;
+}
+.pat-modal-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+.pat-modal-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+    color: var(--fg);
+}
+.pat-modal-sub {
+    color: var(--fg-3);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    margin-left: var(--space-4);
+}
+.pat-modal-close {
+    background: transparent; color: var(--fg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    width: 32px; height: 32px;
+    cursor: pointer;
+}
+.pat-modal-close:hover { color: var(--fg); border-color: var(--accent); }
+.pat-modal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-4);
+    padding: var(--space-5);
+    overflow-y: auto;
+}
+.pat-modal-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--fg-3);
+    border-radius: var(--radius);
+    padding: var(--space-4);
+    display: flex; flex-direction: column; gap: var(--space-3);
+}
+.pat-modal-card.is-current {
+    border-left-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    background: rgba(77, 142, 255, 0.08);
+}
+.pat-modal-card-head {
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+}
+.pat-modal-pid {
+    font-family: var(--mono);
+    font-size: var(--text-md);
+    font-weight: var(--weight-heavy);
+    color: var(--fg);
+}
+.pat-modal-now {
+    background: var(--accent); color: var(--fg);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-bold);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    letter-spacing: var(--track-tight);
+    margin-left: auto;
+}
+.pat-modal-hero { padding: var(--space-2) 0; }
+.pat-modal-stats {
+    display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
+    font-family: var(--mono);
+    font-size: var(--text-sm);
+    color: var(--fg-2);
+}
+.pat-modal-stats b {
+    color: var(--fg-3);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--track-normal);
+    margin-right: 4px;
+    font-weight: var(--weight-medium);
+}
+.pat-modal-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+.pat-modal-table td {
+    padding: 2px 4px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.pat-modal-table td:first-child { color: var(--fg-2); }
+.pat-modal-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+}
+
 /* ============================================================
    Macro / rate-differential panel
    ----------------------------------------------------------------

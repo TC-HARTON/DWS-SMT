@@ -26,7 +26,7 @@ import sys
 import threading
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 import config
 from dashboard.ws_broadcaster import mount_websocket
@@ -155,6 +155,22 @@ def build_app() -> Flask:
     @app.route("/favicon.ico")
     def favicon():  # pragma: no cover
         return ("", 204)
+
+    # Static centroid + per-cluster WR table for the pattern detail modal.
+    # Same JSON the runtime pattern_matcher consumes — we just expose it to
+    # the front end so the user can drill into any cluster's centroid
+    # profile and Wilson CI. Cached in-memory: file changes only when the
+    # extractor is re-run (rare, manual).
+    _PATTERN_TABLE_PATH = (Path(__file__).resolve().parent.parent
+                           / "data" / "loss_analysis"
+                           / "xauusd_per_cluster_winrate.json")
+    @app.route("/api/pattern-table")
+    def pattern_table():  # pragma: no cover — exercised via browser
+        try:
+            return Response(_PATTERN_TABLE_PATH.read_text(encoding="utf-8"),
+                            mimetype="application/json")
+        except OSError as exc:
+            return jsonify({"error": str(exc)}), 404
 
     @app.route("/api/broker", methods=["GET"])
     def get_broker():
