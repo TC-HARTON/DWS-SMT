@@ -1447,9 +1447,130 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 }
 .dws-vcell {
     display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.dws-vrow {
+    display: flex;
     justify-content: space-between;
-    align-items: baseline; gap: 8px;
-    line-height: 1.5;
+    align-items: baseline;
+    gap: 8px;
+    line-height: 1.4;
+}
+/* Collapsible per-metric / header / verdict / rolling explanations.
+   Default = HIDDEN. The "説明" toggle in the validation header sets a
+   .desc-open class on the .dws-validation wrapper which reveals every
+   description inside. Per-symbol open state is persisted to localStorage
+   so the user opens once and the choice survives reloads.
+
+   Color hierarchy (so the eye can scan, not a wall of identical white):
+     - Body text:   dim grey rgba(255,255,255,.55)   — easy to skim
+     - <b> keyword: amber  #d4a02a                   — methodology / terms
+     - <em>:        cyan   #5fb3ff                   — numeric callouts
+     - .dws-sig:    green  var(--buy)                — significance pass */
+.dws-vdesc,
+.dws-vhead-desc,
+.dws-vverdict-desc,
+.dws-vsec-desc {
+    display: none;
+    font-size: 11px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.55);
+    padding: 5px 8px 7px 8px;
+    background: rgba(255, 255, 255, 0.025);
+    border-left: 2px solid rgba(212, 160, 42, 0.40);
+    border-radius: 2px;
+    margin: 2px 0 4px 0;
+}
+.dws-vdesc b,
+.dws-vhead-desc b,
+.dws-vverdict-desc b,
+.dws-vsec-desc b {
+    color: #d4a02a;
+    font-weight: 700;
+}
+.dws-vdesc em,
+.dws-vhead-desc em,
+.dws-vverdict-desc em,
+.dws-vsec-desc em {
+    color: #5fb3ff;
+    font-style: normal;
+    font-weight: 700;
+}
+.dws-vverdict-desc .dws-sig {
+    color: var(--buy);
+    font-weight: 700;
+}
+
+/* Header section gets a wider accent so it visually owns the whole card. */
+.dws-vhead-desc {
+    background: rgba(56, 161, 105, 0.05);
+    border-left-color: rgba(56, 161, 105, 0.55);
+}
+.dws-vverdict-desc {
+    background: rgba(212, 160, 42, 0.06);
+    border-left-color: rgba(212, 160, 42, 0.55);
+}
+.dws-vsec-desc {
+    background: rgba(255, 255, 255, 0.02);
+    border-left-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Reveal every description when the parent .dws-validation has .desc-open. */
+.dws-validation.desc-open .dws-vdesc,
+.dws-validation.desc-open .dws-vhead-desc,
+.dws-validation.desc-open .dws-vverdict-desc,
+.dws-validation.desc-open .dws-vsec-desc {
+    display: block;
+}
+.dws-validation.desc-open .dws-vstats .dws-vcell:last-child .dws-vdesc {
+    border-bottom: none;
+}
+
+/* "説明" disclosure toggle — informational button in the validation header.
+   Uses the same cyan accent the description body uses for <em> numerics,
+   so the visual language ties button → revealed content. Prominent enough
+   that the user can find it at a glance, restrained enough that it does
+   not compete with the tier / verdict badges. */
+.dws-vexplain {
+    appearance: none;
+    border: 1px solid rgba(95, 179, 255, 0.55);
+    border-radius: 4px;
+    color: #5fb3ff;
+    background: rgba(95, 179, 255, 0.10);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 2px 9px 2px 8px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+    flex: 0 0 auto;
+    line-height: 1.3;
+    transition: background-color 90ms ease-out, border-color 90ms ease-out;
+}
+.dws-vexplain:hover {
+    background: rgba(95, 179, 255, 0.22);
+    border-color: rgba(95, 179, 255, 0.85);
+    color: #8fcaff;
+}
+.dws-vexplain:focus-visible {
+    outline: 2px solid rgba(95, 179, 255, 0.70);
+    outline-offset: 1px;
+}
+.dws-validation.desc-open .dws-vexplain {
+    background: rgba(95, 179, 255, 0.28);
+    border-color: rgba(95, 179, 255, 1);
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(95, 179, 255, 0.55);
+}
+.dws-vexplain-icon { font-size: 9px; line-height: 1; }
+.dws-vexplain-label { letter-spacing: 0.10em; }
+
+/* Secondary rolling block — same description style as primary metrics. */
+.dws-vsec-row {
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+    line-height: 1.4;
 }
 .dws-vk {
     color: var(--fg);
@@ -1522,366 +1643,91 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 }
 
 /* ============================================================
-   Pattern-match block — surfaces "current setup resembles past pattern X,
-   which had historical win rate Y%". Sits inside the DWS validation card
-   between the 16y baseline line and the sparkline.
-
-   Reliability tier (高/中/低) is hand-tagged in pattern_matcher.py from
-   walk-forward analysis: M15 = 高 (8/8 stable), H1 = mostly 中 (drift on
-   some win patterns), H4 = 低 (small samples).
-
-   Layout: standalone card-within-card with prominent hero win-rate.
-       [label] [勝ち型/負け型]                    [距離注意?] [信頼度 X]
-       歴史的勝率
-         61.4 %       <- hero, large
-       95%CI ...   N ...   中央値 ±... pt
+   16Y deep-history evaluation — primary OOS display
    ============================================================ */
-.dws-pat {
-    margin-top: var(--space-4);
-    padding: var(--space-4) var(--space-5);
-    background: rgba(255, 255, 255, 0.045);
-    border-radius: var(--radius);
-    border-left: 3px solid var(--info);
-    display: flex; flex-direction: column; gap: var(--space-3);
-    font-size: var(--text-sm);
+
+/* Sub-line under a vcell — used for the autocorrelation-honest note. */
+.dws-vsub {
+    display: block;
+    font-size: 10px;
+    color: var(--fg-dim);
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.02em;
+    margin-top: 1px;
+    text-align: right;
 }
-.dws-pat-head {
-    display: flex; align-items: center; gap: var(--space-3);
+
+/* Label affordance: dotted underline + help cursor on hoverable definitions.
+   The browser-native title="" tooltip handles the actual text — this just
+   signals to the user that the term has an inline explanation on hover. */
+.dws-vk-tip {
+    text-decoration: underline dotted rgba(255, 255, 255, 0.30);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+    cursor: help;
+}
+.dws-vcell[title] { cursor: help; }
+.dws-vtier[title], .dws-vlabel[title] { cursor: help; }
+
+/* Period-drift verdict badge in the validation header.
+   STABLE = green outline, DRIFT = amber, REGIME-CHANGE = red. */
+.dws-vverdict {
+    font-weight: 800;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    margin-left: auto;
+    flex: 0 0 auto;
+    cursor: help;
+    white-space: nowrap;
+}
+.dws-vverdict.stable {
+    color: var(--buy);
+    background: rgba(56, 161, 105, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(56, 161, 105, 0.55);
+}
+.dws-vverdict.drift {
+    color: #d4a02a;
+    background: rgba(212, 160, 42, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(212, 160, 42, 0.55);
+}
+.dws-vverdict.regime {
+    color: var(--sell);
+    background: rgba(229, 62, 62, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(229, 62, 62, 0.55);
+}
+
+/* Secondary "直近 ローリング ~7M" line below the 16Y headline metrics. */
+.dws-vsecondary {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.18);
+    font-size: 11px;
+    color: var(--fg);
+    line-height: 1.4;
     flex-wrap: wrap;
 }
-.dws-pat-spacer { flex: 1 1 auto; }    /* pushes 距離注意/信頼度 chips to the right */
-.dws-pat-label {
-    font-weight: var(--weight-bold);
-    letter-spacing: var(--track-normal);
-    color: var(--fg);
+.dws-vsec-label {
+    font-weight: 800; letter-spacing: 0.06em;
+    color: var(--fg-dim);
     text-transform: uppercase;
-    font-size: var(--text-sm);
-}
-.dws-pat-shape {
-    font-weight: var(--weight-bold);
-    font-size: var(--text-sm);
-    padding: 3px 10px;
-    border-radius: var(--radius-sm);
-    letter-spacing: var(--track-tight);
-}
-.dws-pat-shape.pos { background: rgba(0, 208, 156, 0.20); color: var(--buy); }
-.dws-pat-shape.neg { background: rgba(255, 91, 107, 0.20); color: var(--sell); }
-.dws-pat-rel {
-    font-size: var(--text-sm);
-    padding: 3px 10px;
-    border-radius: var(--radius-sm);
-    font-weight: var(--weight-bold);
-    letter-spacing: var(--track-tight);
-}
-.dws-pat-rel.high { background: var(--tier-trusted);      color: var(--fg); }
-.dws-pat-rel.mid  { background: var(--tier-caution);      color: var(--fg); }
-.dws-pat-rel.low  { background: var(--tier-insufficient); color: var(--fg); }
-/* Distance-warning chip — promoted to a real warning weight, not a quiet
-   neutral chip. Solid amber background + dark text, taller padding, and
-   uppercase ! mark to read as a discrete alert rather than a label. */
-.dws-pat-far {
-    color: #1f1500;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-heavy);
-    padding: 3px 11px;
-    border-radius: var(--radius-sm);
-    background: var(--warning);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset;
-    letter-spacing: var(--track-tight);
-}
-
-/* Hero row — the headline number a trader looks at first. */
-.dws-pat-hero {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-4);
-    padding-top: var(--space-1);
-}
-.dws-pat-hero-label {
-    color: var(--fg-2);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--track-tight);
     flex: 0 0 auto;
+    font-size: 10px;
 }
-.dws-pat-hero-val {
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-    font-size: 36px;            /* deliberately above the type scale —
-                                   this is the hero number, must dominate */
-    font-weight: var(--weight-heavy);
-    color: var(--fg);
-    line-height: 1;
-    letter-spacing: -0.02em;
-}
-.dws-pat-hero-val.pos { color: var(--buy);  }
-.dws-pat-hero-val.neg { color: var(--sell); }
-.dws-pat-hero-unit {
-    font-size: var(--text-lg);
-    font-weight: var(--weight-bold);
-    margin-left: 4px;
-    /* Was 0.75 — too faint on coloured hero numbers (buy/sell) where contrast
-       drops sharply. 0.92 keeps it secondary without losing readability. */
-    opacity: 0.92;
-}
-
-/* Supporting stats row — CI / N / median in compact labelled chips. */
-.dws-pat-stats {
-    display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5);
-    align-items: baseline;
-    font-family: var(--mono);
+.dws-vsec-fig {
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: var(--fg);
+    flex: 1 1 auto;
 }
-.dws-pat-stat {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-}
-.dws-pat-k {
-    color: var(--fg-3);
-    font-size: var(--text-2xs);
-    letter-spacing: var(--track-normal);
-    text-transform: uppercase;
+.dws-vsec-empty {
+    color: var(--fg-dim);
+    font-style: normal;
     font-weight: var(--weight-medium);
 }
-.dws-pat-v {
-    color: var(--fg);
-    font-size: var(--text-md);
-    font-weight: var(--weight-medium);
-}
-.dws-pat-v.pos { color: var(--buy);  }
-.dws-pat-v.neg { color: var(--sell); }
 
-/* Empty state mirrors the active card's 3-row structure (head + hero +
-   stats) so toggling between empty and active produces ZERO vertical
-   reflow. Placeholder chips and "--" stats are rendered with neutral
-   tones so the card stays calm; only the hero slot's message changes
-   the visible content. */
-.dws-pat-empty {
-    /* No override of background / padding / border-left — KEEP the box. */
-}
-.dws-pat-empty .dws-pat-spacer { flex: 1 1 auto; }
-/* Neutral placeholder chips (same outer dimensions as the real
-   shape / reliability chips, dimmer interior so they recede). */
-.dws-pat-chip-empty {
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: var(--fg-3) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-}
-/* Hero slot: same line-height as .dws-pat-hero-val (36 px) so the row
-   keeps its height. The message rendered at --text-lg (16 px) sits
-   inside that 36-px line box and reads as the "current state" label. */
-.dws-pat-empty-msg {
-    color: var(--fg-2);
-    font-family: var(--ui);
-    font-size: var(--text-lg);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--track-tight);
-    line-height: 36px;        /* match .dws-pat-hero-val line box */
-}
-
-/* Clickable affordance — cursor + hover highlight so the user knows the
-   pattern card opens a detail modal. */
-.dws-pat-clickable { cursor: pointer; transition: border-left-color 0.12s, background 0.12s; }
-.dws-pat-clickable:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-left-color: var(--accent);
-}
-.dws-pat-id {
-    color: var(--fg-2);
-    font-family: var(--mono);
-    font-size: var(--text-xs);
-    margin-left: var(--space-3);
-    align-self: baseline;
-}
-.dws-pat-zoom {
-    margin-left: auto;
-    color: var(--fg-2);
-    font-size: var(--text-xs);
-    align-self: baseline;
-    letter-spacing: var(--track-tight);
-}
-.dws-pat-clickable:hover .dws-pat-zoom { color: var(--accent); }
-
-/* ============================================================
-   Cluster detail modal — opens on pattern-card click. Shows all
-   clusters of the current (sym, base_tf) side-by-side, with the
-   currently-matched cluster highlighted.
-   ============================================================ */
-.pat-modal {
-    position: fixed; inset: 0;
-    background: rgba(0, 0, 0, 0.65);
-    z-index: 10000;
-    display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(2px);
-}
-.pat-modal-panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-    width: 90vw;
-    max-width: 1600px;
-    max-height: 90vh;
-    display: flex; flex-direction: column;
-}
-.pat-modal-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid var(--border);
-    background: var(--panel-2);
-    border-radius: var(--radius) var(--radius) 0 0;
-}
-.pat-modal-title {
-    font-size: var(--text-md);
-    font-weight: var(--weight-bold);
-    color: var(--fg);
-}
-.pat-modal-sub {
-    color: var(--fg-3);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    margin-left: var(--space-4);
-}
-.pat-modal-close {
-    background: transparent; color: var(--fg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: var(--text-lg);
-    font-weight: var(--weight-bold);
-    width: 32px; height: 32px;
-    cursor: pointer;
-}
-.pat-modal-close:hover { color: var(--fg); border-color: var(--accent); }
-.pat-modal-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-    gap: var(--space-4);
-    padding: var(--space-5);
-    overflow-y: auto;
-}
-.pat-modal-card {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--fg-3);
-    border-radius: var(--radius);
-    padding: var(--space-5);
-    display: flex; flex-direction: column; gap: var(--space-3);
-}
-.pat-modal-card.is-current {
-    border-left-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent), 0 4px 24px rgba(77, 142, 255, 0.15);
-    background: rgba(77, 142, 255, 0.08);
-}
-.pat-modal-card-head {
-    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-}
-.pat-modal-head-left { display: flex; align-items: center; gap: var(--space-3); }
-.pat-modal-pid {
-    font-family: var(--mono);
-    font-size: var(--text-md);
-    font-weight: var(--weight-heavy);
-    color: var(--fg);
-    letter-spacing: var(--track-tight);
-}
-.pat-modal-now {
-    background: var(--accent); color: var(--fg);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-bold);
-    padding: 3px 10px;
-    border-radius: var(--radius-sm);
-    letter-spacing: var(--track-tight);
-    margin-left: auto;
-}
-
-/* Plain-language archetype label */
-.pat-modal-archetype {
-    display: flex; align-items: center; gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.04);
-    border-left: 3px solid var(--fg-3);
-}
-.pat-modal-archetype.pos   { border-left-color: var(--buy);     background: rgba(0, 208, 156, 0.10); }
-.pat-modal-archetype.neg   { border-left-color: var(--sell);    background: rgba(255, 91, 107, 0.10); }
-.pat-modal-archetype.mute  { border-left-color: var(--fg-3);    background: rgba(255, 255, 255, 0.03); }
-.pat-archetype-icon  { font-size: var(--text-xl); }
-.pat-archetype-label {
-    color: var(--fg);
-    font-size: var(--text-md);
-    font-weight: var(--weight-bold);
-    letter-spacing: var(--track-tight);
-}
-
-/* Hero — bigger, side meta inline */
-.pat-modal-hero {
-    display: flex; align-items: baseline; gap: var(--space-4);
-    padding: var(--space-2) 0;
-}
-.pat-modal-hero-side {
-    color: var(--fg-2);
-    font-size: var(--text-xs);
-    letter-spacing: var(--track-tight);
-}
-.pat-modal-hero-meta {
-    font-family: var(--mono);
-    color: var(--fg-3);
-    font-size: var(--text-2xs);
-    margin-top: 2px;
-}
-
-/* Per-TF section: title + horizontal metric row */
-.pat-tf-section {
-    border-top: 1px dashed rgba(255, 255, 255, 0.08);
-    padding-top: var(--space-3);
-}
-.pat-tf-title {
-    color: var(--fg-2);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-bold);
-    letter-spacing: var(--track-loose);
-    text-transform: uppercase;
-    margin-bottom: var(--space-2);
-}
-.pat-tf-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
-    gap: var(--space-2) var(--space-3);
-}
-.pat-metric {
-    display: flex; flex-direction: column; gap: 1px;
-    padding: 4px 6px;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: var(--radius-sm);
-}
-.pat-metric-label {
-    color: var(--fg-3);
-    font-size: var(--text-3xs);
-    text-transform: uppercase;
-    letter-spacing: var(--track-normal);
-    font-weight: var(--weight-medium);
-}
-.pat-metric-value {
-    color: var(--fg);
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-bold);
-    line-height: 1.1;
-}
-.pat-metric-value.pos  { color: var(--buy); }
-.pat-metric-value.neg  { color: var(--sell); }
-.pat-metric-value.mute { color: var(--fg-3); }
-.pat-metric-hint {
-    color: var(--fg-2);
-    font-size: var(--text-3xs);
-    line-height: 1.2;
-    letter-spacing: var(--track-tight);
-}
-.pat-metric-hint.pos  { color: var(--buy); }
-.pat-metric-hint.neg  { color: var(--sell); }
-.pat-metric-hint.mute { color: var(--fg-3); }
 
 /* ============================================================
    Macro / rate-differential panel

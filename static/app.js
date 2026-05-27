@@ -1452,398 +1452,235 @@ function updateDwsSync(sym, snap, win) {
     el.textContent = txt;
 }
 
-/** Build the "現在の形状に最も近い過去パターン" block. Returns '' if there's
- *  no pattern data for this (sym, base_tf) — most non-XAUUSD symbols, or
- *  when the live trigger has no direction yet.
- *
- *  Surfaces the historical win rate of trades whose entry features matched
- *  the same centroid (in z-space). Includes Wilson 95% CI, sample size, and
- *  a 高/中/低 reliability tier from walk-forward analysis. M15 is fully
- *  reliable; H1 mixed; H4 marked 低 because samples ran 30-90 per cluster. */
-// Cached pattern-table fetched at boot. Used by the cluster detail modal
-// so a click on the pattern card can show every cluster's centroid + WR
-// for the currently-selected base TF.
-let PATTERN_TABLE = null;
-fetch('/api/pattern-table').then(r => r.ok ? r.json() : null)
-    .then(t => { PATTERN_TABLE = t; })
-    .catch(() => { /* graceful: no table → no modal */ });
 
-function buildPatternMatchHtml(snap, sym, baseTf) {
-    // No pattern_matches data at all for this symbol = symbol has no centroid
-    // table (only XAUUSD has one today). Render nothing.
-    const symPm = snap && snap.pattern_matches && snap.pattern_matches[sym];
-    if (!symPm) return '';
-    // The TF entry is null when the latest closed bar of this base TF is NOT
-    // itself a BUY/SELL trigger — SPEC rule says we wouldn't be entering, so
-    // surfacing a historical WR would be a phantom. Render an explicit empty
-    // state so the user knows the panel is alive but the rule isn't firing.
-    const pm = symPm[baseTf];
-    if (!pm) {
-        // Empty state mirrors the 3-row vertical structure of the active
-        // card (head + hero + stats) so a state flip causes ZERO visible
-        // reflow. Placeholder dashes fill the same slots the active state
-        // would occupy.
-        return `<div class="dws-pat dws-pat-empty">
-            <div class="dws-pat-head">
-              <span class="dws-pat-label">過去類似パターン</span>
-              <span class="dws-pat-shape dws-pat-chip-empty">--</span>
-              <span class="dws-pat-spacer"></span>
-              <span class="dws-pat-rel dws-pat-chip-empty">--</span>
-            </div>
-            <div class="dws-pat-hero">
-              <span class="dws-pat-hero-label">状態</span>
-              <span class="dws-pat-empty-msg">トリガーなし</span>
-            </div>
-            <div class="dws-pat-stats">
-              <span class="dws-pat-stat"><span class="dws-pat-k">95%CI</span><span class="dws-pat-v">--</span></span>
-              <span class="dws-pat-stat"><span class="dws-pat-k">N</span><span class="dws-pat-v">--</span></span>
-              <span class="dws-pat-stat"><span class="dws-pat-k">中央値</span><span class="dws-pat-v">--</span></span>
-            </div>
-        </div>`;
-    }
-    const wrPct = (pm.win_rate * 100).toFixed(1);
-    const ciLo  = (pm.win_rate_ci_low  * 100).toFixed(0);
-    const ciHi  = (pm.win_rate_ci_high * 100).toFixed(0);
-    const shapeLabel = pm.learned_from_shape === 'win' ? '勝ち型' : '負け型';
-    const shapeCls   = pm.learned_from_shape === 'win' ? 'pos' : 'neg';
-    const relCls = pm.reliability === '高' ? 'high'
-                 : pm.reliability === '中' ? 'mid' : 'low';
-    // Hero win-rate also gets a visual valence — green when above the symbol's
-    // population WR, red when below. The pop WR is ~39/44/48% across base TFs
-    // and the validation card already shows it; here we just hint via colour.
-    const heroCls = pm.win_rate >= 0.50 ? 'pos'
-                  : pm.win_rate <= 0.40 ? 'neg' : '';
-    const medianTxt = pm.median_net_pts >= 0
-        ? `+${Math.round(pm.median_net_pts).toLocaleString('en-US')} pt`
-        : `${Math.round(pm.median_net_pts).toLocaleString('en-US')} pt`;
-    const medianCls = pm.median_net_pts > 0 ? 'pos'
-                    : pm.median_net_pts < 0 ? 'neg' : '';
-    // Distance — bigger = current setup further from any known pattern,
-    // i.e. the surfaced win-rate is less directly comparable. Surfaced as
-    // an extra warning chip next to the reliability badge in the title row.
-    const distChip = pm.distance_z > 6
-        ? `<span class="dws-pat-far" title="特徴量空間で過去事例から離れた状態">距離注意</span>`
-        : '';
-    return `<div class="dws-pat dws-pat-clickable" data-sym="${esc(sym)}" data-tf="${esc(baseTf)}" data-pid="${esc(pm.pattern_id)}" title="クリックで全クラスタの詳細を見る">
-        <div class="dws-pat-head">
-          <span class="dws-pat-label">過去類似パターン</span>
-          <span class="dws-pat-shape ${shapeCls}">${shapeLabel}</span>
-          <span class="dws-pat-spacer"></span>
-          ${distChip}
-          <span class="dws-pat-rel ${relCls}" title="walk-forward 安定度">信頼度 ${esc(pm.reliability)}</span>
-        </div>
-        <div class="dws-pat-hero">
-          <span class="dws-pat-hero-label">歴史的勝率</span>
-          <span class="dws-pat-hero-val ${heroCls}">${wrPct}<span class="dws-pat-hero-unit">%</span></span>
-          <span class="dws-pat-id">${esc(pm.pattern_id)}</span>
-          <span class="dws-pat-zoom">▼ 詳細</span>
-        </div>
-        <div class="dws-pat-stats">
-          <span class="dws-pat-stat"><span class="dws-pat-k">95%CI</span><span class="dws-pat-v">${ciLo}–${ciHi}%</span></span>
-          <span class="dws-pat-stat"><span class="dws-pat-k">N</span><span class="dws-pat-v">${pm.sample_n.toLocaleString('en-US')}</span></span>
-          <span class="dws-pat-stat"><span class="dws-pat-k">中央値</span><span class="dws-pat-v ${medianCls}">${medianTxt}</span></span>
-        </div>
-    </div>`;
+// Per-symbol persisted state for the "説明" disclosure on the validation
+// block. Defaults to collapsed; the user opens once and the choice survives
+// reloads. localStorage key prefix kept short to avoid collision noise.
+const DWS_DESC_OPEN_KEY = 'mt5dash.dwsDescOpen';
+const DWS_DESC_OPEN = (() => {
+    try { return new Set(JSON.parse(localStorage.getItem(DWS_DESC_OPEN_KEY) || '[]')); }
+    catch (_e) { return new Set(); }
+})();
+function _saveDwsDescOpen() {
+    try { localStorage.setItem(DWS_DESC_OPEN_KEY, JSON.stringify([...DWS_DESC_OPEN])); }
+    catch (_e) { /* private mode etc — non-fatal */ }
 }
 
-/* ============================================================
- * Helpers — semantic interpretation of a centroid's raw feature values.
- * Turn 21 numeric features into plain Japanese phrases the trader can
- * read in 2 seconds: 「強いトレンド」「レンジ」「上振れ」… and a one-line
- * archetype label like 「強順張り」「遅延型」「揉み合い」.
- * ========================================================== */
-
-/** ADX regime in plain Japanese. */
-function adxRegime(adx) {
-    if (adx >= 30) return { label: '極強トレンド', cls: 'pos' };
-    if (adx >= 25) return { label: '強トレンド',   cls: 'pos' };
-    if (adx >= 20) return { label: '中庸',         cls: '' };
-    if (adx >= 15) return { label: '弱トレンド',   cls: 'mute' };
-    return                  { label: 'レンジ',     cls: 'neg' };
-}
-
-/** Trend commitment (direction-signed DI difference). */
-function diDir(diDiff) {
-    if (diDiff >=  15) return { label: '方向強く committed', cls: 'pos' };
-    if (diDiff >=   5) return { label: '方向あり',           cls: 'pos' };
-    if (diDiff >=  -5) return { label: '中立',               cls: 'mute' };
-    if (diDiff >= -15) return { label: '逆向き気味',         cls: 'neg' };
-    return                    { label: '逆向き強く',         cls: 'neg' };
-}
-
-/** close vs EMA50, direction-signed. >0 = with trend, <0 = against. */
-function emaPos(d) {
-    if (d >=  20) return { label: 'EMA50 から大きく順方向', cls: 'pos' };
-    if (d >=   5) return { label: 'EMA50 より上振れ',       cls: 'pos' };
-    if (d >=  -5) return { label: 'EMA50 近接',             cls: 'mute' };
-    if (d >= -20) return { label: 'EMA50 から逆方向',       cls: 'neg' };
-    return                { label: 'EMA50 から大きく逆方向', cls: 'neg' };
-}
-
-/** JST hour bucket. */
-function sessionFromHour(h) {
-    if (h >=  6 && h <  9) return '東京朝方';
-    if (h >=  9 && h < 15) return '東京・午後';
-    if (h >= 15 && h < 21) return '欧州';
-    if (h >= 21 || h <  3) return '米国';
-    return                       '夜間';
-}
-
-/** ATR percentile vs trailing 90 days. */
-function volRegime(pct) {
-    if (pct >= 0.75) return { label: '高ボラ', cls: 'pos' };
-    if (pct >= 0.40) return { label: '中ボラ', cls: '' };
-    return                   { label: '低ボラ', cls: 'mute' };
-}
-
-/** Auto-derive a short archetype label from a centroid's raw values.
- *  Five rough buckets — covers the common patterns the trader will read:
- *    - 強順張り (base 強 + mid/top 未動)
- *    - 遅延エントリ (上位足 走行後にベース弱トリガー)
- *    - 同調順張り (全 TF 同方向中ぐらい)
- *    - 揉み合い / 整合のみ (ADX 弱 + EMA50 近接)
- *    - 逆風中エントリ (上位足 逆方向強い) */
-function clusterArchetype(c) {
-    const b = c.centroid_raw;
-    const baseStrong = b.base_adx >= 25 && b.base_di_diff >= 15;
-    const midStrong  = b.mid_adx  >= 25;
-    const topStrong  = b.top_adx  >= 25;
-    const midExt = Math.abs(b.mid_close_vs_ema50) >= 5;
-    const topExt = Math.abs(b.top_close_vs_ema50) >= 10;
-    const topAgainst = b.top_close_vs_ema50 < -5;
-    const midAgainst = b.mid_close_vs_ema50 < -5;
-    const allWeak = b.base_adx < 20 && b.mid_adx < 22 && b.top_adx < 22;
-
-    if (baseStrong && !midExt && !topExt) {
-        return { label: 'ベース単独の初動', icon: '🚀', cls: 'pos' };
-    }
-    if (topStrong && topExt && !baseStrong) {
-        return { label: '上位足走行後の遅延エントリ', icon: '⚠', cls: 'neg' };
-    }
-    if (topAgainst && midAgainst && b.base_di_diff > 0) {
-        return { label: '上位足に逆らうエントリ', icon: '⚠', cls: 'neg' };
-    }
-    if (allWeak) {
-        return { label: '整合のみの弱いトリガー', icon: '・', cls: 'mute' };
-    }
-    if (midStrong && topStrong && b.base_adx >= 20) {
-        return { label: '全 TF 整合の同調順張り', icon: '✓', cls: 'pos' };
-    }
-    return { label: '混合 (中庸)', icon: '?', cls: '' };
-}
-
-/** Show all clusters for the given (symbol, base_tf), highlight the
- *  currently-matched cluster. Click outside or × to close. */
-function showPatternDetailModal(sym, baseTf, currentPatternId) {
-    if (!PATTERN_TABLE) return;
-    const tfTable = PATTERN_TABLE[baseTf];
-    if (!tfTable) return;
-    let modal = document.getElementById('pat-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'pat-modal';
-        modal.className = 'pat-modal';
-        document.body.appendChild(modal);
-    }
-    modal.onclick = (ev) => {
-        if (ev.target === modal || ev.target.classList.contains('pat-modal-close')) {
-            modal.remove();
-        }
-    };
-    // ESC to close
-    if (!modal._escBound) {
-        document.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Escape') {
-                const m = document.getElementById('pat-modal');
-                if (m) m.remove();
-            }
-        });
-        modal._escBound = true;
-    }
-    const pop = tfTable.population;
-    const stackName = ({M15:'H4 / H1 / M15', H1:'D1 / H4 / H1', H4:'W1 / D1 / H4'})[baseTf] || '';
-    const clusters = [...tfTable.clusters].sort((a, b) => b.win_rate - a.win_rate);
-
-    function metricBlock(label, value, hint, cls) {
-        return `<div class="pat-metric">
-            <div class="pat-metric-label">${esc(label)}</div>
-            <div class="pat-metric-value ${cls || ''}">${esc(value)}</div>
-            ${hint ? `<div class="pat-metric-hint ${cls || ''}">${esc(hint)}</div>` : ''}
-        </div>`;
-    }
-
-    function tfSection(title, prefix, raw) {
-        // Feature set is direction-signed & per-TF: the offline extractor
-        // emits base_atr_pct + mid_atr_pct but no top_atr_pct (W1/D1/H4 etc.
-        // ATR% adds little signal at the top TF, so it was excluded from
-        // the centroid feature list). Render whatever we have, gracefully
-        // skip what's missing — never crash on toFixed of undefined.
-        const adx = raw[prefix + 'adx'];
-        const diDiff = raw[prefix + 'di_diff'];
-        const emaD = raw[prefix + 'close_vs_ema50'];
-        const rsi = raw[prefix + 'rsi'];
-        const atrPct = raw[prefix + 'atr_pct'];
-
-        const adxR = adxRegime(adx);
-        const diR = diDir(diDiff);
-        const emaR = emaPos(emaD);
-        const rsiCls = rsi >= 55 ? 'pos' : rsi <= 45 ? 'neg' : '';
-        const rsiHint = rsi >= 70 ? '過熱'
-                      : rsi >= 55 ? '上目線'
-                      : rsi >= 45 ? '中立'
-                      : rsi >= 30 ? '下目線' : '売られ過ぎ';
-        const atrBlock = (typeof atrPct === 'number')
-            ? metricBlock('ATR %', atrPct.toFixed(2) + '%', '', 'mute')
-            : '';
-
-        return `<div class="pat-tf-section">
-          <div class="pat-tf-title">${esc(title)}</div>
-          <div class="pat-tf-row">
-            ${metricBlock('ADX', adx.toFixed(1), adxR.label, adxR.cls)}
-            ${metricBlock('DI 差', (diDiff >= 0 ? '+' : '') + diDiff.toFixed(1), diR.label, diR.cls)}
-            ${metricBlock('RSI', rsi.toFixed(1), rsiHint, rsiCls)}
-            ${metricBlock('close − EMA50', (emaD >= 0 ? '+' : '') + emaD.toFixed(1), emaR.label, emaR.cls)}
-            ${atrBlock}
-          </div>
-        </div>`;
-    }
-
-    function timeVolSection(raw) {
-        const h = Math.round(raw.hour_jst);
-        const session = sessionFromHour(h);
-        const dow = ['月','火','水','木','金','土','日'][Math.round(raw.dow)] || '?';
-        const vol = volRegime(raw.atr_pct_90d);
-        return `<div class="pat-tf-section">
-          <div class="pat-tf-title">時刻・ボラ環境</div>
-          <div class="pat-tf-row">
-            ${metricBlock('JST 時刻', h + '時', session, '')}
-            ${metricBlock('曜日', dow + '曜', '', 'mute')}
-            ${metricBlock('ボラ 90日分位', (raw.atr_pct_90d*100).toFixed(0) + '%', vol.label, vol.cls)}
-          </div>
-        </div>`;
-    }
-
-    const cards = clusters.map(c => {
-        const isCurrent = c.pattern_id === currentPatternId;
-        const wrPct = (c.win_rate * 100).toFixed(2);
-        const ciLo = (c.win_rate_ci95_low * 100).toFixed(1);
-        const ciHi = (c.win_rate_ci95_high * 100).toFixed(1);
-        const shapeCls = c.learned_from_shape === 'win' ? 'pos' : 'neg';
-        const shapeLbl = c.learned_from_shape === 'win' ? '勝ち型' : '負け型';
-        const heroCls = c.win_rate >= 0.50 ? 'pos' : c.win_rate <= 0.40 ? 'neg' : '';
-        const medianTxt = (c.median_net_pts >= 0 ? '+' : '') +
-            Math.round(c.median_net_pts).toLocaleString('en-US') + ' pt';
-        const archetype = clusterArchetype(c);
-
-        return `<div class="pat-modal-card${isCurrent ? ' is-current' : ''}">
-            <div class="pat-modal-card-head">
-              <div class="pat-modal-head-left">
-                <span class="pat-modal-pid">${esc(c.pattern_id)}</span>
-                <span class="dws-pat-shape ${shapeCls}">${shapeLbl}</span>
-              </div>
-              ${isCurrent ? '<span class="pat-modal-now">★ 現在マッチ</span>' : ''}
-            </div>
-            <div class="pat-modal-archetype ${archetype.cls}">
-              <span class="pat-archetype-icon">${archetype.icon}</span>
-              <span class="pat-archetype-label">${esc(archetype.label)}</span>
-            </div>
-            <div class="pat-modal-hero">
-              <span class="dws-pat-hero-val ${heroCls}">${wrPct}<span class="dws-pat-hero-unit">%</span></span>
-              <span class="pat-modal-hero-side">
-                <div>歴史的勝率</div>
-                <div class="pat-modal-hero-meta">N=${c.assigned_n.toLocaleString('en-US')}　${ciLo}–${ciHi}%　中央値 ${medianTxt}</div>
-              </span>
-            </div>
-            ${tfSection('上位 TF', 'top_',  c.centroid_raw)}
-            ${tfSection('中位 TF', 'mid_',  c.centroid_raw)}
-            ${tfSection('ベース TF', 'base_', c.centroid_raw)}
-            ${timeVolSection(c.centroid_raw)}
-        </div>`;
-    }).join('');
-    modal.innerHTML = `
-        <div class="pat-modal-panel">
-          <div class="pat-modal-bar">
-            <span class="pat-modal-title">${esc(sym)} ${esc(baseTf)} クラスタ詳細
-              <span class="pat-modal-sub">3-TF stack: ${esc(stackName)}  ・  母集団 N=${pop.n_trades.toLocaleString('en-US')}  ・  WR=${(pop.win_rate*100).toFixed(2)}%</span>
-            </span>
-            <button class="pat-modal-close" title="閉じる">×</button>
-          </div>
-          <div class="pat-modal-grid">${cards}</div>
-        </div>`;
-}
-
-// Delegate clicks on any rendered pattern card to the modal opener.
+// Delegate clicks on the "説明" disclosure toggle. Toggles class on the
+// per-symbol validation block; CSS hides/shows every .dws-vdesc inside.
+// stopPropagation is critical — the parent .panel has its own click-to-collapse
+// listener (onPanelClick), so without it the panel would fold up underneath us
+// and the user would never get to read the descriptions we just opened.
 document.addEventListener('click', (ev) => {
-    const card = ev.target.closest('.dws-pat-clickable');
-    if (!card) return;
-    const sym = card.dataset.sym;
-    const tf  = card.dataset.tf;
-    const pid = card.dataset.pid;
-    if (sym && tf) showPatternDetailModal(sym, tf, pid);
-});
+    const btn = ev.target.closest('[data-explain-toggle]');
+    if (!btn) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    const sym = btn.dataset.explainToggle;
+    const wrap = $bind('dws-validation-' + sym);
+    if (!wrap) return;
+    const open = wrap.classList.toggle('desc-open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.querySelector('.dws-vexplain-icon').textContent = open ? '▼' : '▶';
+    if (open) DWS_DESC_OPEN.add(sym); else DWS_DESC_OPEN.delete(sym);
+    _saveDwsDescOpen();
+}, true);    // capture phase — fires before panel's own bubble-phase listener
 
-/** Render the out-of-sample confidence block for the selected base TF.
- *  Data comes from the validation layer (snap.validation); it refreshes on
- *  its own 5-minute cadence so it is often older than the live histogram. */
+/** Render the deep-history OOS confidence block for the selected base TF.
+ *
+ *  PRIMARY data: the 16-year offline baseline (snap.oos_baseline), produced by
+ *  scripts/_oos_xauusd_16y.py over the FULL Dukascopy CSV history (no year
+ *  filter, no warmup skip). Includes Wilson + moving-block-bootstrap CIs and
+ *  a chronological 2-period drift z-test (Bonferroni α/3 corrected).
+ *
+ *  SECONDARY data: the live rolling ~7-month broker-fetched validation
+ *  (snap.validation), used only as a "recent regime drift" indicator
+ *  alongside the 16Y figures. */
 function updateDwsValidation(sym, snap) {
     const el = $bind('dws-validation-' + sym);
     if (!el) return;
-    const pct = x => (x == null ? '--' : Math.round(x * 100) + '%');
+    const pct = x => (x == null ? '--' : (x * 100).toFixed(2) + '%');
+    const pct0 = x => (x == null ? '--' : Math.round(x * 100) + '%');
+    const fmtN = n => (n == null ? '--' : Number(n).toLocaleString('en-US'));
+    const fmtPf = pf => (pf == null ? '∞' : Number(pf).toFixed(2));
 
-    // The 16y offline baseline is shipped statically (dashboard/serialize.py
-    // load_oos_baseline()) so it's available even before the live deep-history
-    // validation has finished its first pass — render it in both branches.
+    // ---- Primary: 16Y deep-history evaluation ----
     const base = snap.oos_baseline && snap.oos_baseline.by_symbol
               && snap.oos_baseline.by_symbol[sym]
               && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
-    const baselineHtml = base ? (
-        `<div class="dws-vbase">`
-      + `<span class="dws-vbase-label">16y参考</span>`
-      + `<span class="dws-vbase-fig">N=${base.n_trades.toLocaleString('en-US')}`
-      +   ` · PF ${esc(base.profit_factor == null ? '∞' : base.profit_factor.toFixed(2))}`
-      +   ` · 勝率 ${pct(base.win_rate)}</span>`
-      + `<span class="dws-vbase-tier ${
-            base.tier === '信頼' ? 'trusted'
-            : base.tier === '要注意' ? 'caution' : 'insufficient'}">`
-      +   `${esc(base.tier)}</span>`
-      + `</div>`
-    ) : '';
 
-    // Per-cell rolling PF history (last ~24 validation cycles, ≈ 2 h at the
-    // 5-min cadence). Used for the sparkline below the live numbers.
     const histArr = (snap.validation_history
                   && snap.validation_history[sym]
                   && snap.validation_history[sym][UI.dwsBase]) || [];
 
+    // No 16Y baseline available (CSV missing for this symbol) — fall back to
+    // empty state + secondary if any.
+    if (!base) {
+        el.className = 'dws-validation';
+        el.innerHTML = `<div class="dws-vempty">16Y 評価 — データ未取得</div>`
+                     + _buildSecondaryRolling(sym, snap, null);
+        return;
+    }
+
+    const tierCls = base.tier === '信頼' ? 'trusted'
+                  : base.tier === '要注意' ? 'caution' : 'insufficient';
+    el.className = 'dws-validation ' + tierCls;
+
+    // Period-drift verdict — STABLE / DRIFT / REGIME-CHANGE.
+    const ps = base.period_split || null;
+    const verdictHtml = _buildPeriodVerdict(ps);
+
+    const wilsonCi = `${(base.ci_low * 100).toFixed(1)}–${(base.ci_high * 100).toFixed(1)}%`;
+    const bootCi = base.bootstrap_ci
+        ? `${(base.bootstrap_ci.ci_low * 100).toFixed(1)}–${(base.bootstrap_ci.ci_high * 100).toFixed(1)}%`
+        : null;
+    const expVal = Math.round(base.expectancy);
+    const expCls = base.expectancy > 0 ? 'pos' : base.expectancy < 0 ? 'neg' : '';
+    const breakeven = base.breakeven_wr != null
+        ? `${(base.breakeven_wr * 100).toFixed(1)}%` : '--';
+
+    // cell(label, value, valueClass, description)
+    //   description is always visible — full sentence explanation below the row.
+    const cell = (k, v, vcls, desc) =>
+        `<div class="dws-vcell">`
+      + `<div class="dws-vrow">`
+      +   `<span class="dws-vk">${k}</span>`
+      +   `<span class="dws-vv ${vcls || ''}">${v}</span>`
+      + `</div>`
+      + (desc ? `<div class="dws-vdesc">${desc}</div>` : '')
+      + `</div>`;
+
+    const verdictDescHtml = ps ? `<div class="dws-vverdict-desc">
+        <b>期間ドリフト検定</b>:
+        <em>2010-2017</em> (N=${fmtN(ps.early.n)} WR ${(ps.early.win_rate*100).toFixed(2)}%)
+        vs <em>2018-2025</em> (N=${fmtN(ps.late.n)} WR ${(ps.late.win_rate*100).toFixed(2)}%) を
+        <b>2-proportion z-test</b> で比較。drift <em>${ps.drift_wr_pp>=0?'+':''}${ps.drift_wr_pp.toFixed(2)}pp</em>,
+        p=<em>${ps.p_wr_raw.toExponential(2)}</em>,
+        <b>Bonferroni α/3=0.0167</b> ${ps.p_wr_bonferroni_significant?'<span class="dws-sig">クリア (有意)</span>':'未クリア (非有意)'}。
+        Verdict <b>${ps.verdict}</b>: ${ps.verdict==='STABLE'?'両期間で統計的に差なし':
+            ps.verdict==='DRIFT'?'有意差あり、ただし <em>|drift|<5pp</em>':'有意差あり、<em>|drift|≥5pp</em> で局面変化レベル'}
+    </div>` : '';
+
+    const headerHtml =
+        `<div class="dws-vhead">`
+      + `<span class="dws-vtier">${esc(base.tier)}</span>`
+      + `<span class="dws-vlabel">16Y ディープ評価 · N=${fmtN(base.n_trades)}</span>`
+      + verdictHtml
+      + `<button type="button" class="dws-vexplain" data-explain-toggle="${esc(sym)}"`
+      +   ` aria-expanded="false" title="各項目の統計的説明を展開">`
+      +   `<span class="dws-vexplain-icon">▶</span><span class="dws-vexplain-label">説明</span>`
+      + `</button>`
+      + `</div>`
+      + `<div class="dws-vhead-desc">`
+      +   `Dukascopy CSV <em>16 年 (2010-2025)</em> の全データを <b>deterministic DWS-SMT ルール</b> で再評価した結果。`
+      +   `<b>year filter / warmup skip 一切なし</b>。<em>N</em> はシグナル発出回数。`
+      +   `Tier <b>${esc(base.tier)}</b>: ${
+            base.tier === '信頼' ? '<b>Wilson CI 下限 > Breakeven</b> かつ <b>全 3 期間の期待値 > 0</b> — 統計的に支持された継続的エッジ'
+            : base.tier === '要注意' ? 'CI 下限が Breakeven 未満、または期間ごとに不安定 — エッジ不確実'
+            : '<em>N < 30</em> — サンプル不足で評価不可'}`
+      + `</div>`
+      + verdictDescHtml;
+
+    const DESC = {
+        wr: `<em>16 年間</em> に発出した DWS-SMT シグナル <em>N=${fmtN(base.n_trades)}</em> 回のうち、`
+          + `<b>スプレッドコスト</b>を差し引いた <b>純損益 > 0</b> となった割合。母集団全体の勝率`,
+        wilson: `<b>Wilson Score 95% 信頼区間</b>。各トレードを <b>独立した Bernoulli 試行</b> と仮定した二項分布の信頼区間。`
+              + `小サンプルでも <em>[0%, 100%]</em> 外に出ない頑健な推定。母集団真の WR がこの範囲に <em>95%</em> の確率で存在`,
+        boot: `<b>Moving-Block Bootstrap</b> (<em>block=50 trades, iterations=10,000</em>) 95% 信頼区間。`
+            + `連続するトレードが同じ相場環境を共有することによる <b>自己相関を考慮</b> した CI。`
+            + `Wilson CI と概ね一致 → 自己相関の影響は軽微と確認`,
+        pf: `<b>Profit Factor</b> = 勝ちトレード総利益 ÷ 負けトレード総損失 (絶対値)。<b>> 1 で総合プラス収支</b>、`
+          + `<em>> 2</em> で十分に強いエッジとされる。スプレッドコスト込みの計算`,
+        ev: `1 トレードあたりの平均純損益 (<em>points 単位、スプレッドコスト込み</em>)。<b>期待値 × 取引回数 ≈ 累積損益</b>。`
+          + `これがプラスである限り、長期的にトレードを続ければ利益が積み上がる`,
+        be: `現状の <em>(平均勝ち額 / 平均負け額)</em> 比率で損益をゼロにするのに必要な勝率。<b>実勝率がこれを上回れば長期プラス</b>。`
+          + `現状実勝率 <em>${(base.win_rate*100).toFixed(2)}%</em> は Breakeven <em>${(base.breakeven_wr*100).toFixed(1)}%</em> を `
+          + `<b>+${((base.win_rate-base.breakeven_wr)*100).toFixed(1)}pp 上回る</b>`,
+        dd: `16 年累積損益曲線のピークから谷までの最大下落幅 (<em>points</em>)。<b>過去最悪のドローダウン</b>。`
+          + `期待値 <em>${fmtN(Math.round(base.expectancy))} pt × ${Math.ceil(base.max_drawdown / Math.max(1, base.expectancy))} 回</em> のトレードで回復計算`,
+    };
+
+    const statsHtml =
+        `<div class="dws-vstats">`
+      + cell('勝率',         pct(base.win_rate),            '',                       DESC.wr)
+      + cell('Wilson 95%CI', esc(wilsonCi),                 '',                       DESC.wilson)
+      + (bootCi ? cell('Bootstrap 95%CI', esc(bootCi),      '',                       DESC.boot) : '')
+      + cell('PF',           esc(fmtPf(base.profit_factor)), '',                      DESC.pf)
+      + cell('期待値',       `${expVal >= 0 ? '+' : ''}${fmtN(expVal)} pt`,
+             'dws-num ' + expCls,                                                     DESC.ev)
+      + cell('Breakeven WR', esc(breakeven),                '',                       DESC.be)
+      + cell('MaxDD',        `${fmtN(Math.round(base.max_drawdown))} pt`,
+             '',                                                                      DESC.dd)
+      + `</div>`;
+
+    // ---- Secondary: rolling ~7M live validation ----
+    const secondaryHtml = _buildSecondaryRolling(sym, snap, base);
+
+    // Sparkline canvas placeholder.
+    const sparkHtml = histArr.length >= 2
+        ? `<canvas class="dws-vspark" data-bind="dws-vspark-${sym}" width="160" height="22"></canvas>`
+        : '';
+
+    el.innerHTML = headerHtml + statsHtml + secondaryHtml + sparkHtml;
+
+    // Re-apply the persisted "説明" disclosure state for this symbol.
+    if (DWS_DESC_OPEN.has(sym)) {
+        el.classList.add('desc-open');
+        const btn = el.querySelector('[data-explain-toggle]');
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'true');
+            const icon = btn.querySelector('.dws-vexplain-icon');
+            if (icon) icon.textContent = '▼';
+        }
+    }
+
+    if (sparkHtml) {
+        drawValidationSparkline(sym, histArr,
+            base ? base.profit_factor : null);
+    }
+}
+
+/** Build the chronological-split verdict badge (STABLE / DRIFT / REGIME-CHANGE).
+ *  Verdict is precomputed offline in the OOS baseline JSON using a
+ *  Bonferroni-corrected 2-prop z-test on WR + Welch t-test on expectancy. */
+function _buildPeriodVerdict(ps) {
+    if (!ps) return '';
+    const v = ps.verdict;
+    const drift = ps.drift_wr_pp;
+    let cls = 'stable', label = 'STABLE', dir = '';
+    if (v === 'DRIFT') {
+        cls = 'drift';
+        label = 'DRIFT';
+        dir = drift > 0 ? ' ↑改善' : ' ↓悪化';
+    } else if (v === 'REGIME-CHANGE') {
+        cls = 'regime';
+        label = 'REGIME-CHANGE';
+        dir = drift > 0 ? ' ↑改善' : ' ↓悪化';
+    }
+    const sign = drift > 0 ? '+' : '';
+    const driftTxt = `${sign}${drift.toFixed(2)}pp`;
+    return `<span class="dws-vverdict ${cls}" `
+         + `title="2010-2017 vs 2018-2025: drift ${driftTxt}, p=${ps.p_wr_raw.toExponential(2)}, Bonferroni ${ps.p_wr_bonferroni_significant ? '有意' : '非有意'}">`
+         + `${esc(label)}${esc(dir)} · ${esc(driftTxt)}</span>`;
+}
+
+/** Build the secondary "直近 ローリング ~7M" line — N, WR, PF drift vs 16Y. */
+function _buildSecondaryRolling(sym, snap, base) {
     const v = snap.validation;
     const stats = v && v.by_symbol && v.by_symbol[sym]
                   && v.by_symbol[sym][UI.dwsBase];
     if (!stats || !stats.raw) {
-        el.className = 'dws-validation';
-        el.innerHTML = `<div class="dws-vempty">検証 — データ未取得</div>`
-                     + baselineHtml
-                     + buildPatternMatchHtml(snap, sym, UI.dwsBase);
-        return;
+        return `<div class="dws-vsecondary dws-vsec-empty">`
+             + `直近ローリング — 検証中</div>`;
     }
     const c = stats.raw;
-    const tierCls = c.tier === '信頼' ? 'trusted'
-                  : c.tier === '要注意' ? 'caution' : 'insufficient';
-    el.className = 'dws-validation ' + tierCls;
-
     const pf = c.profit_factor == null ? '∞' : c.profit_factor.toFixed(2);
-    const exp = c.expectancy == null ? null : Math.round(c.expectancy);
-    const expCls = c.expectancy > 0 ? 'pos' : c.expectancy < 0 ? 'neg' : '';
-    const expTxt = exp == null ? '--' : `${exp >= 0 ? '+' : ''}${exp}pt`;
-    const ci = (c.ci_low == null || c.ci_high == null) ? '--'
-             : `${Math.round(c.ci_low * 100)}–${Math.round(c.ci_high * 100)}%`;
+    const wrTxt = c.win_rate == null ? '--' : Math.round(c.win_rate * 100) + '%';
     const thirds = (c.thirds || [])
         .map(t => (t.expectancy > 0 ? '✓' : '✗')).join('') || '--';
 
-    // Drift indicator: how far live PF has drifted from the 16y baseline PF.
-    // ±20% is the alarm threshold — outside that, the live signal regime
-    // looks meaningfully different from the long-term baseline (could be a
-    // favourable streak or a strategy-decay warning).
-    let pfDriftHtml = '';
+    // PF drift vs the 16Y baseline. ±20% is alarm.
+    let driftHtml = '';
     if (base && base.profit_factor && c.profit_factor != null
         && c.profit_factor !== Infinity && base.profit_factor > 0) {
         const drift = (c.profit_factor - base.profit_factor) / base.profit_factor;
@@ -1852,47 +1689,24 @@ function updateDwsValidation(sym, snap) {
             ? (drift > 0 ? 'pos warn' : 'neg warn')
             : (drift > 0 ? 'pos' : drift < 0 ? 'neg' : '');
         const arrow = drift > 0 ? '↑' : drift < 0 ? '↓' : '·';
-        pfDriftHtml = ` <span class="dws-pf-drift ${driftCls}">`
-                    + `${arrow}${driftPct > 0 ? '+' : ''}${driftPct}%</span>`;
+        driftHtml = ` <span class="dws-pf-drift ${driftCls}">`
+                  + `${arrow}${driftPct > 0 ? '+' : ''}${driftPct}% vs 16Y</span>`;
     }
-
-    // Each metric is its own label/value cell — .dws-vstats stacks them one
-    // per row with a roomy gap so the figures never run together.
-    const cell = (k, v, vcls) =>
-        `<div class="dws-vcell"><span class="dws-vk">${k}</span>`
-      + `<span class="dws-vv ${vcls || ''}">${v}</span></div>`;
-
-    // Sparkline canvas placeholder — we draw into it after the
-    // innerHTML write so the canvas exists in the DOM.
-    const sparkHtml = histArr.length >= 2
-        ? `<canvas class="dws-vspark" data-bind="dws-vspark-${sym}" width="160" height="22"></canvas>`
-        : '';
-
-    // Pattern-similarity block — built from the offline-extracted centroid
-    // table. Reliability tiers (高/中/低) come from walk-forward analysis:
-    // M15 patterns held in train/test split, H1 mixed, H4 too small.
-    const patHtml = buildPatternMatchHtml(snap, sym, UI.dwsBase);
-
-    el.innerHTML =
-        `<div class="dws-vhead">`
-      + `<span class="dws-vtier">${esc(c.tier)}</span>`
-      + `<span class="dws-vlabel">OOS検証 · N=${c.n_trades}</span>`
-      + `</div>`
-      + `<div class="dws-vstats">`
-      + cell('勝率', pct(c.win_rate))
-      + cell('95%CI', esc(ci))
-      + cell('PF', esc(pf) + pfDriftHtml)
-      + cell('期待値', esc(expTxt), 'dws-num ' + expCls)
-      + cell('安定性', esc(thirds))
-      + `</div>`
-      + baselineHtml
-      + patHtml
-      + sparkHtml;
-
-    if (sparkHtml) {
-        drawValidationSparkline(sym, histArr,
-            base ? base.profit_factor : null);
-    }
+    return `<div class="dws-vsecondary">`
+         + `<div class="dws-vsec-row">`
+         +   `<span class="dws-vsec-label">直近ローリング (~7M)</span>`
+         +   `<span class="dws-vsec-fig">N=${c.n_trades}`
+         +     ` · 勝率 ${esc(wrTxt)} · PF ${esc(pf)}${driftHtml}`
+         +     ` · 安定性 ${esc(thirds)}</span>`
+         + `</div>`
+         + `<div class="dws-vsec-desc">`
+         +   `直近 <em>~7 ヶ月 (M15 で 20,000 バー)</em> を broker から fetch して同じルールで再評価。`
+         +   `<b>16Y baseline からのドリフト確認用</b>。`
+         +   `PF 比較で <em>+20% 以上</em> の乖離は要警戒。`
+         +   `安定性 <b>${esc(thirds)}</b> = 直近期間を時系列で <em>3 等分</em> し、各期間の期待値の符号 `
+         +   `(✓ = プラス、✗ = マイナス)`
+         + `</div>`
+         + `</div>`;
 }
 
 /** Draw a tiny PF-vs-time sparkline into the validation block's canvas.

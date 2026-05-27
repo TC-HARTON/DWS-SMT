@@ -4,8 +4,8 @@
   "generated_at_iso": "2026-05-27T11:53:13Z",
   "source": "Dukascopy CSV W1/D1/H4/H1/M15, full history (W1: 2009-12-28 onwards, others: 2010-01-01 onwards), through 2025-12-31. NO year filter. NO warmup skip.",
   "compute_method": "production dws_smt.compute_symbol + signal_validator.evaluate_trades",
-  "year_filter": "NONE",
-  "warmup_skip": "NONE",
+  "spread_source": "Dukascopy bid-ask close (per-bar)",
+  "swap_costs_applied": false,
   "bonferroni_alpha": 0.016666666666666666,
   "bonferroni_k": 3,
   "bootstrap": {
@@ -18,76 +18,32 @@
   "by_symbol": {
     "XAUUSD": {
       "M15": {
-        "n_trades": 12194,
-        "win_rate": 0.38978185993111364,
-        "ci_low": 0.3811614851276686,
-        "ci_high": 0.39847165914926636,
-        "profit_factor": 2.0010446023541815,
-        "expectancy": 1466.530670821715,
-        "max_drawdown": 100492.0,
-        "tier": "信頼",
-        "wins": 4753,
-        "losses": 7441,
-        "breakeven_wr": 0.2419719470136105,
-        "avg_mae": 2930.6280137772665,
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 12194,
+          "wins": 4753,
+          "losses": 7441,
+          "win_rate": 0.38978185993111364,
+          "ci_low_wilson": 0.3811614851276686,
+          "ci_high_wilson": 0.39847165914926636,
+          "breakeven_wr": 0.2419719470136105,
+          "profit_factor": 2.0010446023541815,
+          "expectancy": 1466.530670821715,
+          "max_drawdown": 100492.0,
+          "avg_mae": 2930.6280137772665,
+          "tier": "信頼",
+          "third_expectancy": [
+            1214.1719980314954,
+            901.2629766297665,
+            2284.0949569495683
+          ]
+        },
         "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
           "ci_low": 0.3818250779071674,
           "ci_high": 0.3976545842217484,
           "std_err": 0.004089434397432576,
-          "method": "moving-block, B=50, iters=10000"
-        },
-        "period_split": {
-          "split_year": 2018,
-          "early": {
-            "period": "2010-2017",
-            "n": 6143,
-            "wins": 2318,
-            "losses": 3825,
-            "win_rate": 0.3773400618590265,
-            "ci_low_wilson": 0.3652987285458817,
-            "ci_high_wilson": 0.38953471307070403,
-            "breakeven_wr": 0.24308796019381115,
-            "profit_factor": 1.8869654837362806,
-            "expectancy": 1116.279342340875,
-            "max_drawdown": 59402.0,
-            "avg_mae": 2415.421292528081,
-            "tier": "信頼",
-            "third_expectancy": [
-              1188.9223253541795,
-              1231.4389648437461,
-              928.5122070312491
-            ]
-          },
-          "late": {
-            "period": "2018-2025",
-            "n": 6051,
-            "wins": 2435,
-            "losses": 3616,
-            "win_rate": 0.4024128243265576,
-            "ci_low_wilson": 0.3901224730884146,
-            "ci_high_wilson": 0.4148270073406027,
-            "breakeven_wr": 0.243853333650249,
-            "profit_factor": 2.0880836291813556,
-            "expectancy": 1822.1072549991734,
-            "max_drawdown": 100492.0,
-            "avg_mae": 3453.6679887621863,
-            "tier": "信頼",
-            "third_expectancy": [
-              960.1184928111072,
-              1652.0585027268212,
-              2854.1447694595918
-            ]
-          },
-          "drift_wr_pp": 2.5072762467531096,
-          "drift_expectancy_pts": 705.8279126582984,
-          "z_wr": -2.838438941056123,
-          "p_wr_raw": 0.004533479207315061,
-          "p_wr_bonferroni_significant": true,
-          "t_expectancy": -4.359443199523115,
-          "p_expectancy_raw": 1.303937922925158e-05,
-          "p_expectancy_bonferroni_significant": true,
-          "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "DRIFT"
+          "wilson_vs_bootstrap_widen_pp": -0.14806677070167695
         },
         "year_breakdown": [
           {
@@ -410,79 +366,88 @@
               6708.952191235075
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2701,
-        "win_rate": 0.44279896334690855,
-        "ci_low": 0.42416052079860284,
-        "ci_high": 0.4615998875003527,
-        "profit_factor": 2.8028828150811895,
-        "expectancy": 4725.454646427252,
-        "max_drawdown": 85830.0,
-        "tier": "信頼",
-        "wins": 1196,
-        "losses": 1505,
-        "breakeven_wr": 0.22089493846834338,
-        "avg_mae": 6135.1188448722705,
-        "bootstrap_ci": {
-          "ci_low": 0.4246575342465753,
-          "ci_high": 0.4587189929655683,
-          "std_err": 0.008669562675620447,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1333,
-            "wins": 601,
-            "losses": 732,
-            "win_rate": 0.4508627156789197,
-            "ci_low_wilson": 0.424330123560586,
-            "ci_high_wilson": 0.4776777134187539,
-            "breakeven_wr": 0.2242373792507453,
-            "profit_factor": 2.8404309207651863,
-            "expectancy": 3965.777944486125,
-            "max_drawdown": 56675.0,
-            "avg_mae": 5296.6714178544635,
+            "n": 6143,
+            "wins": 2318,
+            "losses": 3825,
+            "win_rate": 0.3773400618590265,
+            "ci_low_wilson": 0.3652987285458817,
+            "ci_high_wilson": 0.38953471307070403,
+            "breakeven_wr": 0.24308796019381115,
+            "profit_factor": 1.8869654837362806,
+            "expectancy": 1116.279342340875,
+            "max_drawdown": 59402.0,
+            "avg_mae": 2415.421292528081,
             "tier": "信頼",
             "third_expectancy": [
-              4531.013513513516,
-              4382.22247191012,
-              2983.15990990991
+              1188.9223253541795,
+              1231.4389648437461,
+              928.5122070312491
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1368,
-            "wins": 595,
-            "losses": 773,
-            "win_rate": 0.43494152046783624,
-            "ci_low_wilson": 0.40888896963627247,
-            "ci_high_wilson": 0.4613584408519355,
-            "breakeven_wr": 0.21700976506008984,
-            "profit_factor": 2.7772472206560894,
-            "expectancy": 5465.695175438597,
-            "max_drawdown": 85830.0,
-            "avg_mae": 6952.114766081872,
+            "n": 6051,
+            "wins": 2435,
+            "losses": 3616,
+            "win_rate": 0.4024128243265576,
+            "ci_low_wilson": 0.3901224730884146,
+            "ci_high_wilson": 0.4148270073406027,
+            "breakeven_wr": 0.243853333650249,
+            "profit_factor": 2.0880836291813556,
+            "expectancy": 1822.1072549991734,
+            "max_drawdown": 100492.0,
+            "avg_mae": 3453.6679887621863,
             "tier": "信頼",
             "third_expectancy": [
-              3573.0570175438634,
-              3754.322368421054,
-              9069.706140350876
+              960.1184928111072,
+              1652.0585027268212,
+              2854.1447694595918
             ]
           },
-          "drift_wr_pp": -1.5921195211083483,
-          "drift_expectancy_pts": 1499.9172309524724,
-          "z_wr": 0.8328412800880505,
-          "p_wr_raw": 0.40493425010979434,
-          "p_wr_bonferroni_significant": false,
-          "t_expectancy": -2.1135050175231336,
-          "p_expectancy_raw": 0.03455756601332971,
-          "p_expectancy_bonferroni_significant": false,
+          "drift_wr_pp": 2.5072762467531096,
+          "drift_expectancy_pts": 705.8279126582984,
+          "z_wr": -2.838438941056123,
+          "p_wr_raw": 0.004533479207315061,
+          "p_wr_bonferroni_significant": true,
+          "t_expectancy": -4.359443199523115,
+          "p_expectancy_raw": 1.303937922925158e-05,
+          "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "STABLE"
+          "verdict": "DRIFT"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2701,
+          "wins": 1196,
+          "losses": 1505,
+          "win_rate": 0.44279896334690855,
+          "ci_low_wilson": 0.42416052079860284,
+          "ci_high_wilson": 0.4615998875003527,
+          "breakeven_wr": 0.22089493846834338,
+          "profit_factor": 2.8028828150811895,
+          "expectancy": 4725.454646427252,
+          "max_drawdown": 85830.0,
+          "avg_mae": 6135.1188448722705,
+          "tier": "信頼",
+          "third_expectancy": [
+            4438.7388888888945,
+            3189.379578246395,
+            6549.952222222221
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4246575342465753,
+          "ci_high": 0.4587189929655683,
+          "std_err": 0.008669562675620447,
+          "wilson_vs_bootstrap_widen_pp": -0.33779079827568914
         },
         "year_breakdown": [
           {
@@ -805,79 +770,88 @@
               23823.19230769226
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 668,
-        "win_rate": 0.48502994011976047,
-        "ci_low": 0.44732361505671553,
-        "ci_high": 0.5229074632212596,
-        "profit_factor": 3.1791204215930384,
-        "expectancy": 10428.549401197612,
-        "max_drawdown": 115418.0,
-        "tier": "信頼",
-        "wins": 324,
-        "losses": 344,
-        "breakeven_wr": 0.22855249539106037,
-        "avg_mae": 11500.925149700593,
-        "bootstrap_ci": {
-          "ci_low": 0.44610778443113774,
-          "ci_high": 0.5164670658682635,
-          "std_err": 0.017816831659202434,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 343,
-            "wins": 157,
-            "losses": 186,
-            "win_rate": 0.4577259475218659,
-            "ci_low_wilson": 0.4057593294355453,
-            "ci_high_wilson": 0.5106290161377652,
-            "breakeven_wr": 0.24119306257330175,
-            "profit_factor": 2.655542087610936,
-            "expectancy": 7553.871720116627,
-            "max_drawdown": 98558.99999999977,
-            "avg_mae": 10780.839650145766,
+            "n": 1333,
+            "wins": 601,
+            "losses": 732,
+            "win_rate": 0.4508627156789197,
+            "ci_low_wilson": 0.424330123560586,
+            "ci_high_wilson": 0.4776777134187539,
+            "breakeven_wr": 0.2242373792507453,
+            "profit_factor": 2.8404309207651863,
+            "expectancy": 3965.777944486125,
+            "max_drawdown": 56675.0,
+            "avg_mae": 5296.6714178544635,
             "tier": "信頼",
             "third_expectancy": [
-              9374.096491228083,
-              6944.113043478266,
-              6348.754385964922
+              4531.013513513516,
+              4382.22247191012,
+              2983.15990990991
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 325,
-            "wins": 167,
-            "losses": 158,
-            "win_rate": 0.5138461538461538,
-            "ci_low_wilson": 0.45966272327032787,
-            "ci_high_wilson": 0.5677060767841664,
-            "breakeven_wr": 0.22307060593986516,
-            "profit_factor": 3.6812777838379116,
-            "expectancy": 13462.440000000006,
-            "max_drawdown": 115417.99999999953,
-            "avg_mae": 12260.892307692304,
+            "n": 1368,
+            "wins": 595,
+            "losses": 773,
+            "win_rate": 0.43494152046783624,
+            "ci_low_wilson": 0.40888896963627247,
+            "ci_high_wilson": 0.4613584408519355,
+            "breakeven_wr": 0.21700976506008984,
+            "profit_factor": 2.7772472206560894,
+            "expectancy": 5465.695175438597,
+            "max_drawdown": 85830.0,
+            "avg_mae": 6952.114766081872,
             "tier": "信頼",
             "third_expectancy": [
-              6810.9629629629735,
-              10713.412844036702,
-              22888.39814814815
+              3573.0570175438634,
+              3754.322368421054,
+              9069.706140350876
             ]
           },
-          "drift_wr_pp": 5.612020632428793,
-          "drift_expectancy_pts": 5908.568279883379,
-          "z_wr": -1.4505894160484494,
-          "p_wr_raw": 0.1468942242194271,
+          "drift_wr_pp": -1.5921195211083483,
+          "drift_expectancy_pts": 1499.9172309524724,
+          "z_wr": 0.8328412800880505,
+          "p_wr_raw": 0.40493425010979434,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": -2.1473566975199225,
-          "p_expectancy_raw": 0.03176489523757908,
+          "t_expectancy": -2.1135050175231336,
+          "p_expectancy_raw": 0.03455756601332971,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 668,
+          "wins": 324,
+          "losses": 344,
+          "win_rate": 0.48502994011976047,
+          "ci_low_wilson": 0.44732361505671553,
+          "ci_high_wilson": 0.5229074632212596,
+          "breakeven_wr": 0.22855249539106037,
+          "profit_factor": 3.1791204215930384,
+          "expectancy": 10428.549401197612,
+          "max_drawdown": 115418.0,
+          "avg_mae": 11500.925149700593,
+          "tier": "信頼",
+          "third_expectancy": [
+            8008.540540540549,
+            6758.67264573992,
+            16507.58295964126
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.44610778443113774,
+          "ci_high": 0.5164670658682635,
+          "std_err": 0.017816831659202434,
+          "wilson_vs_bootstrap_widen_pp": -0.5224566727418276
         },
         "year_breakdown": [
           {
@@ -1200,81 +1174,90 @@
               76907.36363636365
             ]
           }
-        ]
-      }
-    },
-    "EURUSD": {
-      "M15": {
-        "n_trades": 12693,
-        "win_rate": 0.4210194595446309,
-        "ci_low": 0.4124553376893074,
-        "ci_high": 0.42963137464708956,
-        "profit_factor": 2.260890183907902,
-        "expectancy": 63.88867879933817,
-        "max_drawdown": 2438.0,
-        "tier": "信頼",
-        "wins": 5344,
-        "losses": 7349,
-        "breakeven_wr": 0.24335950553209382,
-        "avg_mae": 116.28330575907988,
-        "bootstrap_ci": {
-          "ci_low": 0.4125896163239581,
-          "ci_high": 0.42992200425431343,
-          "std_err": 0.004401396980846178,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6370,
-            "wins": 2636,
-            "losses": 3734,
-            "win_rate": 0.41381475667189954,
-            "ci_low_wilson": 0.4017752102235065,
-            "ci_high_wilson": 0.42595819312934746,
-            "breakeven_wr": 0.2379020844400605,
-            "profit_factor": 2.261432445533267,
-            "expectancy": 75.57802197802191,
-            "max_drawdown": 2438.0,
-            "avg_mae": 136.8026687598116,
+            "n": 343,
+            "wins": 157,
+            "losses": 186,
+            "win_rate": 0.4577259475218659,
+            "ci_low_wilson": 0.4057593294355453,
+            "ci_high_wilson": 0.5106290161377652,
+            "breakeven_wr": 0.24119306257330175,
+            "profit_factor": 2.655542087610936,
+            "expectancy": 7553.871720116627,
+            "max_drawdown": 98558.99999999977,
+            "avg_mae": 10780.839650145766,
             "tier": "信頼",
             "third_expectancy": [
-              103.08007536504923,
-              60.48917137476487,
-              63.17192651907653
+              9374.096491228083,
+              6944.113043478266,
+              6348.754385964922
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6323,
-            "wins": 2708,
-            "losses": 3615,
-            "win_rate": 0.4282777162739206,
-            "ci_low_wilson": 0.4161279822190703,
-            "ci_high_wilson": 0.4405145485501527,
-            "breakeven_wr": 0.24893694026930235,
-            "profit_factor": 2.2600987406928694,
-            "expectancy": 52.112446623438224,
-            "max_drawdown": 1582.0,
-            "avg_mae": 95.61141863039711,
+            "n": 325,
+            "wins": 167,
+            "losses": 158,
+            "win_rate": 0.5138461538461538,
+            "ci_low_wilson": 0.45966272327032787,
+            "ci_high_wilson": 0.5677060767841664,
+            "breakeven_wr": 0.22307060593986516,
+            "profit_factor": 3.6812777838379116,
+            "expectancy": 13462.440000000006,
+            "max_drawdown": 115417.99999999953,
+            "avg_mae": 12260.892307692304,
             "tier": "信頼",
             "third_expectancy": [
-              50.817750355956456,
-              56.62239089184053,
-              48.896584440227606
+              6810.9629629629735,
+              10713.412844036702,
+              22888.39814814815
             ]
           },
-          "drift_wr_pp": 1.4462959602021042,
-          "drift_expectancy_pts": -23.465575354583684,
-          "z_wr": -1.6501494227330529,
-          "p_wr_raw": 0.0989123784254724,
+          "drift_wr_pp": 5.612020632428793,
+          "drift_expectancy_pts": 5908.568279883379,
+          "z_wr": -1.4505894160484494,
+          "p_wr_raw": 0.1468942242194271,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 4.54301102992916,
-          "p_expectancy_raw": 5.545634861769955e-06,
-          "p_expectancy_bonferroni_significant": true,
+          "t_expectancy": -2.1473566975199225,
+          "p_expectancy_raw": 0.03176489523757908,
+          "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "DRIFT"
+          "verdict": "STABLE"
+        }
+      }
+    },
+    "EURUSD": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 12693,
+          "wins": 5344,
+          "losses": 7349,
+          "win_rate": 0.4210194595446309,
+          "ci_low_wilson": 0.4124553376893074,
+          "ci_high_wilson": 0.42963137464708956,
+          "breakeven_wr": 0.24335950553209382,
+          "profit_factor": 2.260890183907902,
+          "expectancy": 63.88867879933817,
+          "max_drawdown": 2438.0,
+          "avg_mae": 116.28330575907988,
+          "tier": "信頼",
+          "third_expectancy": [
+            81.78775703143467,
+            57.20680690144168,
+            52.67147246513818
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4125896163239581,
+          "ci_high": 0.42992200425431343,
+          "std_err": 0.004401396980846178,
+          "wilson_vs_bootstrap_widen_pp": 0.015635097257321595
         },
         "year_breakdown": [
           {
@@ -1597,79 +1580,88 @@
               39.8893129770992
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2831,
-        "win_rate": 0.4563758389261745,
-        "ci_low": 0.4380989545188676,
-        "ci_high": 0.47477095680175085,
-        "profit_factor": 2.5530206041551544,
-        "expectancy": 159.8272695160721,
-        "max_drawdown": 4287.999999999971,
-        "tier": "信頼",
-        "wins": 1292,
-        "losses": 1539,
-        "breakeven_wr": 0.2474574934919747,
-        "avg_mae": 258.1140939597316,
-        "bootstrap_ci": {
-          "ci_low": 0.4390674673260332,
-          "ci_high": 0.47545037089367714,
-          "std_err": 0.009310575784992661,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1406,
-            "wins": 625,
-            "losses": 781,
-            "win_rate": 0.4445234708392603,
-            "ci_low_wilson": 0.41873532154495124,
-            "ci_high_wilson": 0.4706139500327919,
-            "breakeven_wr": 0.24224638447109478,
-            "profit_factor": 2.5032239006072863,
-            "expectancy": 188.20128022759602,
-            "max_drawdown": 4287.999999999971,
-            "avg_mae": 304.4445234708396,
+            "n": 6370,
+            "wins": 2636,
+            "losses": 3734,
+            "win_rate": 0.41381475667189954,
+            "ci_low_wilson": 0.4017752102235065,
+            "ci_high_wilson": 0.42595819312934746,
+            "breakeven_wr": 0.2379020844400605,
+            "profit_factor": 2.261432445533267,
+            "expectancy": 75.57802197802191,
+            "max_drawdown": 2438.0,
+            "avg_mae": 136.8026687598116,
             "tier": "信頼",
             "third_expectancy": [
-              235.62179487179446,
-              132.42004264392307,
-              196.66311300639717
+              103.08007536504923,
+              60.48917137476487,
+              63.17192651907653
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1425,
-            "wins": 667,
-            "losses": 758,
-            "win_rate": 0.46807017543859647,
-            "ci_low_wilson": 0.4422828861517405,
-            "ci_high_wilson": 0.4940291585143721,
-            "breakeven_wr": 0.250770126373493,
-            "profit_factor": 2.629032258064517,
-            "expectancy": 131.83157894736848,
-            "max_drawdown": 3522.0,
-            "avg_mae": 212.4014035087717,
+            "n": 6323,
+            "wins": 2708,
+            "losses": 3615,
+            "win_rate": 0.4282777162739206,
+            "ci_low_wilson": 0.4161279822190703,
+            "ci_high_wilson": 0.4405145485501527,
+            "breakeven_wr": 0.24893694026930235,
+            "profit_factor": 2.2600987406928694,
+            "expectancy": 52.112446623438224,
+            "max_drawdown": 1582.0,
+            "avg_mae": 95.61141863039711,
             "tier": "信頼",
             "third_expectancy": [
-              140.32631578947388,
-              139.34736842105235,
-              115.82105263157924
+              50.817750355956456,
+              56.62239089184053,
+              48.896584440227606
             ]
           },
-          "drift_wr_pp": 2.3546704599336166,
-          "drift_expectancy_pts": -56.36970128022753,
-          "z_wr": -1.2576204649785776,
-          "p_wr_raw": 0.20852904854924947,
+          "drift_wr_pp": 1.4462959602021042,
+          "drift_expectancy_pts": -23.465575354583684,
+          "z_wr": -1.6501494227330529,
+          "p_wr_raw": 0.0989123784254724,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 2.5714455280353556,
-          "p_expectancy_raw": 0.010127494598349385,
+          "t_expectancy": 4.54301102992916,
+          "p_expectancy_raw": 5.545634861769955e-06,
           "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "DRIFT"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2831,
+          "wins": 1292,
+          "losses": 1539,
+          "win_rate": 0.4563758389261745,
+          "ci_low_wilson": 0.4380989545188676,
+          "ci_high_wilson": 0.47477095680175085,
+          "breakeven_wr": 0.2474574934919747,
+          "profit_factor": 2.5530206041551544,
+          "expectancy": 159.8272695160721,
+          "max_drawdown": 4287.999999999971,
+          "avg_mae": 258.1140939597316,
+          "tier": "信頼",
+          "third_expectancy": [
+            189.00742311770912,
+            162.22987288135633,
+            128.27542372881356
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4390674673260332,
+          "ci_high": 0.47545037089367714,
+          "std_err": 0.009310575784992661,
+          "wilson_vs_bootstrap_widen_pp": -0.028909871523929986
         },
         "year_breakdown": [
           {
@@ -1992,79 +1984,88 @@
               71.13793103448273
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 715,
-        "win_rate": 0.4699300699300699,
-        "ci_low": 0.43360471526908007,
-        "ci_high": 0.5065768212474486,
-        "profit_factor": 2.597456832157868,
-        "expectancy": 321.5356643356642,
-        "max_drawdown": 4584.000000000015,
-        "tier": "信頼",
-        "wins": 336,
-        "losses": 379,
-        "breakeven_wr": 0.25446137831078536,
-        "avg_mae": 504.24895104895074,
-        "bootstrap_ci": {
-          "ci_low": 0.42937062937062936,
-          "ci_high": 0.509090909090909,
-          "std_err": 0.02053701292636238,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 365,
-            "wins": 173,
-            "losses": 192,
-            "win_rate": 0.473972602739726,
-            "ci_low_wilson": 0.4232844313009866,
-            "ci_high_wilson": 0.5252029410561444,
-            "breakeven_wr": 0.2579832685754989,
-            "profit_factor": 2.591594393190744,
-            "expectancy": 378.5945205479452,
-            "max_drawdown": 4584.000000000015,
-            "avg_mae": 604.9123287671226,
+            "n": 1406,
+            "wins": 625,
+            "losses": 781,
+            "win_rate": 0.4445234708392603,
+            "ci_low_wilson": 0.41873532154495124,
+            "ci_high_wilson": 0.4706139500327919,
+            "breakeven_wr": 0.24224638447109478,
+            "profit_factor": 2.5032239006072863,
+            "expectancy": 188.20128022759602,
+            "max_drawdown": 4287.999999999971,
+            "avg_mae": 304.4445234708396,
             "tier": "信頼",
             "third_expectancy": [
-              602.9421487603307,
-              234.4016393442627,
-              300.2786885245898
+              235.62179487179446,
+              132.42004264392307,
+              196.66311300639717
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 350,
-            "wins": 163,
-            "losses": 187,
-            "win_rate": 0.4657142857142857,
-            "ci_low_wilson": 0.4141097456281419,
-            "ci_high_wilson": 0.5180632945118528,
-            "breakeven_wr": 0.2506182444504912,
-            "profit_factor": 2.606372171232391,
-            "expectancy": 262.0314285714283,
-            "max_drawdown": 2822.0000000000146,
-            "avg_mae": 399.27142857142866,
+            "n": 1425,
+            "wins": 667,
+            "losses": 758,
+            "win_rate": 0.46807017543859647,
+            "ci_low_wilson": 0.4422828861517405,
+            "ci_high_wilson": 0.4940291585143721,
+            "breakeven_wr": 0.250770126373493,
+            "profit_factor": 2.629032258064517,
+            "expectancy": 131.83157894736848,
+            "max_drawdown": 3522.0,
+            "avg_mae": 212.4014035087717,
             "tier": "信頼",
             "third_expectancy": [
-              406.8275862068968,
-              177.9999999999993,
-              202.5042735042732
+              140.32631578947388,
+              139.34736842105235,
+              115.82105263157924
             ]
           },
-          "drift_wr_pp": -0.8258317025440332,
-          "drift_expectancy_pts": -116.56309197651689,
-          "z_wr": 0.22117487090330204,
-          "p_wr_raw": 0.8249562748625963,
+          "drift_wr_pp": 2.3546704599336166,
+          "drift_expectancy_pts": -56.36970128022753,
+          "z_wr": -1.2576204649785776,
+          "p_wr_raw": 0.20852904854924947,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.3474929975803367,
-          "p_expectancy_raw": 0.17782150717192446,
-          "p_expectancy_bonferroni_significant": false,
+          "t_expectancy": 2.5714455280353556,
+          "p_expectancy_raw": 0.010127494598349385,
+          "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "STABLE"
+          "verdict": "DRIFT"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 715,
+          "wins": 336,
+          "losses": 379,
+          "win_rate": 0.4699300699300699,
+          "ci_low_wilson": 0.43360471526908007,
+          "ci_high_wilson": 0.5065768212474486,
+          "breakeven_wr": 0.25446137831078536,
+          "profit_factor": 2.597456832157868,
+          "expectancy": 321.5356643356642,
+          "max_drawdown": 4584.000000000015,
+          "avg_mae": 504.24895104895074,
+          "tier": "信頼",
+          "third_expectancy": [
+            393.0588235294121,
+            379.8744769874474,
+            191.42857142857108
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.42937062937062936,
+          "ci_high": 0.509090909090909,
+          "std_err": 0.02053701292636238,
+          "wilson_vs_bootstrap_widen_pp": 0.674817374191111
         },
         "year_breakdown": [
           {
@@ -2387,81 +2388,90 @@
               151.53333333333592
             ]
           }
-        ]
-      }
-    },
-    "GBPUSD": {
-      "M15": {
-        "n_trades": 13142,
-        "win_rate": 0.39917820727438746,
-        "ci_low": 0.3908358324022437,
-        "ci_high": 0.407579508308997,
-        "profit_factor": 1.9667645970413288,
-        "expectancy": 65.20210013696546,
-        "max_drawdown": 3099.0,
-        "tier": "信頼",
-        "wins": 5246,
-        "losses": 7896,
-        "breakeven_wr": 0.25250807449656076,
-        "avg_mae": 141.01628367067417,
-        "bootstrap_ci": {
-          "ci_low": 0.3914929234515295,
-          "ci_high": 0.40701567493532187,
-          "std_err": 0.003989453294998047,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6573,
-            "wins": 2578,
-            "losses": 3995,
-            "win_rate": 0.39221055834474366,
-            "ci_low_wilson": 0.38047330811136376,
-            "ci_high_wilson": 0.40407373039417055,
-            "breakeven_wr": 0.2503835614375913,
-            "profit_factor": 1.9319657307028517,
-            "expectancy": 68.59866118971554,
-            "max_drawdown": 3099.0,
-            "avg_mae": 152.1738931994522,
+            "n": 365,
+            "wins": 173,
+            "losses": 192,
+            "win_rate": 0.473972602739726,
+            "ci_low_wilson": 0.4232844313009866,
+            "ci_high_wilson": 0.5252029410561444,
+            "breakeven_wr": 0.2579832685754989,
+            "profit_factor": 2.591594393190744,
+            "expectancy": 378.5945205479452,
+            "max_drawdown": 4584.000000000015,
+            "avg_mae": 604.9123287671226,
             "tier": "信頼",
             "third_expectancy": [
-              71.46371519853926,
-              56.29073482428136,
-              78.04153354632601
+              602.9421487603307,
+              234.4016393442627,
+              300.2786885245898
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6569,
-            "wins": 2668,
-            "losses": 3901,
-            "win_rate": 0.4061500989496118,
-            "ci_low_wilson": 0.39433180661680933,
-            "ci_high_wilson": 0.4180780953653105,
-            "breakeven_wr": 0.2540102713277496,
-            "profit_factor": 2.008590685391609,
-            "expectancy": 61.803470847922014,
-            "max_drawdown": 2759.0,
-            "avg_mae": 129.85188004262457,
+            "n": 350,
+            "wins": 163,
+            "losses": 187,
+            "win_rate": 0.4657142857142857,
+            "ci_low_wilson": 0.4141097456281419,
+            "ci_high_wilson": 0.5180632945118528,
+            "breakeven_wr": 0.2506182444504912,
+            "profit_factor": 2.606372171232391,
+            "expectancy": 262.0314285714283,
+            "max_drawdown": 2822.0000000000146,
+            "avg_mae": 399.27142857142866,
             "tier": "信頼",
             "third_expectancy": [
-              69.2462311557789,
-              63.90684931506843,
-              52.260730593607214
+              406.8275862068968,
+              177.9999999999993,
+              202.5042735042732
             ]
           },
-          "drift_wr_pp": 1.3939540604868128,
-          "drift_expectancy_pts": -6.795190341793528,
-          "z_wr": -1.6315219717515828,
-          "p_wr_raw": 0.10278022755907767,
+          "drift_wr_pp": -0.8258317025440332,
+          "drift_expectancy_pts": -116.56309197651689,
+          "z_wr": 0.22117487090330204,
+          "p_wr_raw": 0.8249562748625963,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.1184683784435085,
-          "p_expectancy_raw": 0.2633670045577703,
+          "t_expectancy": 1.3474929975803367,
+          "p_expectancy_raw": 0.17782150717192446,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      }
+    },
+    "GBPUSD": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 13142,
+          "wins": 5246,
+          "losses": 7896,
+          "win_rate": 0.39917820727438746,
+          "ci_low_wilson": 0.3908358324022437,
+          "ci_high_wilson": 0.407579508308997,
+          "breakeven_wr": 0.25250807449656076,
+          "profit_factor": 1.9667645970413288,
+          "expectancy": 65.20210013696546,
+          "max_drawdown": 3099.0,
+          "avg_mae": 141.01628367067417,
+          "tier": "信頼",
+          "third_expectancy": [
+            63.904566210045665,
+            73.44647340789783,
+            58.254964619949696
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.3914929234515295,
+          "ci_high": 0.40701567493532187,
+          "std_err": 0.003989453294998047,
+          "wilson_vs_bootstrap_widen_pp": -0.12209244229609006
         },
         "year_breakdown": [
           {
@@ -2784,79 +2794,88 @@
               35.7601476014758
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2806,
-        "win_rate": 0.44796863863150393,
-        "ci_low": 0.42965221644236257,
-        "ci_high": 0.46642733480351556,
-        "profit_factor": 2.499972039859976,
-        "expectancy": 191.1860299358517,
-        "max_drawdown": 4919.99999999996,
-        "tier": "信頼",
-        "wins": 1257,
-        "losses": 1549,
-        "breakeven_wr": 0.24505519317737995,
-        "avg_mae": 311.2872416250893,
-        "bootstrap_ci": {
-          "ci_low": 0.43264433357091947,
-          "ci_high": 0.46650035637918746,
-          "std_err": 0.00865043864004954,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1383,
-            "wins": 625,
-            "losses": 758,
-            "win_rate": 0.45191612436731743,
-            "ci_low_wilson": 0.4258553869047126,
-            "ci_high_wilson": 0.47824324988264644,
-            "breakeven_wr": 0.23877671799139233,
-            "profit_factor": 2.6286386906318926,
-            "expectancy": 220.59869848156185,
-            "max_drawdown": 4919.99999999996,
-            "avg_mae": 337.0079537237892,
+            "n": 6573,
+            "wins": 2578,
+            "losses": 3995,
+            "win_rate": 0.39221055834474366,
+            "ci_low_wilson": 0.38047330811136376,
+            "ci_high_wilson": 0.40407373039417055,
+            "breakeven_wr": 0.2503835614375913,
+            "profit_factor": 1.9319657307028517,
+            "expectancy": 68.59866118971554,
+            "max_drawdown": 3099.0,
+            "avg_mae": 152.1738931994522,
             "tier": "信頼",
             "third_expectancy": [
-              199.76355748373078,
-              215.13882863340595,
-              246.89370932754895
+              71.46371519853926,
+              56.29073482428136,
+              78.04153354632601
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1423,
-            "wins": 632,
-            "losses": 791,
-            "win_rate": 0.44413211524947294,
-            "ci_low_wilson": 0.4185004818961756,
-            "ci_high_wilson": 0.47006458377053895,
-            "breakeven_wr": 0.25304867036752565,
-            "profit_factor": 2.358461764274179,
-            "expectancy": 162.6001405481376,
-            "max_drawdown": 2884.000000000029,
-            "avg_mae": 286.2895291637387,
+            "n": 6569,
+            "wins": 2668,
+            "losses": 3901,
+            "win_rate": 0.4061500989496118,
+            "ci_low_wilson": 0.39433180661680933,
+            "ci_high_wilson": 0.4180780953653105,
+            "breakeven_wr": 0.2540102713277496,
+            "profit_factor": 2.008590685391609,
+            "expectancy": 61.803470847922014,
+            "max_drawdown": 2759.0,
+            "avg_mae": 129.85188004262457,
             "tier": "信頼",
             "third_expectancy": [
-              210.99156118143478,
-              149.52210526315682,
-              127.31434599156171
+              69.2462311557789,
+              63.90684931506843,
+              52.260730593607214
             ]
           },
-          "drift_wr_pp": -0.7784009117844493,
-          "drift_expectancy_pts": -57.99855793342425,
-          "z_wr": 0.4145408768427404,
-          "p_wr_raw": 0.6784780371177281,
+          "drift_wr_pp": 1.3939540604868128,
+          "drift_expectancy_pts": -6.795190341793528,
+          "z_wr": -1.6315219717515828,
+          "p_wr_raw": 0.10278022755907767,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 2.048383552091633,
-          "p_expectancy_raw": 0.04052243189636928,
+          "t_expectancy": 1.1184683784435085,
+          "p_expectancy_raw": 0.2633670045577703,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2806,
+          "wins": 1257,
+          "losses": 1549,
+          "win_rate": 0.44796863863150393,
+          "ci_low_wilson": 0.42965221644236257,
+          "ci_high_wilson": 0.46642733480351556,
+          "breakeven_wr": 0.24505519317737995,
+          "profit_factor": 2.499972039859976,
+          "expectancy": 191.1860299358517,
+          "max_drawdown": 4919.99999999996,
+          "avg_mae": 311.2872416250893,
+          "tier": "信頼",
+          "third_expectancy": [
+            212.14545454545467,
+            221.64102564102578,
+            139.73903743315475
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.43264433357091947,
+          "ci_high": 0.46650035637918746,
+          "std_err": 0.00865043864004954,
+          "wilson_vs_bootstrap_widen_pp": -0.2919095552884996
         },
         "year_breakdown": [
           {
@@ -3179,79 +3198,88 @@
               126.81355932203577
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 666,
-        "win_rate": 0.49099099099099097,
-        "ci_low": 0.4531835908091582,
-        "ci_high": 0.5289017260776996,
-        "profit_factor": 2.559571378859326,
-        "expectancy": 390.30030030029997,
-        "max_drawdown": 6389.999999999931,
-        "tier": "信頼",
-        "wins": 327,
-        "losses": 339,
-        "breakeven_wr": 0.27371009572782784,
-        "avg_mae": 626.7792792792798,
-        "bootstrap_ci": {
-          "ci_low": 0.44294294294294295,
-          "ci_high": 0.539039039039039,
-          "std_err": 0.02427857090540085,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 324,
-            "wins": 161,
-            "losses": 163,
-            "win_rate": 0.49691358024691357,
-            "ci_low_wilson": 0.44282624712227403,
-            "ci_high_wilson": 0.551073245803578,
-            "breakeven_wr": 0.2855341954278805,
-            "profit_factor": 2.4715055649456223,
-            "expectancy": 427.24074074074053,
-            "max_drawdown": 6389.999999999931,
-            "avg_mae": 724.6450617283958,
+            "n": 1383,
+            "wins": 625,
+            "losses": 758,
+            "win_rate": 0.45191612436731743,
+            "ci_low_wilson": 0.4258553869047126,
+            "ci_high_wilson": 0.47824324988264644,
+            "breakeven_wr": 0.23877671799139233,
+            "profit_factor": 2.6286386906318926,
+            "expectancy": 220.59869848156185,
+            "max_drawdown": 4919.99999999996,
+            "avg_mae": 337.0079537237892,
             "tier": "信頼",
             "third_expectancy": [
-              394.31481481481535,
-              384.4166666666661,
-              502.99074074074014
+              199.76355748373078,
+              215.13882863340595,
+              246.89370932754895
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 342,
-            "wins": 166,
-            "losses": 176,
-            "win_rate": 0.4853801169590643,
-            "ci_low_wilson": 0.4328676055841665,
-            "ci_high_wilson": 0.5382174229375614,
-            "breakeven_wr": 0.2607737161618457,
-            "profit_factor": 2.67367739625084,
-            "expectancy": 355.3040935672511,
-            "max_drawdown": 5536.000000000007,
-            "avg_mae": 534.0643274853804,
+            "n": 1423,
+            "wins": 632,
+            "losses": 791,
+            "win_rate": 0.44413211524947294,
+            "ci_low_wilson": 0.4185004818961756,
+            "ci_high_wilson": 0.47006458377053895,
+            "breakeven_wr": 0.25304867036752565,
+            "profit_factor": 2.358461764274179,
+            "expectancy": 162.6001405481376,
+            "max_drawdown": 2884.000000000029,
+            "avg_mae": 286.2895291637387,
             "tier": "信頼",
             "third_expectancy": [
-              511.1228070175455,
-              231.38596491227977,
-              323.40350877192805
+              210.99156118143478,
+              149.52210526315682,
+              127.31434599156171
             ]
           },
-          "drift_wr_pp": -1.1533463287849266,
-          "drift_expectancy_pts": -71.93664717348946,
-          "z_wr": 0.2975833886293943,
-          "p_wr_raw": 0.7660211544440065,
+          "drift_wr_pp": -0.7784009117844493,
+          "drift_expectancy_pts": -57.99855793342425,
+          "z_wr": 0.4145408768427404,
+          "p_wr_raw": 0.6784780371177281,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 0.658218534511467,
-          "p_expectancy_raw": 0.5103977166645131,
+          "t_expectancy": 2.048383552091633,
+          "p_expectancy_raw": 0.04052243189636928,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 666,
+          "wins": 327,
+          "losses": 339,
+          "win_rate": 0.49099099099099097,
+          "ci_low_wilson": 0.4531835908091582,
+          "ci_high_wilson": 0.5289017260776996,
+          "breakeven_wr": 0.27371009572782784,
+          "profit_factor": 2.559571378859326,
+          "expectancy": 390.30030030029997,
+          "max_drawdown": 6389.999999999931,
+          "avg_mae": 626.7792792792798,
+          "tier": "信頼",
+          "third_expectancy": [
+            376.72072072072064,
+            512.342342342343,
+            281.8378378378364
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.44294294294294295,
+          "ci_high": 0.539039039039039,
+          "std_err": 0.02427857090540085,
+          "wilson_vs_bootstrap_widen_pp": 2.037796082755472
         },
         "year_breakdown": [
           {
@@ -3574,81 +3602,90 @@
               380.0714285714292
             ]
           }
-        ]
-      }
-    },
-    "AUDUSD": {
-      "M15": {
-        "n_trades": 12866,
-        "win_rate": 0.41147209699984455,
-        "ci_low": 0.4029964401923173,
-        "ci_high": 0.4200006043089918,
-        "profit_factor": 1.8956837502317243,
-        "expectancy": 44.68832581999064,
-        "max_drawdown": 3832.0,
-        "tier": "信頼",
-        "wins": 5294,
-        "losses": 7572,
-        "breakeven_wr": 0.2694405730521572,
-        "avg_mae": 101.67519042437426,
-        "bootstrap_ci": {
-          "ci_low": 0.4029224312140525,
-          "ci_high": 0.41994403855122026,
-          "std_err": 0.004327971325331316,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6411,
-            "wins": 2688,
-            "losses": 3723,
-            "win_rate": 0.4192793635938231,
-            "ci_low_wilson": 0.4072522920836005,
-            "ci_high_wilson": 0.4314031160249958,
-            "breakeven_wr": 0.26817105332204716,
-            "profit_factor": 1.970307061623184,
-            "expectancy": 55.268756824208374,
-            "max_drawdown": 3832.0,
-            "avg_mae": 119.73264701294643,
+            "n": 324,
+            "wins": 161,
+            "losses": 163,
+            "win_rate": 0.49691358024691357,
+            "ci_low_wilson": 0.44282624712227403,
+            "ci_high_wilson": 0.551073245803578,
+            "breakeven_wr": 0.2855341954278805,
+            "profit_factor": 2.4715055649456223,
+            "expectancy": 427.24074074074053,
+            "max_drawdown": 6389.999999999931,
+            "avg_mae": 724.6450617283958,
             "tier": "信頼",
             "third_expectancy": [
-              73.27047262517551,
-              48.90594291062232,
-              43.629854936827286
+              394.31481481481535,
+              384.4166666666661,
+              502.99074074074014
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6455,
-            "wins": 2606,
-            "losses": 3849,
-            "win_rate": 0.403718048024787,
-            "ci_low_wilson": 0.39180932456125295,
-            "ci_high_wilson": 0.41574130495101136,
-            "breakeven_wr": 0.2736389912722782,
-            "profit_factor": 1.797219170954499,
-            "expectancy": 34.18001549186671,
-            "max_drawdown": 2459.0,
-            "avg_mae": 83.74082106893879,
+            "n": 342,
+            "wins": 166,
+            "losses": 176,
+            "win_rate": 0.4853801169590643,
+            "ci_low_wilson": 0.4328676055841665,
+            "ci_high_wilson": 0.5382174229375614,
+            "breakeven_wr": 0.2607737161618457,
+            "profit_factor": 2.67367739625084,
+            "expectancy": 355.3040935672511,
+            "max_drawdown": 5536.000000000007,
+            "avg_mae": 534.0643274853804,
             "tier": "信頼",
             "third_expectancy": [
-              32.7577870757787,
-              40.60687732342002,
-              29.17472118959096
+              511.1228070175455,
+              231.38596491227977,
+              323.40350877192805
             ]
           },
-          "drift_wr_pp": -1.5561315569036116,
-          "drift_expectancy_pts": -21.088741332341662,
-          "z_wr": 1.7934192376507054,
-          "p_wr_raw": 0.0729059137790331,
+          "drift_wr_pp": -1.1533463287849266,
+          "drift_expectancy_pts": -71.93664717348946,
+          "z_wr": 0.2975833886293943,
+          "p_wr_raw": 0.7660211544440065,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 4.842325301043191,
-          "p_expectancy_raw": 1.28328447224213e-06,
-          "p_expectancy_bonferroni_significant": true,
+          "t_expectancy": 0.658218534511467,
+          "p_expectancy_raw": 0.5103977166645131,
+          "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "DRIFT"
+          "verdict": "STABLE"
+        }
+      }
+    },
+    "AUDUSD": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 12866,
+          "wins": 5294,
+          "losses": 7572,
+          "win_rate": 0.41147209699984455,
+          "ci_low_wilson": 0.4029964401923173,
+          "ci_high_wilson": 0.4200006043089918,
+          "breakeven_wr": 0.2694405730521572,
+          "profit_factor": 1.8956837502317243,
+          "expectancy": 44.68832581999064,
+          "max_drawdown": 3832.0,
+          "avg_mae": 101.67519042437426,
+          "tier": "信頼",
+          "third_expectancy": [
+            61.43610074626866,
+            37.62905106085331,
+            35.003730473303726
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4029224312140525,
+          "ci_high": 0.41994403855122026,
+          "std_err": 0.004327971325331316,
+          "wilson_vs_bootstrap_widen_pp": 0.0017443220493240652
         },
         "year_breakdown": [
           {
@@ -3971,79 +4008,88 @@
               14.175182481751971
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2904,
-        "win_rate": 0.4555785123966942,
-        "ci_low": 0.43753537906173695,
-        "ci_high": 0.4737390177279643,
-        "profit_factor": 2.259215716436111,
-        "expectancy": 118.3935950413222,
-        "max_drawdown": 2350.0,
-        "tier": "信頼",
-        "wins": 1323,
-        "losses": 1581,
-        "breakeven_wr": 0.27028572799639056,
-        "avg_mae": 211.09986225895312,
-        "bootstrap_ci": {
-          "ci_low": 0.44077134986225897,
-          "ci_high": 0.4731404958677686,
-          "std_err": 0.008269816097109384,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1454,
-            "wins": 681,
-            "losses": 773,
-            "win_rate": 0.468363136176066,
-            "ci_low_wilson": 0.4428310469693272,
-            "ci_high_wilson": 0.4940619597880598,
-            "breakeven_wr": 0.2719819207571978,
-            "profit_factor": 2.358140873904416,
-            "expectancy": 146.00481430536425,
-            "max_drawdown": 2350.0,
-            "avg_mae": 245.77785419532333,
+            "n": 6411,
+            "wins": 2688,
+            "losses": 3723,
+            "win_rate": 0.4192793635938231,
+            "ci_low_wilson": 0.4072522920836005,
+            "ci_high_wilson": 0.4314031160249958,
+            "breakeven_wr": 0.26817105332204716,
+            "profit_factor": 1.970307061623184,
+            "expectancy": 55.268756824208374,
+            "max_drawdown": 3832.0,
+            "avg_mae": 119.73264701294643,
             "tier": "信頼",
             "third_expectancy": [
-              207.63636363636348,
-              122.0639175257728,
-              108.44123711340183
+              73.27047262517551,
+              48.90594291062232,
+              43.629854936827286
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1450,
-            "wins": 642,
-            "losses": 808,
-            "win_rate": 0.44275862068965516,
-            "ci_low_wilson": 0.41737637479407225,
-            "ci_high_wilson": 0.46844337338207015,
-            "breakeven_wr": 0.27198650511731925,
-            "profit_factor": 2.1267465668342913,
-            "expectancy": 90.70620689655175,
-            "max_drawdown": 2130.0,
-            "avg_mae": 176.3262068965516,
+            "n": 6455,
+            "wins": 2606,
+            "losses": 3849,
+            "win_rate": 0.403718048024787,
+            "ci_low_wilson": 0.39180932456125295,
+            "ci_high_wilson": 0.41574130495101136,
+            "breakeven_wr": 0.2736389912722782,
+            "profit_factor": 1.797219170954499,
+            "expectancy": 34.18001549186671,
+            "max_drawdown": 2459.0,
+            "avg_mae": 83.74082106893879,
             "tier": "信頼",
             "third_expectancy": [
-              108.48033126293991,
-              104.49586776859516,
-              59.113871635610714
+              32.7577870757787,
+              40.60687732342002,
+              29.17472118959096
             ]
           },
-          "drift_wr_pp": -2.560451548641085,
-          "drift_expectancy_pts": -55.2986074088125,
-          "z_wr": 1.3852725083287463,
-          "p_wr_raw": 0.16596915669704826,
+          "drift_wr_pp": -1.5561315569036116,
+          "drift_expectancy_pts": -21.088741332341662,
+          "z_wr": 1.7934192376507054,
+          "p_wr_raw": 0.0729059137790331,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 3.0244171846901122,
-          "p_expectancy_raw": 0.002491126629873275,
+          "t_expectancy": 4.842325301043191,
+          "p_expectancy_raw": 1.28328447224213e-06,
           "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "DRIFT"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2904,
+          "wins": 1323,
+          "losses": 1581,
+          "win_rate": 0.4555785123966942,
+          "ci_low_wilson": 0.43753537906173695,
+          "ci_high_wilson": 0.4737390177279643,
+          "breakeven_wr": 0.27028572799639056,
+          "profit_factor": 2.259215716436111,
+          "expectancy": 118.3935950413222,
+          "max_drawdown": 2350.0,
+          "avg_mae": 211.09986225895312,
+          "tier": "信頼",
+          "third_expectancy": [
+            163.0950413223138,
+            110.38429752066102,
+            81.70144628099176
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.44077134986225897,
+          "ci_high": 0.4731404958677686,
+          "std_err": 0.008269816097109384,
+          "wilson_vs_bootstrap_widen_pp": -0.38344926607177277
         },
         "year_breakdown": [
           {
@@ -4366,79 +4412,88 @@
               17.46031746031634
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 726,
-        "win_rate": 0.44352617079889806,
-        "ci_low": 0.4077789662569515,
-        "ci_high": 0.4798678875261159,
-        "profit_factor": 2.155864837639251,
-        "expectancy": 214.94628099173536,
-        "max_drawdown": 4686.0,
-        "tier": "信頼",
-        "wins": 322,
-        "losses": 404,
-        "breakeven_wr": 0.2699147199499279,
-        "avg_mae": 415.47245179063384,
-        "bootstrap_ci": {
-          "ci_low": 0.4132231404958678,
-          "ci_high": 0.4641873278236915,
-          "std_err": 0.013391373852657042,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 358,
-            "wins": 162,
-            "losses": 196,
-            "win_rate": 0.45251396648044695,
-            "ci_low_wilson": 0.4017295778685324,
-            "ci_high_wilson": 0.504306654560243,
-            "breakeven_wr": 0.2566558459144138,
-            "profit_factor": 2.393854293854293,
-            "expectancy": 286.98603351955273,
-            "max_drawdown": 4000.0000000000728,
-            "avg_mae": 478.40223463687227,
+            "n": 1454,
+            "wins": 681,
+            "losses": 773,
+            "win_rate": 0.468363136176066,
+            "ci_low_wilson": 0.4428310469693272,
+            "ci_high_wilson": 0.4940619597880598,
+            "breakeven_wr": 0.2719819207571978,
+            "profit_factor": 2.358140873904416,
+            "expectancy": 146.00481430536425,
+            "max_drawdown": 2350.0,
+            "avg_mae": 245.77785419532333,
             "tier": "信頼",
             "third_expectancy": [
-              487.07563025210106,
-              151.44166666666513,
-              223.5798319327733
+              207.63636363636348,
+              122.0639175257728,
+              108.44123711340183
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 368,
-            "wins": 160,
-            "losses": 208,
-            "win_rate": 0.43478260869565216,
-            "ci_low_wilson": 0.3850646021498308,
-            "ci_high_wilson": 0.48584817361275195,
-            "breakeven_wr": 0.2914949184072919,
-            "profit_factor": 1.8696857972527665,
-            "expectancy": 144.86413043478268,
-            "max_drawdown": 4686.000000000015,
-            "avg_mae": 354.25271739130415,
+            "n": 1450,
+            "wins": 642,
+            "losses": 808,
+            "win_rate": 0.44275862068965516,
+            "ci_low_wilson": 0.41737637479407225,
+            "ci_high_wilson": 0.46844337338207015,
+            "breakeven_wr": 0.27198650511731925,
+            "profit_factor": 2.1267465668342913,
+            "expectancy": 90.70620689655175,
+            "max_drawdown": 2130.0,
+            "avg_mae": 176.3262068965516,
             "tier": "信頼",
             "third_expectancy": [
-              211.30327868852493,
-              102.34146341463403,
-              121.48780487804878
+              108.48033126293991,
+              104.49586776859516,
+              59.113871635610714
             ]
           },
-          "drift_wr_pp": -1.7731357784794788,
-          "drift_expectancy_pts": -142.12190308477005,
-          "z_wr": 0.4807918616076962,
-          "p_wr_raw": 0.6306644349672106,
+          "drift_wr_pp": -2.560451548641085,
+          "drift_expectancy_pts": -55.2986074088125,
+          "z_wr": 1.3852725083287463,
+          "p_wr_raw": 0.16596915669704826,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 2.096822733148397,
-          "p_expectancy_raw": 0.036009270405862326,
-          "p_expectancy_bonferroni_significant": false,
+          "t_expectancy": 3.0244171846901122,
+          "p_expectancy_raw": 0.002491126629873275,
+          "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "STABLE"
+          "verdict": "DRIFT"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 726,
+          "wins": 322,
+          "losses": 404,
+          "win_rate": 0.44352617079889806,
+          "ci_low_wilson": 0.4077789662569515,
+          "ci_high_wilson": 0.4798678875261159,
+          "breakeven_wr": 0.2699147199499279,
+          "profit_factor": 2.155864837639251,
+          "expectancy": 214.94628099173536,
+          "max_drawdown": 4686.0,
+          "avg_mae": 415.47245179063384,
+          "tier": "信頼",
+          "third_expectancy": [
+            320.3553719008258,
+            217.636363636364,
+            106.8471074380164
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4132231404958678,
+          "ci_high": 0.4641873278236915,
+          "std_err": 0.013391373852657042,
+          "wilson_vs_bootstrap_widen_pp": -2.1124733941340734
         },
         "year_breakdown": [
           {
@@ -4761,81 +4816,90 @@
               257.4666666666666
             ]
           }
-        ]
-      }
-    },
-    "USDJPY": {
-      "M15": {
-        "n_trades": 12733,
-        "win_rate": 0.4171051598209377,
-        "ci_low": 0.408566787544677,
-        "ci_high": 0.4256935364590383,
-        "profit_factor": 2.2145324752747664,
-        "expectancy": 62.39967014843313,
-        "max_drawdown": 2778.0,
-        "tier": "信頼",
-        "wins": 5311,
-        "losses": 7422,
-        "breakeven_wr": 0.24421467312709036,
-        "avg_mae": 114.75606691274638,
-        "bootstrap_ci": {
-          "ci_low": 0.4089374067383963,
-          "ci_high": 0.4253514489908113,
-          "std_err": 0.004139071274171083,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6352,
-            "wins": 2626,
-            "losses": 3726,
-            "win_rate": 0.4134130982367758,
-            "ci_low_wilson": 0.4013585627303447,
-            "ci_high_wilson": 0.4255723035140248,
-            "breakeven_wr": 0.2476346981924191,
-            "profit_factor": 2.1412586584571662,
-            "expectancy": 54.626259445843786,
-            "max_drawdown": 2052.0,
-            "avg_mae": 106.12657430730474,
+            "n": 358,
+            "wins": 162,
+            "losses": 196,
+            "win_rate": 0.45251396648044695,
+            "ci_low_wilson": 0.4017295778685324,
+            "ci_high_wilson": 0.504306654560243,
+            "breakeven_wr": 0.2566558459144138,
+            "profit_factor": 2.393854293854293,
+            "expectancy": 286.98603351955273,
+            "max_drawdown": 4000.0000000000728,
+            "avg_mae": 478.40223463687227,
             "tier": "信頼",
             "third_expectancy": [
-              32.806802078412815,
-              61.50377714825312,
-              69.56495040151142
+              487.07563025210106,
+              151.44166666666513,
+              223.5798319327733
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6381,
-            "wins": 2685,
-            "losses": 3696,
-            "win_rate": 0.4207804419370005,
-            "ci_low_wilson": 0.40871839607468746,
-            "ci_high_wilson": 0.432937816665187,
-            "breakeven_wr": 0.24178154702631607,
-            "profit_factor": 2.2781563435308074,
-            "expectancy": 70.13775270333794,
-            "max_drawdown": 2778.0,
-            "avg_mae": 123.34634069895,
+            "n": 368,
+            "wins": 160,
+            "losses": 208,
+            "win_rate": 0.43478260869565216,
+            "ci_low_wilson": 0.3850646021498308,
+            "ci_high_wilson": 0.48584817361275195,
+            "breakeven_wr": 0.2914949184072919,
+            "profit_factor": 1.8696857972527665,
+            "expectancy": 144.86413043478268,
+            "max_drawdown": 4686.000000000015,
+            "avg_mae": 354.25271739130415,
             "tier": "信頼",
             "third_expectancy": [
-              44.65397273154697,
-              73.91114245416065,
-              91.84814292430617
+              211.30327868852493,
+              102.34146341463403,
+              121.48780487804878
             ]
           },
-          "drift_wr_pp": 0.7367343700224682,
-          "drift_expectancy_pts": 15.511493257494152,
-          "z_wr": -0.8429994510398574,
-          "p_wr_raw": 0.39922875081340314,
+          "drift_wr_pp": -1.7731357784794788,
+          "drift_expectancy_pts": -142.12190308477005,
+          "z_wr": 0.4807918616076962,
+          "p_wr_raw": 0.6306644349672106,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": -2.820693121928289,
-          "p_expectancy_raw": 0.004792001994174511,
-          "p_expectancy_bonferroni_significant": true,
+          "t_expectancy": 2.096822733148397,
+          "p_expectancy_raw": 0.036009270405862326,
+          "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "DRIFT"
+          "verdict": "STABLE"
+        }
+      }
+    },
+    "USDJPY": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 12733,
+          "wins": 5311,
+          "losses": 7422,
+          "win_rate": 0.4171051598209377,
+          "ci_low_wilson": 0.408566787544677,
+          "ci_high_wilson": 0.4256935364590383,
+          "breakeven_wr": 0.24421467312709036,
+          "profit_factor": 2.2145324752747664,
+          "expectancy": 62.39967014843313,
+          "max_drawdown": 2778.0,
+          "avg_mae": 114.75606691274638,
+          "tier": "信頼",
+          "third_expectancy": [
+            47.290056550424126,
+            56.86784452296823,
+            83.04241281809588
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4089374067383963,
+          "ci_high": 0.4253514489908113,
+          "std_err": 0.004139071274171083,
+          "wilson_vs_bootstrap_widen_pp": -0.0712706661946283
         },
         "year_breakdown": [
           {
@@ -5158,79 +5222,88 @@
               70.60526315789427
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2834,
-        "win_rate": 0.46047988708539167,
-        "ci_low": 0.4421944977222054,
-        "ci_high": 0.4788722735873703,
-        "profit_factor": 2.8653933861187717,
-        "expectancy": 176.07233592095963,
-        "max_drawdown": 4391.0,
-        "tier": "信頼",
-        "wins": 1305,
-        "losses": 1529,
-        "breakeven_wr": 0.2295035526705542,
-        "avg_mae": 240.23465067043057,
-        "bootstrap_ci": {
-          "ci_low": 0.4407198306280875,
-          "ci_high": 0.47706422018348627,
-          "std_err": 0.00929209518289988,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1421,
-            "wins": 649,
-            "losses": 772,
-            "win_rate": 0.45672061928219565,
-            "ci_low_wilson": 0.43097220997504065,
-            "ci_high_wilson": 0.48270240480319154,
-            "breakeven_wr": 0.2345379591364014,
-            "profit_factor": 2.743708152352878,
-            "expectancy": 156.51161154116824,
-            "max_drawdown": 3414.0,
-            "avg_mae": 227.37438423645307,
+            "n": 6352,
+            "wins": 2626,
+            "losses": 3726,
+            "win_rate": 0.4134130982367758,
+            "ci_low_wilson": 0.4013585627303447,
+            "ci_high_wilson": 0.4255723035140248,
+            "breakeven_wr": 0.2476346981924191,
+            "profit_factor": 2.1412586584571662,
+            "expectancy": 54.626259445843786,
+            "max_drawdown": 2052.0,
+            "avg_mae": 106.12657430730474,
             "tier": "信頼",
             "third_expectancy": [
-              106.76744186046501,
-              180.84599156118142,
-              181.81645569620275
+              32.806802078412815,
+              61.50377714825312,
+              69.56495040151142
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1413,
-            "wins": 656,
-            "losses": 757,
-            "win_rate": 0.46426043878273177,
-            "ci_low_wilson": 0.4383882876240161,
-            "ci_high_wilson": 0.4903263972073722,
-            "breakeven_wr": 0.22550294271495322,
-            "profit_factor": 2.9762918714987916,
-            "expectancy": 195.74380750176897,
-            "max_drawdown": 4391.0,
-            "avg_mae": 253.16772823779218,
+            "n": 6381,
+            "wins": 2685,
+            "losses": 3696,
+            "win_rate": 0.4207804419370005,
+            "ci_low_wilson": 0.40871839607468746,
+            "ci_high_wilson": 0.432937816665187,
+            "breakeven_wr": 0.24178154702631607,
+            "profit_factor": 2.2781563435308074,
+            "expectancy": 70.13775270333794,
+            "max_drawdown": 2778.0,
+            "avg_mae": 123.34634069895,
             "tier": "信頼",
             "third_expectancy": [
-              114.15286624203782,
-              202.49469214437363,
-              270.5838641188954
+              44.65397273154697,
+              73.91114245416065,
+              91.84814292430617
             ]
           },
-          "drift_wr_pp": 0.7539819500536116,
-          "drift_expectancy_pts": 39.232195960600734,
-          "z_wr": -0.4026428519162578,
-          "p_wr_raw": 0.6872109806867119,
+          "drift_wr_pp": 0.7367343700224682,
+          "drift_expectancy_pts": 15.511493257494152,
+          "z_wr": -0.8429994510398574,
+          "p_wr_raw": 0.39922875081340314,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": -1.6854543366571377,
-          "p_expectancy_raw": 0.09190094777398028,
-          "p_expectancy_bonferroni_significant": false,
+          "t_expectancy": -2.820693121928289,
+          "p_expectancy_raw": 0.004792001994174511,
+          "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "STABLE"
+          "verdict": "DRIFT"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2834,
+          "wins": 1305,
+          "losses": 1529,
+          "win_rate": 0.46047988708539167,
+          "ci_low_wilson": 0.4421944977222054,
+          "ci_high_wilson": 0.4788722735873703,
+          "breakeven_wr": 0.2295035526705542,
+          "profit_factor": 2.8653933861187717,
+          "expectancy": 176.07233592095963,
+          "max_drawdown": 4391.0,
+          "avg_mae": 240.23465067043057,
+          "tier": "信頼",
+          "third_expectancy": [
+            144.24258474576266,
+            148.21587301587294,
+            235.7248677248674
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4407198306280875,
+          "ci_high": 0.47706422018348627,
+          "std_err": 0.00929209518289988,
+          "wilson_vs_bootstrap_widen_pp": -0.033338630976609274
         },
         "year_breakdown": [
           {
@@ -5553,79 +5626,88 @@
               274.9661016949157
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 673,
-        "win_rate": 0.4888558692421991,
-        "ci_low": 0.45125955849913313,
-        "ci_high": 0.5265786831219491,
-        "profit_factor": 2.8455156597792133,
-        "expectancy": 365.89747399702844,
-        "max_drawdown": 5843.000000000116,
-        "tier": "信頼",
-        "wins": 329,
-        "losses": 344,
-        "breakeven_wr": 0.25155647953613125,
-        "avg_mae": 479.9569093610697,
-        "bootstrap_ci": {
-          "ci_low": 0.45468053491827637,
-          "ci_high": 0.5230312035661219,
-          "std_err": 0.017120032212272856,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 347,
-            "wins": 168,
-            "losses": 179,
-            "win_rate": 0.484149855907781,
-            "ci_low_wilson": 0.4320290797593107,
-            "ci_high_wilson": 0.5366177397740629,
-            "breakeven_wr": 0.2526728311529488,
-            "profit_factor": 2.7759297759297774,
-            "expectancy": 332.3342939481267,
-            "max_drawdown": 3689.0,
-            "avg_mae": 441.8299711815563,
+            "n": 1421,
+            "wins": 649,
+            "losses": 772,
+            "win_rate": 0.45672061928219565,
+            "ci_low_wilson": 0.43097220997504065,
+            "ci_high_wilson": 0.48270240480319154,
+            "breakeven_wr": 0.2345379591364014,
+            "profit_factor": 2.743708152352878,
+            "expectancy": 156.51161154116824,
+            "max_drawdown": 3414.0,
+            "avg_mae": 227.37438423645307,
             "tier": "信頼",
             "third_expectancy": [
-              167.60869565217357,
-              447.7068965517239,
-              380.2672413793105
+              106.76744186046501,
+              180.84599156118142,
+              181.81645569620275
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 326,
-            "wins": 161,
-            "losses": 165,
-            "win_rate": 0.4938650306748466,
-            "ci_low_wilson": 0.43998032169470574,
-            "ci_high_wilson": 0.5478926452081957,
-            "breakeven_wr": 0.25101542733920096,
-            "profit_factor": 2.911483882270499,
-            "expectancy": 401.6226993865037,
-            "max_drawdown": 5843.000000000087,
-            "avg_mae": 520.5398773006129,
+            "n": 1413,
+            "wins": 656,
+            "losses": 757,
+            "win_rate": 0.46426043878273177,
+            "ci_low_wilson": 0.4383882876240161,
+            "ci_high_wilson": 0.4903263972073722,
+            "breakeven_wr": 0.22550294271495322,
+            "profit_factor": 2.9762918714987916,
+            "expectancy": 195.74380750176897,
+            "max_drawdown": 4391.0,
+            "avg_mae": 253.16772823779218,
             "tier": "信頼",
             "third_expectancy": [
-              305.3240740740746,
-              356.83486238532066,
-              541.8256880733963
+              114.15286624203782,
+              202.49469214437363,
+              270.5838641188954
             ]
           },
-          "drift_wr_pp": 0.9715174767065626,
-          "drift_expectancy_pts": 69.28840543837703,
-          "z_wr": -0.2519732959595655,
-          "p_wr_raw": 0.8010617047085471,
+          "drift_wr_pp": 0.7539819500536116,
+          "drift_expectancy_pts": 39.232195960600734,
+          "z_wr": -0.4026428519162578,
+          "p_wr_raw": 0.6872109806867119,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": -0.7270878114851805,
-          "p_expectancy_raw": 0.46717216483359314,
+          "t_expectancy": -1.6854543366571377,
+          "p_expectancy_raw": 0.09190094777398028,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 673,
+          "wins": 329,
+          "losses": 344,
+          "win_rate": 0.4888558692421991,
+          "ci_low_wilson": 0.45125955849913313,
+          "ci_high_wilson": 0.5265786831219491,
+          "breakeven_wr": 0.25155647953613125,
+          "profit_factor": 2.8455156597792133,
+          "expectancy": 365.89747399702844,
+          "max_drawdown": 5843.000000000116,
+          "avg_mae": 479.9569093610697,
+          "tier": "信頼",
+          "third_expectancy": [
+            322.02678571428544,
+            337.946666666667,
+            437.84375000000057
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.45468053491827637,
+          "ci_high": 0.5230312035661219,
+          "std_err": 0.017120032212272856,
+          "wilson_vs_bootstrap_widen_pp": -0.696845597497048
         },
         "year_breakdown": [
           {
@@ -5948,81 +6030,90 @@
               392.61538461538623
             ]
           }
-        ]
-      }
-    },
-    "EURJPY": {
-      "M15": {
-        "n_trades": 12834,
-        "win_rate": 0.41592644537946083,
-        "ci_low": 0.40742543344724413,
-        "ci_high": 0.4244777737087002,
-        "profit_factor": 2.0580194990330827,
-        "expectancy": 73.8772791023843,
-        "max_drawdown": 4323.0,
-        "tier": "信頼",
-        "wins": 5338,
-        "losses": 7496,
-        "breakeven_wr": 0.257068242981767,
-        "avg_mae": 148.9196665108306,
-        "bootstrap_ci": {
-          "ci_low": 0.4079788062957768,
-          "ci_high": 0.42371824840268035,
-          "std_err": 0.00405780221939305,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6437,
-            "wins": 2695,
-            "losses": 3742,
-            "win_rate": 0.4186732950132049,
-            "ci_low_wilson": 0.4066732167391671,
-            "ci_high_wilson": 0.4307703869041829,
-            "breakeven_wr": 0.248849491240869,
-            "profit_factor": 2.1739281934521797,
-            "expectancy": 84.26440888612703,
-            "max_drawdown": 4323.0,
-            "avg_mae": 155.11931023768847,
+            "n": 347,
+            "wins": 168,
+            "losses": 179,
+            "win_rate": 0.484149855907781,
+            "ci_low_wilson": 0.4320290797593107,
+            "ci_high_wilson": 0.5366177397740629,
+            "breakeven_wr": 0.2526728311529488,
+            "profit_factor": 2.7759297759297774,
+            "expectancy": 332.3342939481267,
+            "max_drawdown": 3689.0,
+            "avg_mae": 441.8299711815563,
             "tier": "信頼",
             "third_expectancy": [
-              89.3557109557108,
-              92.99161230195695,
-              70.44827586206915
+              167.60869565217357,
+              447.7068965517239,
+              380.2672413793105
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6397,
-            "wins": 2643,
-            "losses": 3754,
-            "win_rate": 0.4131624198843208,
-            "ci_low_wilson": 0.4011513811361567,
-            "ci_high_wilson": 0.4252776934405365,
-            "breakeven_wr": 0.2668168509634122,
-            "profit_factor": 1.9346486984565785,
-            "expectancy": 63.42519931217767,
-            "max_drawdown": 3428.999999999942,
-            "avg_mae": 142.68125683914323,
+            "n": 326,
+            "wins": 161,
+            "losses": 165,
+            "win_rate": 0.4938650306748466,
+            "ci_low_wilson": 0.43998032169470574,
+            "ci_high_wilson": 0.5478926452081957,
+            "breakeven_wr": 0.25101542733920096,
+            "profit_factor": 2.911483882270499,
+            "expectancy": 401.6226993865037,
+            "max_drawdown": 5843.000000000087,
+            "avg_mae": 520.5398773006129,
             "tier": "信頼",
             "third_expectancy": [
-              53.53330206378985,
-              73.29207688701355,
-              63.445590994371784
+              305.3240740740746,
+              356.83486238532066,
+              541.8256880733963
             ]
           },
-          "drift_wr_pp": -0.5510875128884096,
-          "drift_expectancy_pts": -20.83920957394936,
-          "z_wr": 0.6333261846876451,
-          "p_wr_raw": 0.5265206573674472,
+          "drift_wr_pp": 0.9715174767065626,
+          "drift_expectancy_pts": 69.28840543837703,
+          "z_wr": -0.2519732959595655,
+          "p_wr_raw": 0.8010617047085471,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 3.1703861542548184,
-          "p_expectancy_raw": 0.0015223647530664408,
-          "p_expectancy_bonferroni_significant": true,
+          "t_expectancy": -0.7270878114851805,
+          "p_expectancy_raw": 0.46717216483359314,
+          "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "DRIFT"
+          "verdict": "STABLE"
+        }
+      }
+    },
+    "EURJPY": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 12834,
+          "wins": 5338,
+          "losses": 7496,
+          "win_rate": 0.41592644537946083,
+          "ci_low_wilson": 0.40742543344724413,
+          "ci_high_wilson": 0.4244777737087002,
+          "breakeven_wr": 0.257068242981767,
+          "profit_factor": 2.0580194990330827,
+          "expectancy": 73.8772791023843,
+          "max_drawdown": 4323.0,
+          "avg_mae": 148.9196665108306,
+          "tier": "信頼",
+          "third_expectancy": [
+            90.08274894810641,
+            63.31112669471727,
+            68.23796166432925
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4079788062957768,
+          "ci_high": 0.42371824840268035,
+          "std_err": 0.00405780221939305,
+          "wilson_vs_bootstrap_widen_pp": -0.13128981545525442
         },
         "year_breakdown": [
           {
@@ -6345,79 +6436,88 @@
               43.334545454545186
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2821,
-        "win_rate": 0.4640198511166253,
-        "ci_low": 0.4456778729541078,
-        "ci_high": 0.482459690582198,
-        "profit_factor": 2.585509572208982,
-        "expectancy": 208.02942219071244,
-        "max_drawdown": 4825.000000000007,
-        "tier": "信頼",
-        "wins": 1309,
-        "losses": 1512,
-        "breakeven_wr": 0.2508484352735364,
-        "avg_mae": 312.0024813895782,
-        "bootstrap_ci": {
-          "ci_low": 0.44735909252038286,
-          "ci_high": 0.47890818858560796,
-          "std_err": 0.008075781764867361,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1432,
-            "wins": 655,
-            "losses": 777,
-            "win_rate": 0.4574022346368715,
-            "ci_low_wilson": 0.4317473458099564,
-            "ci_high_wilson": 0.48328506445033975,
-            "breakeven_wr": 0.2498512728580627,
-            "profit_factor": 2.5309647210552395,
-            "expectancy": 222.1620111731844,
-            "max_drawdown": 4825.000000000007,
-            "avg_mae": 327.98882681564226,
+            "n": 6437,
+            "wins": 2695,
+            "losses": 3742,
+            "win_rate": 0.4186732950132049,
+            "ci_low_wilson": 0.4066732167391671,
+            "ci_high_wilson": 0.4307703869041829,
+            "breakeven_wr": 0.248849491240869,
+            "profit_factor": 2.1739281934521797,
+            "expectancy": 84.26440888612703,
+            "max_drawdown": 4323.0,
+            "avg_mae": 155.11931023768847,
             "tier": "信頼",
             "third_expectancy": [
-              231.24737945492623,
-              238.94769874477004,
-              196.25576519916186
+              89.3557109557108,
+              92.99161230195695,
+              70.44827586206915
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1389,
-            "wins": 654,
-            "losses": 735,
-            "win_rate": 0.4708423326133909,
-            "ci_low_wilson": 0.44470849572673243,
-            "ci_high_wilson": 0.49713700917490167,
-            "breakeven_wr": 0.2509912064194684,
-            "profit_factor": 2.655331941133347,
-            "expectancy": 193.4593232541394,
-            "max_drawdown": 3637.0,
-            "avg_mae": 295.5212383009362,
+            "n": 6397,
+            "wins": 2643,
+            "losses": 3754,
+            "win_rate": 0.4131624198843208,
+            "ci_low_wilson": 0.4011513811361567,
+            "ci_high_wilson": 0.4252776934405365,
+            "breakeven_wr": 0.2668168509634122,
+            "profit_factor": 1.9346486984565785,
+            "expectancy": 63.42519931217767,
+            "max_drawdown": 3428.999999999942,
+            "avg_mae": 142.68125683914323,
             "tier": "信頼",
             "third_expectancy": [
-              161.28941684665182,
-              203.96760259179277,
-              215.12095032397372
+              53.53330206378985,
+              73.29207688701355,
+              63.445590994371784
             ]
           },
-          "drift_wr_pp": 1.3440097976519405,
-          "drift_expectancy_pts": -28.70268791904499,
-          "z_wr": -0.7156173983561785,
-          "p_wr_raw": 0.4742276275929824,
+          "drift_wr_pp": -0.5510875128884096,
+          "drift_expectancy_pts": -20.83920957394936,
+          "z_wr": 0.6333261846876451,
+          "p_wr_raw": 0.5265206573674472,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 0.9965823218837571,
-          "p_expectancy_raw": 0.31896729030211324,
-          "p_expectancy_bonferroni_significant": false,
+          "t_expectancy": 3.1703861542548184,
+          "p_expectancy_raw": 0.0015223647530664408,
+          "p_expectancy_bonferroni_significant": true,
           "bonferroni_alpha": 0.016666666666666666,
-          "verdict": "STABLE"
+          "verdict": "DRIFT"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2821,
+          "wins": 1309,
+          "losses": 1512,
+          "win_rate": 0.4640198511166253,
+          "ci_low_wilson": 0.4456778729541078,
+          "ci_high_wilson": 0.482459690582198,
+          "breakeven_wr": 0.2508484352735364,
+          "profit_factor": 2.585509572208982,
+          "expectancy": 208.02942219071244,
+          "max_drawdown": 4825.000000000007,
+          "avg_mae": 312.0024813895782,
+          "tier": "信頼",
+          "third_expectancy": [
+            232.38829787234033,
+            182.9500531349628,
+            208.77659574468072
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.44735909252038286,
+          "ci_high": 0.47890818858560796,
+          "std_err": 0.008075781764867361,
+          "wilson_vs_bootstrap_widen_pp": -0.5232721562865081
         },
         "year_breakdown": [
           {
@@ -6740,79 +6840,88 @@
               204.63333333333043
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 711,
-        "win_rate": 0.46835443037974683,
-        "ci_low": 0.43194360515777397,
-        "ci_high": 0.5051053858354755,
-        "profit_factor": 2.544820157116207,
-        "expectancy": 413.4838255977494,
-        "max_drawdown": 7229.000000000029,
-        "tier": "信頼",
-        "wins": 333,
-        "losses": 378,
-        "breakeven_wr": 0.2571543706311138,
-        "avg_mae": 611.693389592124,
-        "bootstrap_ci": {
-          "ci_low": 0.43741209563994377,
-          "ci_high": 0.5007032348804501,
-          "std_err": 0.01622382865395796,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 343,
-            "wins": 155,
-            "losses": 188,
-            "win_rate": 0.4518950437317784,
-            "ci_low_wilson": 0.4000480797630124,
-            "ci_high_wilson": 0.50480762382041,
-            "breakeven_wr": 0.24181259116279633,
-            "profit_factor": 2.585065228034137,
-            "expectancy": 481.40233236151636,
-            "max_drawdown": 7229.000000000029,
-            "avg_mae": 686.6734693877544,
+            "n": 1432,
+            "wins": 655,
+            "losses": 777,
+            "win_rate": 0.4574022346368715,
+            "ci_low_wilson": 0.4317473458099564,
+            "ci_high_wilson": 0.48328506445033975,
+            "breakeven_wr": 0.2498512728580627,
+            "profit_factor": 2.5309647210552395,
+            "expectancy": 222.1620111731844,
+            "max_drawdown": 4825.000000000007,
+            "avg_mae": 327.98882681564226,
             "tier": "信頼",
             "third_expectancy": [
-              778.1578947368422,
-              347.24347826086984,
-              319.98245614035153
+              231.24737945492623,
+              238.94769874477004,
+              196.25576519916186
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 368,
-            "wins": 178,
-            "losses": 190,
-            "win_rate": 0.483695652173913,
-            "ci_low_wilson": 0.433069390526479,
-            "ci_high_wilson": 0.5346588034141666,
-            "breakeven_wr": 0.27289411623649523,
-            "profit_factor": 2.4961454511679704,
-            "expectancy": 350.1793478260862,
-            "max_drawdown": 5828.999999999942,
-            "avg_mae": 541.8070652173926,
+            "n": 1389,
+            "wins": 654,
+            "losses": 735,
+            "win_rate": 0.4708423326133909,
+            "ci_low_wilson": 0.44470849572673243,
+            "ci_high_wilson": 0.49713700917490167,
+            "breakeven_wr": 0.2509912064194684,
+            "profit_factor": 2.655331941133347,
+            "expectancy": 193.4593232541394,
+            "max_drawdown": 3637.0,
+            "avg_mae": 295.5212383009362,
             "tier": "信頼",
             "third_expectancy": [
-              279.9590163934421,
-              296.65040650406326,
-              473.3577235772359
+              161.28941684665182,
+              203.96760259179277,
+              215.12095032397372
             ]
           },
-          "drift_wr_pp": 3.1800608442134615,
-          "drift_expectancy_pts": -131.22298453543016,
-          "z_wr": -0.8491280400946689,
-          "p_wr_raw": 0.39581004923074903,
+          "drift_wr_pp": 1.3440097976519405,
+          "drift_expectancy_pts": -28.70268791904499,
+          "z_wr": -0.7156173983561785,
+          "p_wr_raw": 0.4742276275929824,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.1603989901314353,
-          "p_expectancy_raw": 0.24588639774356702,
+          "t_expectancy": 0.9965823218837571,
+          "p_expectancy_raw": 0.31896729030211324,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 711,
+          "wins": 333,
+          "losses": 378,
+          "win_rate": 0.46835443037974683,
+          "ci_low_wilson": 0.43194360515777397,
+          "ci_high_wilson": 0.5051053858354755,
+          "breakeven_wr": 0.2571543706311138,
+          "profit_factor": 2.544820157116207,
+          "expectancy": 413.4838255977494,
+          "max_drawdown": 7229.000000000029,
+          "avg_mae": 611.693389592124,
+          "tier": "信頼",
+          "third_expectancy": [
+            556.6877637130801,
+            301.90717299578074,
+            381.85654008438735
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.43741209563994377,
+          "ci_high": 0.5007032348804501,
+          "std_err": 0.01622382865395796,
+          "wilson_vs_bootstrap_widen_pp": -0.9870641437195182
         },
         "year_breakdown": [
           {
@@ -7135,81 +7244,90 @@
               236.81249999999716
             ]
           }
-        ]
-      }
-    },
-    "GBPJPY": {
-      "M15": {
-        "n_trades": 13117,
-        "win_rate": 0.39460242433483267,
-        "ci_low": 0.38626996943117387,
-        "ci_high": 0.4029965971280931,
-        "profit_factor": 1.8121095117289754,
-        "expectancy": 79.949912327514,
-        "max_drawdown": 6631.0,
-        "tier": "信頼",
-        "wins": 5176,
-        "losses": 7941,
-        "breakeven_wr": 0.26454104823375685,
-        "avg_mae": 192.8709308530913,
-        "bootstrap_ci": {
-          "ci_low": 0.38568270183731035,
-          "ci_high": 0.40291225127696884,
-          "std_err": 0.0043813053555101,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6553,
-            "wins": 2557,
-            "losses": 3996,
-            "win_rate": 0.3902029604761178,
-            "ci_low_wilson": 0.3784599214553152,
-            "ci_high_wilson": 0.40207465787629454,
-            "breakeven_wr": 0.2538611232722686,
-            "profit_factor": 1.8807398215118103,
-            "expectancy": 87.07752174576537,
-            "max_drawdown": 6631.0,
-            "avg_mae": 198.127422554555,
+            "n": 343,
+            "wins": 155,
+            "losses": 188,
+            "win_rate": 0.4518950437317784,
+            "ci_low_wilson": 0.4000480797630124,
+            "ci_high_wilson": 0.50480762382041,
+            "breakeven_wr": 0.24181259116279633,
+            "profit_factor": 2.585065228034137,
+            "expectancy": 481.40233236151636,
+            "max_drawdown": 7229.000000000029,
+            "avg_mae": 686.6734693877544,
             "tier": "信頼",
             "third_expectancy": [
-              61.97023809523803,
-              77.89016018306651,
-              121.37637362637376
+              778.1578947368422,
+              347.24347826086984,
+              319.98245614035153
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6564,
-            "wins": 2619,
-            "losses": 3945,
-            "win_rate": 0.3989945155393053,
-            "ci_low_wilson": 0.38721029225941,
-            "ci_high_wilson": 0.4108968971709807,
-            "breakeven_wr": 0.2758248171142998,
-            "profit_factor": 1.7430056290659988,
-            "expectancy": 72.83424741011588,
-            "max_drawdown": 6499.0,
-            "avg_mae": 187.62324801950024,
+            "n": 368,
+            "wins": 178,
+            "losses": 190,
+            "win_rate": 0.483695652173913,
+            "ci_low_wilson": 0.433069390526479,
+            "ci_high_wilson": 0.5346588034141666,
+            "breakeven_wr": 0.27289411623649523,
+            "profit_factor": 2.4961454511679704,
+            "expectancy": 350.1793478260862,
+            "max_drawdown": 5828.999999999942,
+            "avg_mae": 541.8070652173926,
             "tier": "信頼",
             "third_expectancy": [
-              76.15767824497281,
-              84.02879341864724,
-              58.316270566727596
+              279.9590163934421,
+              296.65040650406326,
+              473.3577235772359
             ]
           },
-          "drift_wr_pp": 0.8791555063187517,
-          "drift_expectancy_pts": -14.243274335649488,
-          "z_wr": -1.0300364611864519,
-          "p_wr_raw": 0.3029928900134644,
+          "drift_wr_pp": 3.1800608442134615,
+          "drift_expectancy_pts": -131.22298453543016,
+          "z_wr": -0.8491280400946689,
+          "p_wr_raw": 0.39581004923074903,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.646232600458771,
-          "p_expectancy_raw": 0.0997158798025124,
+          "t_expectancy": 1.1603989901314353,
+          "p_expectancy_raw": 0.24588639774356702,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      }
+    },
+    "GBPJPY": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 13117,
+          "wins": 5176,
+          "losses": 7941,
+          "win_rate": 0.39460242433483267,
+          "ci_low_wilson": 0.38626996943117387,
+          "ci_high_wilson": 0.4029965971280931,
+          "breakeven_wr": 0.26454104823375685,
+          "profit_factor": 1.8121095117289754,
+          "expectancy": 79.949912327514,
+          "max_drawdown": 6631.0,
+          "avg_mae": 192.8709308530913,
+          "tier": "信頼",
+          "third_expectancy": [
+            69.97186642268987,
+            98.69906242853895,
+            71.17451967063131
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.38568270183731035,
+          "ci_high": 0.40291225127696884,
+          "std_err": 0.0043813053555101,
+          "wilson_vs_bootstrap_widen_pp": 0.05029217427392485
         },
         "year_breakdown": [
           {
@@ -7532,79 +7650,88 @@
               17.291525423728444
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2891,
-        "win_rate": 0.4430992736077482,
-        "ci_low": 0.4250786056625989,
-        "ci_high": 0.46127096178869087,
-        "profit_factor": 2.397106324933043,
-        "expectancy": 252.24558976132843,
-        "max_drawdown": 4661.0,
-        "tier": "信頼",
-        "wins": 1281,
-        "losses": 1610,
-        "breakeven_wr": 0.24920524812653536,
-        "avg_mae": 403.60601867865773,
-        "bootstrap_ci": {
-          "ci_low": 0.42684192320996195,
-          "ci_high": 0.45866482186094776,
-          "std_err": 0.008117563400314715,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1439,
-            "wins": 639,
-            "losses": 800,
-            "win_rate": 0.4440583738707436,
-            "ci_low_wilson": 0.41856905069878664,
-            "ci_high_wilson": 0.46984558885693456,
-            "breakeven_wr": 0.24426437542902332,
-            "profit_factor": 2.4712724852563293,
-            "expectancy": 276.52050034746367,
-            "max_drawdown": 4271.999999999949,
-            "avg_mae": 422.9277275886028,
+            "n": 6553,
+            "wins": 2557,
+            "losses": 3996,
+            "win_rate": 0.3902029604761178,
+            "ci_low_wilson": 0.3784599214553152,
+            "ci_high_wilson": 0.40207465787629454,
+            "breakeven_wr": 0.2538611232722686,
+            "profit_factor": 1.8807398215118103,
+            "expectancy": 87.07752174576537,
+            "max_drawdown": 6631.0,
+            "avg_mae": 198.127422554555,
             "tier": "信頼",
             "third_expectancy": [
-              223.0793319415453,
-              256.63125,
-              349.73958333333337
+              61.97023809523803,
+              77.89016018306651,
+              121.37637362637376
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1452,
-            "wins": 642,
-            "losses": 810,
-            "win_rate": 0.44214876033057854,
-            "ci_low_wilson": 0.41678908128319353,
-            "ci_high_wilson": 0.4678137491346212,
-            "breakeven_wr": 0.25485730741026863,
-            "profit_factor": 2.3173539129501313,
-            "expectancy": 228.18801652892577,
-            "max_drawdown": 4661.0,
-            "avg_mae": 384.4573002754823,
+            "n": 6564,
+            "wins": 2619,
+            "losses": 3945,
+            "win_rate": 0.3989945155393053,
+            "ci_low_wilson": 0.38721029225941,
+            "ci_high_wilson": 0.4108968971709807,
+            "breakeven_wr": 0.2758248171142998,
+            "profit_factor": 1.7430056290659988,
+            "expectancy": 72.83424741011588,
+            "max_drawdown": 6499.0,
+            "avg_mae": 187.62324801950024,
             "tier": "信頼",
             "third_expectancy": [
-              216.51033057851234,
-              242.20041322314108,
-              225.85330578512384
+              76.15767824497281,
+              84.02879341864724,
+              58.316270566727596
             ]
           },
-          "drift_wr_pp": -0.1909613540165056,
-          "drift_expectancy_pts": -48.332483818537895,
-          "z_wr": 0.10334649056981593,
-          "p_wr_raw": 0.9176879789875445,
+          "drift_wr_pp": 0.8791555063187517,
+          "drift_expectancy_pts": -14.243274335649488,
+          "z_wr": -1.0300364611864519,
+          "p_wr_raw": 0.3029928900134644,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.2623003629579466,
-          "p_expectancy_raw": 0.20684072615209503,
+          "t_expectancy": 1.646232600458771,
+          "p_expectancy_raw": 0.0997158798025124,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2891,
+          "wins": 1281,
+          "losses": 1610,
+          "win_rate": 0.4430992736077482,
+          "ci_low_wilson": 0.4250786056625989,
+          "ci_high_wilson": 0.46127096178869087,
+          "breakeven_wr": 0.24920524812653536,
+          "profit_factor": 2.397106324933043,
+          "expectancy": 252.24558976132843,
+          "max_drawdown": 4661.0,
+          "avg_mae": 403.60601867865773,
+          "tier": "信頼",
+          "third_expectancy": [
+            240.57632398753918,
+            282.77800829875514,
+            233.3703319502077
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.42684192320996195,
+          "ci_high": 0.45866482186094776,
+          "std_err": 0.008117563400314715,
+          "wilson_vs_bootstrap_widen_pp": -0.436945747510614
         },
         "year_breakdown": [
           {
@@ -7927,79 +8054,88 @@
               179.41935483870773
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 684,
-        "win_rate": 0.46637426900584794,
-        "ci_low": 0.42927973996567603,
-        "ci_high": 0.5038443979172319,
-        "profit_factor": 2.8627043090638984,
-        "expectancy": 595.6432748538017,
-        "max_drawdown": 7848.0,
-        "tier": "信頼",
-        "wins": 319,
-        "losses": 365,
-        "breakeven_wr": 0.23389033180229535,
-        "avg_mae": 774.5599415204682,
-        "bootstrap_ci": {
-          "ci_low": 0.44298245614035087,
-          "ci_high": 0.5058479532163743,
-          "std_err": 0.01583669024691366,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 322,
-            "wins": 157,
-            "losses": 165,
-            "win_rate": 0.48757763975155277,
-            "ci_low_wilson": 0.4334502860617085,
-            "ci_high_wilson": 0.5419979071708313,
-            "breakeven_wr": 0.22722936745501754,
-            "profit_factor": 3.2359504132231476,
-            "expectancy": 722.5869565217396,
-            "max_drawdown": 6514.999999999998,
-            "avg_mae": 826.0496894409941,
+            "n": 1439,
+            "wins": 639,
+            "losses": 800,
+            "win_rate": 0.4440583738707436,
+            "ci_low_wilson": 0.41856905069878664,
+            "ci_high_wilson": 0.46984558885693456,
+            "breakeven_wr": 0.24426437542902332,
+            "profit_factor": 2.4712724852563293,
+            "expectancy": 276.52050034746367,
+            "max_drawdown": 4271.999999999949,
+            "avg_mae": 422.9277275886028,
             "tier": "信頼",
             "third_expectancy": [
-              600.345794392525,
-              792.1666666666665,
-              774.5981308411212
+              223.0793319415453,
+              256.63125,
+              349.73958333333337
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 362,
-            "wins": 162,
-            "losses": 200,
-            "win_rate": 0.44751381215469616,
-            "ci_low_wilson": 0.3971085398197417,
-            "ci_high_wilson": 0.4990213699554179,
-            "breakeven_wr": 0.24295297308474556,
-            "profit_factor": 2.523978546199803,
-            "expectancy": 482.7265193370171,
-            "max_drawdown": 7847.999999999942,
-            "avg_mae": 728.7596685082876,
+            "n": 1452,
+            "wins": 642,
+            "losses": 810,
+            "win_rate": 0.44214876033057854,
+            "ci_low_wilson": 0.41678908128319353,
+            "ci_high_wilson": 0.4678137491346212,
+            "breakeven_wr": 0.25485730741026863,
+            "profit_factor": 2.3173539129501313,
+            "expectancy": 228.18801652892577,
+            "max_drawdown": 4661.0,
+            "avg_mae": 384.4573002754823,
             "tier": "信頼",
             "third_expectancy": [
-              526.6333333333339,
-              577.4710743801647,
-              344.4380165289274
+              216.51033057851234,
+              242.20041322314108,
+              225.85330578512384
             ]
           },
-          "drift_wr_pp": -4.006382759685661,
-          "drift_expectancy_pts": -239.86043718472246,
-          "z_wr": 1.048385333131635,
-          "p_wr_raw": 0.2944611082408457,
+          "drift_wr_pp": -0.1909613540165056,
+          "drift_expectancy_pts": -48.332483818537895,
+          "z_wr": 0.10334649056981593,
+          "p_wr_raw": 0.9176879789875445,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.5240700189516363,
-          "p_expectancy_raw": 0.12749122112272104,
+          "t_expectancy": 1.2623003629579466,
+          "p_expectancy_raw": 0.20684072615209503,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 684,
+          "wins": 319,
+          "losses": 365,
+          "win_rate": 0.46637426900584794,
+          "ci_low_wilson": 0.42927973996567603,
+          "ci_high_wilson": 0.5038443979172319,
+          "breakeven_wr": 0.23389033180229535,
+          "profit_factor": 2.8627043090638984,
+          "expectancy": 595.6432748538017,
+          "max_drawdown": 7848.0,
+          "avg_mae": 774.5599415204682,
+          "tier": "信頼",
+          "third_expectancy": [
+            655.5307017543869,
+            676.1140350877193,
+            455.2850877192989
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.44298245614035087,
+          "ci_high": 0.5058479532163743,
+          "std_err": 0.01583669024691366,
+          "wilson_vs_bootstrap_widen_pp": -1.1699160875532417
         },
         "year_breakdown": [
           {
@@ -8322,81 +8458,90 @@
               162.05882352941407
             ]
           }
-        ]
-      }
-    },
-    "AUDJPY": {
-      "M15": {
-        "n_trades": 13110,
-        "win_rate": 0.40869565217391307,
-        "ci_low": 0.4003084700690667,
-        "ci_high": 0.41713632810510065,
-        "profit_factor": 1.8848707343077724,
-        "expectancy": 53.556750572082365,
-        "max_drawdown": 5954.999999999978,
-        "tier": "信頼",
-        "wins": 5358,
-        "losses": 7752,
-        "breakeven_wr": 0.26830893054855237,
-        "avg_mae": 123.59412662090007,
-        "bootstrap_ci": {
-          "ci_low": 0.4003813882532418,
-          "ci_high": 0.41731502669717774,
-          "std_err": 0.004317973021453452,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 6588,
-            "wins": 2629,
-            "losses": 3959,
-            "win_rate": 0.3990588949605343,
-            "ci_low_wilson": 0.3872956789135355,
-            "ci_high_wilson": 0.41093976412259564,
-            "breakeven_wr": 0.2644635899222761,
-            "profit_factor": 1.84689995717129,
-            "expectancy": 56.12871888281726,
-            "max_drawdown": 5954.999999999978,
-            "avg_mae": 134.41909532483297,
+            "n": 322,
+            "wins": 157,
+            "losses": 165,
+            "win_rate": 0.48757763975155277,
+            "ci_low_wilson": 0.4334502860617085,
+            "ci_high_wilson": 0.5419979071708313,
+            "breakeven_wr": 0.22722936745501754,
+            "profit_factor": 3.2359504132231476,
+            "expectancy": 722.5869565217396,
+            "max_drawdown": 6514.999999999998,
+            "avg_mae": 826.0496894409941,
             "tier": "信頼",
             "third_expectancy": [
-              59.272768670309524,
-              48.87750455373409,
-              60.23588342440817
+              600.345794392525,
+              792.1666666666665,
+              774.5981308411212
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 6522,
-            "wins": 2729,
-            "losses": 3793,
-            "win_rate": 0.41842992946948787,
-            "ci_low_wilson": 0.40650906265111425,
-            "ci_high_wilson": 0.43044683281530344,
-            "breakeven_wr": 0.2714199617245118,
-            "profit_factor": 1.9313286199871644,
-            "expectancy": 50.958754983133964,
-            "max_drawdown": 3070.0,
-            "avg_mae": 112.65961361545544,
+            "n": 362,
+            "wins": 162,
+            "losses": 200,
+            "win_rate": 0.44751381215469616,
+            "ci_low_wilson": 0.3971085398197417,
+            "ci_high_wilson": 0.4990213699554179,
+            "breakeven_wr": 0.24295297308474556,
+            "profit_factor": 2.523978546199803,
+            "expectancy": 482.7265193370171,
+            "max_drawdown": 7847.999999999942,
+            "avg_mae": 728.7596685082876,
             "tier": "信頼",
             "third_expectancy": [
-              48.93238270469166,
-              54.56807727690899,
-              49.37580496780124
+              526.6333333333339,
+              577.4710743801647,
+              344.4380165289274
             ]
           },
-          "drift_wr_pp": 1.9371034508953555,
-          "drift_expectancy_pts": -5.169963899683296,
-          "z_wr": -2.2558650535738747,
-          "p_wr_raw": 0.0240790837035052,
+          "drift_wr_pp": -4.006382759685661,
+          "drift_expectancy_pts": -239.86043718472246,
+          "z_wr": 1.048385333131635,
+          "p_wr_raw": 0.2944611082408457,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 0.9872313396359333,
-          "p_expectancy_raw": 0.32352924137640016,
+          "t_expectancy": 1.5240700189516363,
+          "p_expectancy_raw": 0.12749122112272104,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      }
+    },
+    "AUDJPY": {
+      "M15": {
+        "base_tf": "M15",
+        "aggregate": {
+          "n": 13110,
+          "wins": 5358,
+          "losses": 7752,
+          "win_rate": 0.40869565217391307,
+          "ci_low_wilson": 0.4003084700690667,
+          "ci_high_wilson": 0.41713632810510065,
+          "breakeven_wr": 0.26830893054855237,
+          "profit_factor": 1.8848707343077724,
+          "expectancy": 53.556750572082365,
+          "max_drawdown": 5954.999999999978,
+          "avg_mae": 123.59412662090007,
+          "tier": "信頼",
+          "third_expectancy": [
+            54.09336384439355,
+            54.43295194508009,
+            52.14393592677345
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4003813882532418,
+          "ci_high": 0.41731502669717774,
+          "std_err": 0.004317973021453452,
+          "wilson_vs_bootstrap_widen_pp": 0.010578040790198973
         },
         "year_breakdown": [
           {
@@ -8719,79 +8864,88 @@
               32.36805555555548
             ]
           }
-        ]
-      },
-      "H1": {
-        "n_trades": 2960,
-        "win_rate": 0.4358108108108108,
-        "ci_low": 0.4180416895883222,
-        "ci_high": 0.4537463303922328,
-        "profit_factor": 2.2592212539071848,
-        "expectancy": 143.85709459459457,
-        "max_drawdown": 5004.999999999949,
-        "tier": "信頼",
-        "wins": 1290,
-        "losses": 1670,
-        "breakeven_wr": 0.25479470835287144,
-        "avg_mae": 249.13277027027027,
-        "bootstrap_ci": {
-          "ci_low": 0.4192567567567568,
-          "ci_high": 0.452027027027027,
-          "std_err": 0.0084112011500936,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 1478,
-            "wins": 657,
-            "losses": 821,
-            "win_rate": 0.4445196211096076,
-            "ci_low_wilson": 0.41936219836279703,
-            "ci_high_wilson": 0.4699647040537635,
-            "breakeven_wr": 0.2500370898075227,
-            "profit_factor": 2.400255992421721,
-            "expectancy": 168.02029769959404,
-            "max_drawdown": 5004.999999999949,
-            "avg_mae": 262.1765899864682,
+            "n": 6588,
+            "wins": 2629,
+            "losses": 3959,
+            "win_rate": 0.3990588949605343,
+            "ci_low_wilson": 0.3872956789135355,
+            "ci_high_wilson": 0.41093976412259564,
+            "breakeven_wr": 0.2644635899222761,
+            "profit_factor": 1.84689995717129,
+            "expectancy": 56.12871888281726,
+            "max_drawdown": 5954.999999999978,
+            "avg_mae": 134.41909532483297,
             "tier": "信頼",
             "third_expectancy": [
-              189.02032520325213,
-              185.5172413793106,
-              129.56592292089215
+              59.272768670309524,
+              48.87750455373409,
+              60.23588342440817
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 1482,
-            "wins": 633,
-            "losses": 849,
-            "win_rate": 0.4271255060728745,
-            "ci_low_wilson": 0.40216093802394165,
-            "ci_high_wilson": 0.45246690386714544,
-            "breakeven_wr": 0.26167562348869133,
-            "profit_factor": 2.103681363099309,
-            "expectancy": 119.75910931174086,
-            "max_drawdown": 4025.0000000000873,
-            "avg_mae": 236.12415654520925,
+            "n": 6522,
+            "wins": 2729,
+            "losses": 3793,
+            "win_rate": 0.41842992946948787,
+            "ci_low_wilson": 0.40650906265111425,
+            "ci_high_wilson": 0.43044683281530344,
+            "breakeven_wr": 0.2714199617245118,
+            "profit_factor": 1.9313286199871644,
+            "expectancy": 50.958754983133964,
+            "max_drawdown": 3070.0,
+            "avg_mae": 112.65961361545544,
             "tier": "信頼",
             "third_expectancy": [
-              107.81983805668033,
-              115.9210526315785,
-              135.53643724696371
+              48.93238270469166,
+              54.56807727690899,
+              49.37580496780124
             ]
           },
-          "drift_wr_pp": -1.7394115036733104,
-          "drift_expectancy_pts": -48.26118838785318,
-          "z_wr": 0.9542373725556074,
-          "p_wr_raw": 0.33996350111238005,
+          "drift_wr_pp": 1.9371034508953555,
+          "drift_expectancy_pts": -5.169963899683296,
+          "z_wr": -2.2558650535738747,
+          "p_wr_raw": 0.0240790837035052,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 2.1261907016976074,
-          "p_expectancy_raw": 0.033487384013857646,
+          "t_expectancy": 0.9872313396359333,
+          "p_expectancy_raw": 0.32352924137640016,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H1": {
+        "base_tf": "H1",
+        "aggregate": {
+          "n": 2960,
+          "wins": 1290,
+          "losses": 1670,
+          "win_rate": 0.4358108108108108,
+          "ci_low_wilson": 0.4180416895883222,
+          "ci_high_wilson": 0.4537463303922328,
+          "breakeven_wr": 0.25479470835287144,
+          "profit_factor": 2.2592212539071848,
+          "expectancy": 143.85709459459457,
+          "max_drawdown": 5004.999999999949,
+          "avg_mae": 249.13277027027027,
+          "tier": "信頼",
+          "third_expectancy": [
+            186.87119675456407,
+            118.68085106382966,
+            126.06281661600798
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.4192567567567568,
+          "ci_high": 0.452027027027027,
+          "std_err": 0.0084112011500936,
+          "wilson_vs_bootstrap_widen_pp": -0.2934370533640318
         },
         "year_breakdown": [
           {
@@ -9114,79 +9268,88 @@
               121.35384615384548
             ]
           }
-        ]
-      },
-      "H4": {
-        "n_trades": 690,
-        "win_rate": 0.4449275362318841,
-        "ci_low": 0.40825303163808824,
-        "ci_high": 0.48221188139105275,
-        "profit_factor": 2.309213494733857,
-        "expectancy": 294.36811594202896,
-        "max_drawdown": 6789.999999999985,
-        "tier": "信頼",
-        "wins": 307,
-        "losses": 383,
-        "breakeven_wr": 0.25767381829370617,
-        "avg_mae": 495.7521739130436,
-        "bootstrap_ci": {
-          "ci_low": 0.41304347826086957,
-          "ci_high": 0.4782608695652174,
-          "std_err": 0.016793027982369552,
-          "method": "moving-block, B=50, iters=10000"
-        },
+        ],
         "period_split": {
           "split_year": 2018,
           "early": {
             "period": "2010-2017",
-            "n": 325,
-            "wins": 150,
-            "losses": 175,
-            "win_rate": 0.46153846153846156,
-            "ci_low_wilson": 0.4081038695504084,
-            "ci_high_wilson": 0.5158716858537741,
-            "breakeven_wr": 0.25955685917344484,
-            "profit_factor": 2.4451888934894184,
-            "expectancy": 354.40923076923093,
-            "max_drawdown": 6789.999999999985,
-            "avg_mae": 561.4215384615386,
+            "n": 1478,
+            "wins": 657,
+            "losses": 821,
+            "win_rate": 0.4445196211096076,
+            "ci_low_wilson": 0.41936219836279703,
+            "ci_high_wilson": 0.4699647040537635,
+            "breakeven_wr": 0.2500370898075227,
+            "profit_factor": 2.400255992421721,
+            "expectancy": 168.02029769959404,
+            "max_drawdown": 5004.999999999949,
+            "avg_mae": 262.1765899864682,
             "tier": "信頼",
             "third_expectancy": [
-              527.9259259259256,
-              305.2752293577987,
-              230.4814814814816
+              189.02032520325213,
+              185.5172413793106,
+              129.56592292089215
             ]
           },
           "late": {
             "period": "2018-2025",
-            "n": 365,
-            "wins": 157,
-            "losses": 208,
-            "win_rate": 0.4301369863013699,
-            "ci_low_wilson": 0.38033224803037063,
-            "ci_high_wilson": 0.4813970146124548,
-            "breakeven_wr": 0.2584632528538135,
-            "profit_factor": 2.1655598414655155,
-            "expectancy": 240.90684931506826,
-            "max_drawdown": 4838.999999999956,
-            "avg_mae": 437.27945205479455,
+            "n": 1482,
+            "wins": 633,
+            "losses": 849,
+            "win_rate": 0.4271255060728745,
+            "ci_low_wilson": 0.40216093802394165,
+            "ci_high_wilson": 0.45246690386714544,
+            "breakeven_wr": 0.26167562348869133,
+            "profit_factor": 2.103681363099309,
+            "expectancy": 119.75910931174086,
+            "max_drawdown": 4025.0000000000873,
+            "avg_mae": 236.12415654520925,
             "tier": "信頼",
             "third_expectancy": [
-              262.0247933884287,
-              235.9344262295087,
-              224.9344262295081
+              107.81983805668033,
+              115.9210526315785,
+              135.53643724696371
             ]
           },
-          "drift_wr_pp": -3.140147523709169,
-          "drift_expectancy_pts": -113.50238145416267,
-          "z_wr": 0.8285030947720838,
-          "p_wr_raw": 0.4073856430095164,
+          "drift_wr_pp": -1.7394115036733104,
+          "drift_expectancy_pts": -48.26118838785318,
+          "z_wr": 0.9542373725556074,
+          "p_wr_raw": 0.33996350111238005,
           "p_wr_bonferroni_significant": false,
-          "t_expectancy": 1.212242098373037,
-          "p_expectancy_raw": 0.225419720894398,
+          "t_expectancy": 2.1261907016976074,
+          "p_expectancy_raw": 0.033487384013857646,
           "p_expectancy_bonferroni_significant": false,
           "bonferroni_alpha": 0.016666666666666666,
           "verdict": "STABLE"
+        }
+      },
+      "H4": {
+        "base_tf": "H4",
+        "aggregate": {
+          "n": 690,
+          "wins": 307,
+          "losses": 383,
+          "win_rate": 0.4449275362318841,
+          "ci_low_wilson": 0.40825303163808824,
+          "ci_high_wilson": 0.48221188139105275,
+          "breakeven_wr": 0.25767381829370617,
+          "profit_factor": 2.309213494733857,
+          "expectancy": 294.36811594202896,
+          "max_drawdown": 6789.999999999985,
+          "avg_mae": 495.7521739130436,
+          "tier": "信頼",
+          "third_expectancy": [
+            424.39130434782624,
+            239.87826086956483,
+            218.83478260869578
+          ]
+        },
+        "bootstrap_ci": {
+          "method": "moving-block, B=50, iters=10000",
+          "ci_low": 0.41304347826086957,
+          "ci_high": 0.4782608695652174,
+          "std_err": 0.016793027982369552,
+          "wilson_vs_bootstrap_widen_pp": -0.8741458448616681
         },
         "year_breakdown": [
           {
@@ -9509,7 +9672,60 @@
               221.5624999999991
             ]
           }
-        ]
+        ],
+        "period_split": {
+          "split_year": 2018,
+          "early": {
+            "period": "2010-2017",
+            "n": 325,
+            "wins": 150,
+            "losses": 175,
+            "win_rate": 0.46153846153846156,
+            "ci_low_wilson": 0.4081038695504084,
+            "ci_high_wilson": 0.5158716858537741,
+            "breakeven_wr": 0.25955685917344484,
+            "profit_factor": 2.4451888934894184,
+            "expectancy": 354.40923076923093,
+            "max_drawdown": 6789.999999999985,
+            "avg_mae": 561.4215384615386,
+            "tier": "信頼",
+            "third_expectancy": [
+              527.9259259259256,
+              305.2752293577987,
+              230.4814814814816
+            ]
+          },
+          "late": {
+            "period": "2018-2025",
+            "n": 365,
+            "wins": 157,
+            "losses": 208,
+            "win_rate": 0.4301369863013699,
+            "ci_low_wilson": 0.38033224803037063,
+            "ci_high_wilson": 0.4813970146124548,
+            "breakeven_wr": 0.2584632528538135,
+            "profit_factor": 2.1655598414655155,
+            "expectancy": 240.90684931506826,
+            "max_drawdown": 4838.999999999956,
+            "avg_mae": 437.27945205479455,
+            "tier": "信頼",
+            "third_expectancy": [
+              262.0247933884287,
+              235.9344262295087,
+              224.9344262295081
+            ]
+          },
+          "drift_wr_pp": -3.140147523709169,
+          "drift_expectancy_pts": -113.50238145416267,
+          "z_wr": 0.8285030947720838,
+          "p_wr_raw": 0.4073856430095164,
+          "p_wr_bonferroni_significant": false,
+          "t_expectancy": 1.212242098373037,
+          "p_expectancy_raw": 0.225419720894398,
+          "p_expectancy_bonferroni_significant": false,
+          "bonferroni_alpha": 0.016666666666666666,
+          "verdict": "STABLE"
+        }
       }
     }
   }
