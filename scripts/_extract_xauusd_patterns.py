@@ -267,6 +267,93 @@ def _net_pts(trade: dws_smt.DwsSmtTrade, spread_pts: np.ndarray, point: float) -
     return trade.points / point - cost
 
 
+def _state_per_bar(window: dws_smt.DwsSmtWindow) -> np.ndarray:
+    """Reconstruct the alignment STATE per bar from the colour matrix.
+
+    state[i] = +1 if every row at bar i is UP, -1 if every row is DOWN,
+    0 otherwise. Same logic ``dws_smt._detect_triggers`` uses, but exposed
+    as a per-bar array so we can iterate every bar (not only state-change
+    edges) when generating virtual entries for the pattern training set.
+    """
+    if window.colors.size == 0:
+        return np.array([], dtype=np.int8)
+    all_up   = (window.colors == dws_smt.COLOR_UP).all(axis=1)
+    all_down = (window.colors == dws_smt.COLOR_DOWN).all(axis=1)
+    return np.where(all_up, 1, np.where(all_down, -1, 0)).astype(np.int8)
+
+
+def _virtual_trades_from_alignment(
+    window: dws_smt.DwsSmtWindow,
+    base_df: pd.DataFrame,
+    point: float,
+) -> list[dict]:
+    """Generate one virtual trade per bar where the 3-TF alignment is held.
+
+    Why: the LIVE pattern matcher gates on ``alignment STATE held on the
+    latest closed bar`` (analysis_loop.py), so it scores continuation bars
+    just as much as trigger-edge bars. The original training set used only
+    trigger-edge entries (one per trade) — that distribution doesn't match
+    the live evaluation universe. Adding virtual entries at every
+    alignment-held bar makes the centroid table match the LIVE feature
+    distribution, eliminating the semantic drift the strict audit flagged.
+
+    Each virtual trade:
+      - entry bar j: any bar where state[j] != 0 (alignment held)
+      - direction = state[j]
+      - exit bar k: the next bar where state flips (state[k] != state[j])
+      - entry price = close[j], exit price = close[k]
+      - points = (close[k] - close[j]) * direction
+      - MAE: worst adverse excursion between j and k
+
+    Returns trades that fully close inside the emitted window. Trades whose
+    exit would fall past the last bar (still-aligned at end of history) are
+    dropped — they have no observable outcome.
+    """
+    states = _state_per_bar(window)
+    n = states.size
+    if n < 2:
+        return []
+    closes = base_df["close"].to_numpy(dtype=np.float64)
+    highs  = base_df["high"].to_numpy(dtype=np.float64)
+    lows   = base_df["low"].to_numpy(dtype=np.float64)
+    # window emission may have been trimmed; align indices to the full base
+    start_offset = max(0, len(base_df) - n)
+    out: list[dict] = []
+    for j in range(n - 1):                         # skip in-progress bar
+        s = int(states[j])
+        if s == 0:
+            continue
+        # Find next bar where state flips. End-of-history bars are -1
+        # (in-progress) so the while loop terminates at the latest closed
+        # bar of the same state at most; we then check k < n - 1 to ensure
+        # a real flip happened (not just running off the array).
+        k = j + 1
+        while k < n - 1 and int(states[k]) == s:
+            k += 1
+        if k >= n - 1 or int(states[k]) == s:
+            continue                                # still aligned at history end → drop
+        entry_full = start_offset + j
+        exit_full  = start_offset + k
+        if entry_full >= len(closes) or exit_full >= len(closes):
+            continue
+        ep = float(closes[entry_full])
+        xp = float(closes[exit_full])
+        points = (xp - ep) * s
+        if s == 1:
+            worst = float(lows[entry_full: exit_full + 1].min())
+            mae = max(0.0, ep - worst)
+        else:
+            worst = float(highs[entry_full: exit_full + 1].max())
+            mae = max(0.0, worst - ep)
+        out.append({
+            "entry_idx_full": entry_full,
+            "direction": s,
+            "points": points,
+            "mae": mae,
+        })
+    return out
+
+
 def _build_ledger(
     *,
     base_label: str,
@@ -277,43 +364,43 @@ def _build_ledger(
     window: dws_smt.DwsSmtWindow,
     point: float,
 ) -> pd.DataFrame:
-    """Build a per-trade DataFrame for one base TF, with full entry features."""
+    """Build a per-trade DataFrame for one base TF, with full entry features.
+
+    Uses *virtual trades* — one per bar where alignment is held — so the
+    training distribution matches the LIVE evaluation universe (pattern
+    matcher fires on every alignment-held bar, not only trigger edges).
+    See ``_virtual_trades_from_alignment`` for the construction rule.
+    """
     spread_pts = base_df["spread"].to_numpy(dtype=np.int64)
     rows: list[dict] = []
-    closed = [t for t in window.trades if not t.is_open]
-
-    # `window.times_ms` is the trailing emission; for the full ledger we use
-    # the FULL base series ns so trade.entry_idx (offset into the emitted
-    # window) is the same index in the full base history (we emit the entire
-    # history per the validator config — see backtest script line 239).
     base_full_ns = base_series.times_ns
 
-    for tr in closed:
-        if tr.entry_idx >= base_full_ns.size:
+    vtrades = _virtual_trades_from_alignment(window, base_df, point)
+    for vt in vtrades:
+        entry_idx = vt["entry_idx_full"]
+        if entry_idx >= base_full_ns.size:
             continue
-        entry_ns = int(base_full_ns[tr.entry_idx])
-        # Year filter — mirror OOS baseline (2011..2025). The 2010 warm-up
-        # year is excluded because W1 EMA(20) hasn't stabilised yet — this
-        # was the source of a ~7% trade-count overshoot vs the production
-        # data/oos_baseline.json baseline.
+        entry_ns = int(base_full_ns[entry_idx])
         entry_year = pd.Timestamp(entry_ns, unit="ns", tz="UTC").year
         if entry_year < YEAR_FIRST or entry_year > YEAR_LAST:
             continue
         feats = _row_for_trade(
-            direction=tr.direction,
+            direction=vt["direction"],
             entry_ns=entry_ns,
             base=base_series, mid=mid_series, top=top_series,
         )
         if feats is None:
             continue
-        net = _net_pts(tr, spread_pts, point)
+        # Spread cost — bar-spread at the entry bar, same as evaluate_trades.
+        cost = float(spread_pts[entry_idx]) if entry_idx < spread_pts.size else 0.0
+        net = vt["points"] / point - cost
         rows.append({
             "base_tf": base_label,
             "entry_ts_utc": pd.Timestamp(entry_ns, unit="ns", tz="UTC").isoformat(),
-            "direction": int(tr.direction),
+            "direction": int(vt["direction"]),
             "outcome": "win" if net > 0 else "loss",
             "net_pts": round(net, 2),
-            "mae_pts": round(tr.mae / point, 2),
+            "mae_pts": round(vt["mae"] / point, 2),
             **feats,
         })
     return pd.DataFrame(rows)
