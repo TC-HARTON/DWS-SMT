@@ -1471,9 +1471,26 @@ function buildPatternMatchHtml(snap, sym, baseTf) {
     // state so the user knows the panel is alive but the rule isn't firing.
     const pm = symPm[baseTf];
     if (!pm) {
+        // Empty state mirrors the 3-row vertical structure of the active
+        // card (head + hero + stats) so a state flip causes ZERO visible
+        // reflow. Placeholder dashes fill the same slots the active state
+        // would occupy.
         return `<div class="dws-pat dws-pat-empty">
-            <span class="dws-pat-label">過去類似パターン</span>
-            <span class="dws-pat-empty-msg">現在 トリガーなし — 待機中</span>
+            <div class="dws-pat-head">
+              <span class="dws-pat-label">過去類似パターン</span>
+              <span class="dws-pat-shape dws-pat-chip-empty">--</span>
+              <span class="dws-pat-spacer"></span>
+              <span class="dws-pat-rel dws-pat-chip-empty">--</span>
+            </div>
+            <div class="dws-pat-hero">
+              <span class="dws-pat-hero-label">状態</span>
+              <span class="dws-pat-empty-msg">トリガーなし</span>
+            </div>
+            <div class="dws-pat-stats">
+              <span class="dws-pat-stat"><span class="dws-pat-k">95%CI</span><span class="dws-pat-v">--</span></span>
+              <span class="dws-pat-stat"><span class="dws-pat-k">N</span><span class="dws-pat-v">--</span></span>
+              <span class="dws-pat-stat"><span class="dws-pat-k">中央値</span><span class="dws-pat-v">--</span></span>
+            </div>
         </div>`;
     }
     const wrPct = (pm.win_rate * 100).toFixed(1);

@@ -541,12 +541,124 @@ def main() -> int:
                               encoding="utf-8")
     log.info("wrote %s", centroids_path)
 
+    # The production runtime (analyzer/pattern_matcher.py) actually reads
+    # xauusd_per_cluster_winrate.json — a richer schema that bundles the
+    # StandardScaler params + z-space centroids + Wilson CI + assigned-N
+    # win-rate per cluster. Build it here in the same pass so the runtime
+    # artefact is FULLY REPRODUCIBLE from a single script invocation
+    # (previously the file lived only as a one-off inline-script output,
+    # which the SPEC audit flagged as an architectural gap).
+    pcw_path = OUT_DIR / "xauusd_per_cluster_winrate.json"
+    _write_per_cluster_winrate(ledger=ledger, out_path=pcw_path)
+    log.info("wrote %s", pcw_path)
+
     report_path = OUT_DIR / "xauusd_patterns_report.md"
     _write_report(per_tf=per_tf, ledger=ledger, report_path=report_path)
     log.info("wrote %s", report_path)
 
     log.info("done in %.1fs", time.perf_counter() - t0)
     return 0
+
+
+# --------------------------------------------------------------------------- #
+# per_cluster_winrate.json builder — the production runtime input.
+# --------------------------------------------------------------------------- #
+
+def _wilson_ci(wins: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Two-sided 100·(1−α)% Wilson score interval for a binomial proportion."""
+    if n <= 0:
+        return 0.0, 0.0
+    p = wins / n
+    den = 1.0 + z * z / n
+    centre = (p + z * z / (2.0 * n)) / den
+    half = z * ((p * (1.0 - p) / n + z * z / (4.0 * n * n)) ** 0.5) / den
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def _write_per_cluster_winrate(*, ledger: pd.DataFrame, out_path: Path) -> None:
+    """Rebuild ``xauusd_per_cluster_winrate.json`` from the freshly emitted
+    per-trade ledger. Refits the StandardScaler + KMeans per base TF (same
+    config as the in-pass clustering: k=4 per win/loss split, n_init=10,
+    random_state=42), then computes per-cluster N / wins / Wilson CI from
+    the actual trades that land nearest each centroid in z-space.
+
+    Output schema matches what the runtime loader expects:
+
+      {tf: {
+        feature_columns, population,
+        scaler: {mean, std},
+        clusters: [{pattern_id, learned_from_shape, within_shape_cluster_index,
+                    assigned_n, wins, losses, win_rate,
+                    win_rate_ci95_low, win_rate_ci95_high,
+                    median_net_pts, centroid_raw, centroid_z}]
+      }, ...}
+    """
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.cluster import KMeans
+    out: dict[str, dict] = {}
+    for base_tf in ("M15", "H1", "H4"):
+        sub = ledger[ledger.base_tf == base_tf].reset_index(drop=True)
+        if sub.empty:
+            continue
+        X = sub[list(FEATURE_COLS)].to_numpy(dtype=np.float64)
+        scaler = StandardScaler().fit(X)
+        Xz = scaler.transform(X)
+        centroids_z: list[np.ndarray] = []
+        meta: list[tuple[str, int]] = []
+        for cat in ("win", "loss"):
+            mask = (sub.outcome == cat).to_numpy()
+            if mask.sum() < 20:
+                continue
+            km = KMeans(n_clusters=4, n_init=10, random_state=42).fit(Xz[mask])
+            centroids_z.append(km.cluster_centers_)
+            meta.extend([(cat, i) for i in range(4)])
+        all_cz = np.vstack(centroids_z) if centroids_z else np.empty((0, len(FEATURE_COLS)))
+        all_craw = scaler.inverse_transform(all_cz) if all_cz.size else all_cz
+        # Reassign every trade to its nearest centroid across both shapes —
+        # the win-rate per cluster is the empirical WR of those trades.
+        if all_cz.size:
+            d2 = ((Xz[:, None, :] - all_cz[None, :, :]) ** 2).sum(axis=2)
+            nearest = d2.argmin(axis=1)
+        else:
+            nearest = np.array([], dtype=np.int64)
+        clusters: list[dict] = []
+        for ci, (cat, idx) in enumerate(meta):
+            m = nearest == ci
+            n = int(m.sum())
+            wins = int((sub.outcome[m] == "win").sum())
+            wr = wins / n if n else 0.0
+            lo, hi = _wilson_ci(wins, n)
+            median_net = float(sub.loc[m, "net_pts"].median()) if n else 0.0
+            clusters.append({
+                "pattern_id": f"{base_tf}_{cat[0].upper()}{idx + 1}",
+                "learned_from_shape": cat,
+                "within_shape_cluster_index": idx,
+                "assigned_n": n,
+                "wins": wins,
+                "losses": n - wins,
+                "win_rate": round(wr, 4),
+                "win_rate_ci95_low":  round(lo, 4),
+                "win_rate_ci95_high": round(hi, 4),
+                "median_net_pts": round(median_net, 1),
+                "centroid_raw": {f: round(float(v), 6) for f, v in zip(FEATURE_COLS, all_craw[ci])},
+                "centroid_z":   {f: round(float(v), 6) for f, v in zip(FEATURE_COLS, all_cz[ci])},
+            })
+        out[base_tf] = {
+            "feature_columns": list(FEATURE_COLS),
+            "population": {
+                "n_trades": int(len(sub)),
+                "wins":   int((sub.outcome == "win").sum()),
+                "losses": int((sub.outcome == "loss").sum()),
+                "win_rate": round(float((sub.outcome == "win").mean()), 4),
+            },
+            "scaler": {
+                "mean": {f: round(float(v), 6) for f, v in zip(FEATURE_COLS, scaler.mean_)},
+                "std":  {f: round(float(v), 6) for f, v in zip(FEATURE_COLS, scaler.scale_)},
+            },
+            "clusters": clusters,
+        }
+    out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -1576,14 +1576,18 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-pat-rel.high { background: var(--tier-trusted);      color: var(--fg); }
 .dws-pat-rel.mid  { background: var(--tier-caution);      color: var(--fg); }
 .dws-pat-rel.low  { background: var(--tier-insufficient); color: var(--fg); }
+/* Distance-warning chip — promoted to a real warning weight, not a quiet
+   neutral chip. Solid amber background + dark text, taller padding, and
+   uppercase ! mark to read as a discrete alert rather than a label. */
 .dws-pat-far {
-    color: var(--warning);
+    color: #1f1500;
     font-size: var(--text-sm);
-    font-weight: var(--weight-bold);
-    padding: 3px 10px;
+    font-weight: var(--weight-heavy);
+    padding: 3px 11px;
     border-radius: var(--radius-sm);
-    background: rgba(255, 183, 77, 0.16);
-    border: 1px solid rgba(255, 183, 77, 0.35);
+    background: var(--warning);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset;
+    letter-spacing: var(--track-tight);
 }
 
 /* Hero row — the headline number a trader looks at first. */
@@ -1616,7 +1620,9 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-size: var(--text-lg);
     font-weight: var(--weight-bold);
     margin-left: 4px;
-    opacity: 0.75;
+    /* Was 0.75 — too faint on coloured hero numbers (buy/sell) where contrast
+       drops sharply. 0.92 keeps it secondary without losing readability. */
+    opacity: 0.92;
 }
 
 /* Supporting stats row — CI / N / median in compact labelled chips. */
@@ -1647,24 +1653,32 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-pat-v.pos { color: var(--buy);  }
 .dws-pat-v.neg { color: var(--sell); }
 
-/* "現在 トリガーなし — 待機中" empty state. INHERITS the full standalone
-   card framing from .dws-pat (background, border-radius, --info left
-   accent, padding) so the block stays a single visible box even when
-   no trigger is active — only the content swaps. The placeholder text
-   takes the visual slot of the hero number at the same prominence so
-   the card's vertical footprint doesn't reflow on state change. */
+/* Empty state mirrors the active card's 3-row structure (head + hero +
+   stats) so toggling between empty and active produces ZERO vertical
+   reflow. Placeholder chips and "--" stats are rendered with neutral
+   tones so the card stays calm; only the hero slot's message changes
+   the visible content. */
 .dws-pat-empty {
     /* No override of background / padding / border-left — KEEP the box. */
-    gap: var(--space-3);
 }
+.dws-pat-empty .dws-pat-spacer { flex: 1 1 auto; }
+/* Neutral placeholder chips (same outer dimensions as the real
+   shape / reliability chips, dimmer interior so they recede). */
+.dws-pat-chip-empty {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: var(--fg-3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+/* Hero slot: same line-height as .dws-pat-hero-val (36 px) so the row
+   keeps its height. The message rendered at --text-lg (16 px) sits
+   inside that 36-px line box and reads as the "current state" label. */
 .dws-pat-empty-msg {
-    color: var(--fg);
+    color: var(--fg-2);
     font-family: var(--ui);
-    font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-medium);
     letter-spacing: var(--track-tight);
-    padding: var(--space-2) 0;
-    line-height: 1.2;
+    line-height: 36px;        /* match .dws-pat-hero-val line box */
 }
 
 /* ============================================================
