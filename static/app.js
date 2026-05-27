@@ -1546,6 +1546,92 @@ function buildPatternMatchHtml(snap, sym, baseTf) {
     </div>`;
 }
 
+/* ============================================================
+ * Helpers — semantic interpretation of a centroid's raw feature values.
+ * Turn 21 numeric features into plain Japanese phrases the trader can
+ * read in 2 seconds: 「強いトレンド」「レンジ」「上振れ」… and a one-line
+ * archetype label like 「強順張り」「遅延型」「揉み合い」.
+ * ========================================================== */
+
+/** ADX regime in plain Japanese. */
+function adxRegime(adx) {
+    if (adx >= 30) return { label: '極強トレンド', cls: 'pos' };
+    if (adx >= 25) return { label: '強トレンド',   cls: 'pos' };
+    if (adx >= 20) return { label: '中庸',         cls: '' };
+    if (adx >= 15) return { label: '弱トレンド',   cls: 'mute' };
+    return                  { label: 'レンジ',     cls: 'neg' };
+}
+
+/** Trend commitment (direction-signed DI difference). */
+function diDir(diDiff) {
+    if (diDiff >=  15) return { label: '方向強く committed', cls: 'pos' };
+    if (diDiff >=   5) return { label: '方向あり',           cls: 'pos' };
+    if (diDiff >=  -5) return { label: '中立',               cls: 'mute' };
+    if (diDiff >= -15) return { label: '逆向き気味',         cls: 'neg' };
+    return                    { label: '逆向き強く',         cls: 'neg' };
+}
+
+/** close vs EMA50, direction-signed. >0 = with trend, <0 = against. */
+function emaPos(d) {
+    if (d >=  20) return { label: 'EMA50 から大きく順方向', cls: 'pos' };
+    if (d >=   5) return { label: 'EMA50 より上振れ',       cls: 'pos' };
+    if (d >=  -5) return { label: 'EMA50 近接',             cls: 'mute' };
+    if (d >= -20) return { label: 'EMA50 から逆方向',       cls: 'neg' };
+    return                { label: 'EMA50 から大きく逆方向', cls: 'neg' };
+}
+
+/** JST hour bucket. */
+function sessionFromHour(h) {
+    if (h >=  6 && h <  9) return '東京朝方';
+    if (h >=  9 && h < 15) return '東京・午後';
+    if (h >= 15 && h < 21) return '欧州';
+    if (h >= 21 || h <  3) return '米国';
+    return                       '夜間';
+}
+
+/** ATR percentile vs trailing 90 days. */
+function volRegime(pct) {
+    if (pct >= 0.75) return { label: '高ボラ', cls: 'pos' };
+    if (pct >= 0.40) return { label: '中ボラ', cls: '' };
+    return                   { label: '低ボラ', cls: 'mute' };
+}
+
+/** Auto-derive a short archetype label from a centroid's raw values.
+ *  Five rough buckets — covers the common patterns the trader will read:
+ *    - 強順張り (base 強 + mid/top 未動)
+ *    - 遅延エントリ (上位足 走行後にベース弱トリガー)
+ *    - 同調順張り (全 TF 同方向中ぐらい)
+ *    - 揉み合い / 整合のみ (ADX 弱 + EMA50 近接)
+ *    - 逆風中エントリ (上位足 逆方向強い) */
+function clusterArchetype(c) {
+    const b = c.centroid_raw;
+    const baseStrong = b.base_adx >= 25 && b.base_di_diff >= 15;
+    const midStrong  = b.mid_adx  >= 25;
+    const topStrong  = b.top_adx  >= 25;
+    const midExt = Math.abs(b.mid_close_vs_ema50) >= 5;
+    const topExt = Math.abs(b.top_close_vs_ema50) >= 10;
+    const topAgainst = b.top_close_vs_ema50 < -5;
+    const midAgainst = b.mid_close_vs_ema50 < -5;
+    const allWeak = b.base_adx < 20 && b.mid_adx < 22 && b.top_adx < 22;
+
+    if (baseStrong && !midExt && !topExt) {
+        return { label: 'ベース単独の初動', icon: '🚀', cls: 'pos' };
+    }
+    if (topStrong && topExt && !baseStrong) {
+        return { label: '上位足走行後の遅延エントリ', icon: '⚠', cls: 'neg' };
+    }
+    if (topAgainst && midAgainst && b.base_di_diff > 0) {
+        return { label: '上位足に逆らうエントリ', icon: '⚠', cls: 'neg' };
+    }
+    if (allWeak) {
+        return { label: '整合のみの弱いトリガー', icon: '・', cls: 'mute' };
+    }
+    if (midStrong && topStrong && b.base_adx >= 20) {
+        return { label: '全 TF 整合の同調順張り', icon: '✓', cls: 'pos' };
+    }
+    return { label: '混合 (中庸)', icon: '?', cls: '' };
+}
+
 /** Show all clusters for the given (symbol, base_tf), highlight the
  *  currently-matched cluster. Click outside or × to close. */
 function showPatternDetailModal(sym, baseTf, currentPatternId) {
@@ -1564,11 +1650,79 @@ function showPatternDetailModal(sym, baseTf, currentPatternId) {
             modal.remove();
         }
     };
+    // ESC to close
+    if (!modal._escBound) {
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') {
+                const m = document.getElementById('pat-modal');
+                if (m) m.remove();
+            }
+        });
+        modal._escBound = true;
+    }
     const pop = tfTable.population;
-    const feats = tfTable.feature_columns;
-    // Render header + cards for each cluster (sorted by win_rate descending)
+    const stackName = ({M15:'H4 / H1 / M15', H1:'D1 / H4 / H1', H4:'W1 / D1 / H4'})[baseTf] || '';
     const clusters = [...tfTable.clusters].sort((a, b) => b.win_rate - a.win_rate);
-    const fmtV = (v) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+
+    function metricBlock(label, value, hint, cls) {
+        return `<div class="pat-metric">
+            <div class="pat-metric-label">${esc(label)}</div>
+            <div class="pat-metric-value ${cls || ''}">${esc(value)}</div>
+            ${hint ? `<div class="pat-metric-hint ${cls || ''}">${esc(hint)}</div>` : ''}
+        </div>`;
+    }
+
+    function tfSection(title, prefix, raw) {
+        // Feature set is direction-signed & per-TF: the offline extractor
+        // emits base_atr_pct + mid_atr_pct but no top_atr_pct (W1/D1/H4 etc.
+        // ATR% adds little signal at the top TF, so it was excluded from
+        // the centroid feature list). Render whatever we have, gracefully
+        // skip what's missing — never crash on toFixed of undefined.
+        const adx = raw[prefix + 'adx'];
+        const diDiff = raw[prefix + 'di_diff'];
+        const emaD = raw[prefix + 'close_vs_ema50'];
+        const rsi = raw[prefix + 'rsi'];
+        const atrPct = raw[prefix + 'atr_pct'];
+
+        const adxR = adxRegime(adx);
+        const diR = diDir(diDiff);
+        const emaR = emaPos(emaD);
+        const rsiCls = rsi >= 55 ? 'pos' : rsi <= 45 ? 'neg' : '';
+        const rsiHint = rsi >= 70 ? '過熱'
+                      : rsi >= 55 ? '上目線'
+                      : rsi >= 45 ? '中立'
+                      : rsi >= 30 ? '下目線' : '売られ過ぎ';
+        const atrBlock = (typeof atrPct === 'number')
+            ? metricBlock('ATR %', atrPct.toFixed(2) + '%', '', 'mute')
+            : '';
+
+        return `<div class="pat-tf-section">
+          <div class="pat-tf-title">${esc(title)}</div>
+          <div class="pat-tf-row">
+            ${metricBlock('ADX', adx.toFixed(1), adxR.label, adxR.cls)}
+            ${metricBlock('DI 差', (diDiff >= 0 ? '+' : '') + diDiff.toFixed(1), diR.label, diR.cls)}
+            ${metricBlock('RSI', rsi.toFixed(1), rsiHint, rsiCls)}
+            ${metricBlock('close − EMA50', (emaD >= 0 ? '+' : '') + emaD.toFixed(1), emaR.label, emaR.cls)}
+            ${atrBlock}
+          </div>
+        </div>`;
+    }
+
+    function timeVolSection(raw) {
+        const h = Math.round(raw.hour_jst);
+        const session = sessionFromHour(h);
+        const dow = ['月','火','水','木','金','土','日'][Math.round(raw.dow)] || '?';
+        const vol = volRegime(raw.atr_pct_90d);
+        return `<div class="pat-tf-section">
+          <div class="pat-tf-title">時刻・ボラ環境</div>
+          <div class="pat-tf-row">
+            ${metricBlock('JST 時刻', h + '時', session, '')}
+            ${metricBlock('曜日', dow + '曜', '', 'mute')}
+            ${metricBlock('ボラ 90日分位', (raw.atr_pct_90d*100).toFixed(0) + '%', vol.label, vol.cls)}
+          </div>
+        </div>`;
+    }
+
     const cards = clusters.map(c => {
         const isCurrent = c.pattern_id === currentPatternId;
         const wrPct = (c.win_rate * 100).toFixed(2);
@@ -1579,32 +1733,38 @@ function showPatternDetailModal(sym, baseTf, currentPatternId) {
         const heroCls = c.win_rate >= 0.50 ? 'pos' : c.win_rate <= 0.40 ? 'neg' : '';
         const medianTxt = (c.median_net_pts >= 0 ? '+' : '') +
             Math.round(c.median_net_pts).toLocaleString('en-US') + ' pt';
-        const featRows = feats.map(f => {
-            const v = c.centroid_raw[f];
-            return `<tr><td>${esc(f)}</td><td class="num">${fmtV(v)}</td></tr>`;
-        }).join('');
+        const archetype = clusterArchetype(c);
+
         return `<div class="pat-modal-card${isCurrent ? ' is-current' : ''}">
             <div class="pat-modal-card-head">
-              <span class="pat-modal-pid">${esc(c.pattern_id)}</span>
-              <span class="dws-pat-shape ${shapeCls}">${shapeLbl}</span>
-              ${isCurrent ? '<span class="pat-modal-now">現在マッチ</span>' : ''}
+              <div class="pat-modal-head-left">
+                <span class="pat-modal-pid">${esc(c.pattern_id)}</span>
+                <span class="dws-pat-shape ${shapeCls}">${shapeLbl}</span>
+              </div>
+              ${isCurrent ? '<span class="pat-modal-now">★ 現在マッチ</span>' : ''}
+            </div>
+            <div class="pat-modal-archetype ${archetype.cls}">
+              <span class="pat-archetype-icon">${archetype.icon}</span>
+              <span class="pat-archetype-label">${esc(archetype.label)}</span>
             </div>
             <div class="pat-modal-hero">
               <span class="dws-pat-hero-val ${heroCls}">${wrPct}<span class="dws-pat-hero-unit">%</span></span>
+              <span class="pat-modal-hero-side">
+                <div>歴史的勝率</div>
+                <div class="pat-modal-hero-meta">N=${c.assigned_n.toLocaleString('en-US')}　${ciLo}–${ciHi}%　中央値 ${medianTxt}</div>
+              </span>
             </div>
-            <div class="pat-modal-stats">
-              <span><b>N</b> ${c.assigned_n.toLocaleString('en-US')}</span>
-              <span><b>CI95</b> ${ciLo}–${ciHi}%</span>
-              <span><b>中央値</b> ${medianTxt}</span>
-            </div>
-            <table class="pat-modal-table">${featRows}</table>
+            ${tfSection('上位 TF', 'top_',  c.centroid_raw)}
+            ${tfSection('中位 TF', 'mid_',  c.centroid_raw)}
+            ${tfSection('ベース TF', 'base_', c.centroid_raw)}
+            ${timeVolSection(c.centroid_raw)}
         </div>`;
     }).join('');
     modal.innerHTML = `
         <div class="pat-modal-panel">
           <div class="pat-modal-bar">
             <span class="pat-modal-title">${esc(sym)} ${esc(baseTf)} クラスタ詳細
-              <span class="pat-modal-sub">母集団 N=${pop.n_trades.toLocaleString('en-US')}  WR=${(pop.win_rate*100).toFixed(2)}%</span>
+              <span class="pat-modal-sub">3-TF stack: ${esc(stackName)}  ・  母集団 N=${pop.n_trades.toLocaleString('en-US')}  ・  WR=${(pop.win_rate*100).toFixed(2)}%</span>
             </span>
             <button class="pat-modal-close" title="閉じる">×</button>
           </div>
