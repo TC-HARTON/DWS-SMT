@@ -46,6 +46,7 @@ from analyzer.signal_validator import SignalValidator
 from analyzer.macro_feed import MacroEngine
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
 from analyzer.pattern_matcher import PatternMatcher, SymbolPatternMatches
+from analyzer.dws_smt import COLOR_UP, COLOR_DOWN
 from analyzer.state import (
     ConnectionStatus,
     LatestState,
@@ -279,20 +280,23 @@ class AnalysisLoop:
                 continue
             bias_by_base: dict[str, int] = {}
             for base_tf, window in sym_snap.dws.by_base.items():
-                # STRICT entry rule — the pattern WR is only meaningful when
-                # the LATEST CLOSED bar of this base TF is ITSELF an active
-                # BUY/SELL trigger. _detect_triggers leaves index n-1 (the
-                # in-progress bar) permanently None (.mq5 OnCalculate's
-                # `bar>=1 && i>0` guard), so the freshest trigger lives at
-                # index n-2. Using triggers[-1] would never fire (the bug in
-                # the previous gating implementation). Using triggers[-2]
-                # finds the genuinely-most-recent CONFIRMED trigger.
-                latest_trig = (window.triggers[-2]
-                               if len(window.triggers) >= 2 else None)
-                if latest_trig == "BUY":
-                    bias_by_base[base_tf] = 1
-                elif latest_trig == "SELL":
-                    bias_by_base[base_tf] = -1
+                # Pattern shows whenever the 3-TF alignment is CURRENTLY held
+                # on the latest closed bar — not only on the bar where the
+                # alignment first formed (which is what ``window.triggers``
+                # marks: trigger fires only at state-change bars, then stays
+                # None while the same alignment continues).
+                # The user expects "if I were to enter NOW under this active
+                # alignment, what was the historical WR?" — so we derive the
+                # bias from the LATEST CLOSED bar's row colours directly.
+                # index -1 = in-progress (skip), index -2 = latest closed.
+                if window.colors.shape[0] >= 2:
+                    last_row_colors = window.colors[-2]      # shape (n_rows,)
+                    if (last_row_colors == COLOR_UP).all():
+                        bias_by_base[base_tf] = 1
+                    elif (last_row_colors == COLOR_DOWN).all():
+                        bias_by_base[base_tf] = -1
+                    else:
+                        bias_by_base[base_tf] = 0
                 else:
                     bias_by_base[base_tf] = 0
             matches = self._pattern_matcher.match_symbol(
