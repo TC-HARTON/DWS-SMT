@@ -1658,14 +1658,13 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     gap: var(--space-3);
 }
 .dws-pat-empty-msg {
-    color: var(--fg-2);
-    font-family: var(--mono);
+    color: var(--fg);
+    font-family: var(--ui);
     font-size: var(--text-xl);
-    font-weight: var(--weight-medium);
-    font-style: italic;
+    font-weight: var(--weight-bold);
     letter-spacing: var(--track-tight);
     padding: var(--space-2) 0;
-    line-height: 1.1;
+    line-height: 1.2;
 }
 
 /* ============================================================
