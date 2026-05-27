@@ -76,11 +76,25 @@ SLOPE_LOOKBACK = 5
 # K range to search per (base_tf, outcome) cluster — silhouette picks best.
 K_RANGE = (2, 3, 4)
 
-# Year window — matches scripts/_backtest_all_yearly_swap.py / _generate_oos_baseline.py
-# (YEAR_FIRST excludes 2010 because W1 EMA(20) is still warming up that year).
-# Without this filter the counts diverge from data/oos_baseline.json by ~7%.
-YEAR_FIRST = 2011
-YEAR_LAST  = 2025
+# NO YEAR FILTER.
+# Earlier versions of this script copied a YEAR_FIRST=2011 filter from
+# scripts/_backtest_all_yearly_swap.py to match data/oos_baseline.json
+# trade counts. That filter is wrong here for two reasons:
+#
+#  1. The strict SPEC rule is deterministic — there's no "training" to be
+#     contaminated by warm-up bars. Every bar where the rule fires IS a
+#     real trade. Trimming the head of the data series introduces an
+#     arbitrary period cut that the rule never asked for.
+#
+#  2. Of the three base TFs, only H4 needs a long W1 history (its stack
+#     is W1/D1/H4). M15 (H4/H1/M15) and H1 (D1/H4/H1) never read a W1
+#     bar — so the W1 warm-up justification doesn't apply to them at all.
+#
+# This module now generates one virtual trade per alignment-held bar
+# across the FULL Dukascopy history. Any warm-up bias is naturally bounded
+# by indicators.adx / atr / rsi returning NaN on warm-up rows; the
+# _row_for_trade builder already drops those via its SLOPE_LOOKBACK + 1
+# minimum-index guard, so no separate year filter is needed.
 
 
 # --------------------------------------------------------------------------- #
@@ -381,9 +395,7 @@ def _build_ledger(
         if entry_idx >= base_full_ns.size:
             continue
         entry_ns = int(base_full_ns[entry_idx])
-        entry_year = pd.Timestamp(entry_ns, unit="ns", tz="UTC").year
-        if entry_year < YEAR_FIRST or entry_year > YEAR_LAST:
-            continue
+        # No year filter — see module-level comment.
         feats = _row_for_trade(
             direction=vt["direction"],
             entry_ns=entry_ns,
