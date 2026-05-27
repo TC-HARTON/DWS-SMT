@@ -14,13 +14,24 @@ set "URL=http://127.0.0.1:8050"
 REM This .bat lives in the project root - run from here.
 cd /d "%~dp0"
 
-REM --- If the dashboard is already running, just open the browser. ---
+REM --- If port 8050 is held by a HEALTHY dashboard, just open the browser.
+REM     Otherwise (zombie / stale process), kill the holder and start fresh.
+REM     Healthy = HTTP 200 with "MT5 Dashboard" in the response body. ---
 netstat -ano | findstr ":8050" | findstr "LISTENING" >nul 2>&1
 if not errorlevel 1 (
-    echo The dashboard is already running. Opening browser...
-    start "" "%URL%"
+    REM Probe the response. powershell is always available on modern Windows.
+    powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri '%URL%' -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200 -and $r.Content -match 'MT5 Dashboard') { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+    if not errorlevel 1 (
+        echo The dashboard is already running. Opening browser...
+        start "" "%URL%"
+        ping -n 3 127.0.0.1 >nul
+        exit /b 0
+    )
+    echo Port 8050 is held by a stale process. Cleaning up...
+    for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":8050" ^| findstr "LISTENING"') do (
+        taskkill /F /PID %%P >nul 2>&1
+    )
     ping -n 3 127.0.0.1 >nul
-    exit /b 0
 )
 
 REM --- Start the server in its own window. ---
