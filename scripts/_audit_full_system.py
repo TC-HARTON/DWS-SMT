@@ -61,6 +61,67 @@ for tf in ("W1", "D1", "H4", "H1", "M15"):
 
 
 # ============================================================================
+# B0. BIAS composite scoring — TF signal × regime gate × weighted average
+# ============================================================================
+
+print()
+print("=" * 80)
+print("B0. BIAS COMPOSITE (per-bar 5-tier code × regime gate × TF weight)")
+print("=" * 80)
+
+from analyzer.indicator_engine import _bias_contribution_series
+
+# Validate the contribution formula end-to-end on a synthetic vector — values
+# at exact threshold boundaries to verify each gate fires correctly.
+synth = {
+    "close": np.array([100.0]),
+    "ema":   np.array([99.0]),       # above EMA
+    "rsi":   np.array([60.0]),       # ≥ 55 → STRONG eligible
+    "adx":   np.array([30.0]),       # ≥ 25 → STRONG gate open
+    "dip":   np.array([28.0]),       # bullish DI
+    "dim":   np.array([20.0]),
+}
+out = _bias_contribution_series(**synth)
+# code = +2 (STRONG BUY), trend_factor = (30-15)/10 = 1.0 (capped), so out = +2
+ok_strong_buy = abs(float(out[0]) - 2.0) < 1e-9
+report("B0", "STRONG BUY tier", ok_strong_buy,
+       f"close>EMA + ADX=30 + RSI=60 + DI+>DI- → contribution={float(out[0]):.4f} (expect +2.000)")
+
+synth["rsi"] = np.array([52.0])     # 50 ≤ 52 < 55 → BUY (+1), NOT STRONG (needs ≥55)
+synth["adx"] = np.array([20.0])     # mid regime → factor (20-15)/10 = 0.5
+out = _bias_contribution_series(**synth)
+expected = 1.0 * 0.5
+ok_buy = abs(float(out[0]) - expected) < 1e-9
+report("B0", "BUY × mid regime", ok_buy,
+       f"close>EMA + RSI=52 (BUY +1) × ADX=20 (factor 0.5) = {float(out[0]):.4f} (expect {expected:.4f})")
+
+synth["rsi"] = np.array([60.0]); synth["adx"] = np.array([10.0])
+out = _bias_contribution_series(**synth)
+# ADX below low gate → factor 0 → output 0 regardless of code
+ok_range_gate = abs(float(out[0]) - 0.0) < 1e-9
+report("B0", "Range gate kills contribution", ok_range_gate,
+       f"ADX=10 (below low gate 15) → contribution={float(out[0]):.4f} (expect 0)")
+
+# Below-EMA + RSI 35 + ADX 30 + DI- > DI+ → STRONG SELL (-2)
+synth_ss = {
+    "close": np.array([99.0]), "ema": np.array([100.0]),
+    "rsi": np.array([35.0]), "adx": np.array([30.0]),
+    "dip": np.array([18.0]), "dim": np.array([28.0]),
+}
+out = _bias_contribution_series(**synth_ss)
+ok_strong_sell = abs(float(out[0]) - (-2.0)) < 1e-9
+report("B0", "STRONG SELL tier", ok_strong_sell,
+       f"close<EMA + ADX=30 + RSI=35 + DI->DI+ → contribution={float(out[0]):.4f} (expect -2.000)")
+
+# NaN warmup → 0 contribution
+synth_nan = {k: v.copy() for k, v in synth.items()}
+synth_nan["rsi"][0] = np.nan
+out = _bias_contribution_series(**synth_nan)
+ok_nan = abs(float(out[0]) - 0.0) < 1e-9
+report("B0", "NaN warmup → 0", ok_nan, f"contribution={float(out[0]):.4f} (expect 0)")
+
+
+# ============================================================================
 # B. Histogram colour + state machine
 # ============================================================================
 
