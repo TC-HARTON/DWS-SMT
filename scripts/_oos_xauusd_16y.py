@@ -151,6 +151,8 @@ BONFERRONI_ALPHA = ALPHA / BONFERRONI_K
 class TradeRow:
     """One closed trade reduced to the columns we need for OOS stats."""
     entry_year: int
+    entry_hour_jst: int      # 0-23, Asia/Tokyo — for the hourly win-rate heatmap
+    entry_ms: int            # epoch ms (UTC) — for the trigger-history table
     direction: int
     net_pts: float
     mae_pts: float
@@ -191,14 +193,93 @@ def _build_trade_rows(
         cost = float(spread_pts[ei])
         net = t.points / point - cost
         ts = pd.Timestamp(int(times_ns[ei]), unit="ns", tz="UTC")
+        ts_jst = ts.tz_convert("Asia/Tokyo")
         rows.append(TradeRow(
-            entry_year=int(ts.year),
+            entry_year=int(ts_jst.year),
+            entry_hour_jst=int(ts_jst.hour),
+            entry_ms=int(times_ns[ei] // 1_000_000),
             direction=int(t.direction),
             net_pts=float(net),
             mae_pts=float(t.mae) / point,
             bar_adx=float(adx[ei]) if ei < adx.size else 0.0,
         ))
     return rows
+
+
+# Per-year recent-trade cap shipped to the dashboard (newest first). Older
+# triggers still count toward that year's SUMMARY (computed over the full year).
+TRIGGER_LIST_CAP = 30
+
+
+def _period_stats(rows: list[TradeRow]) -> dict:
+    """Summary stats (N / wins / WR / PF / cumulative pts) over *rows*."""
+    n = len(rows)
+    wins = sum(1 for r in rows if r.net_pts > 0.0)
+    cum = sum(r.net_pts for r in rows)
+    gross_win = sum(r.net_pts for r in rows if r.net_pts > 0.0)
+    gross_loss = abs(sum(r.net_pts for r in rows if r.net_pts < 0.0))
+    pf = (gross_win / gross_loss) if gross_loss > 0 else (None if gross_win > 0 else 0.0)
+    return {
+        "n": n,
+        "wins": wins,
+        "losses": n - wins,
+        "win_rate": round(wins / n, 4) if n else None,
+        "profit_factor": (None if pf is None else round(pf, 4)),
+        "cum_pts": round(cum, 1),
+        # Gross win/loss exposed so the front-end can aggregate a correct
+        # combined PF across years + the live feed (PF isn't additive).
+        "gross_win": round(gross_win, 1),
+        "gross_loss": round(gross_loss, 1),
+    }
+
+
+def _trigger_history(rows: list[TradeRow]) -> dict:
+    """Year-bucketed backtest trigger history the dashboard merges with the
+    LIVE broker feed. ``by_year[YYYY] = {<stats>, trades:[{t,d,p}, ...last 30]}``
+    (JST year), newest-first trades. The live feed supplies years beyond the
+    backtest's coverage; the front-end concatenates them."""
+    by_year_rows: dict[int, list[TradeRow]] = {}
+    for r in rows:
+        by_year_rows.setdefault(r.entry_year, []).append(r)
+    by_year: dict[str, dict] = {}
+    for year in sorted(by_year_rows.keys()):
+        yr = by_year_rows[year]
+        ordered = sorted(yr, key=lambda r: r.entry_ms, reverse=True)
+        trades = [{"t": r.entry_ms, "d": r.direction, "p": round(r.net_pts, 1)}
+                  for r in ordered[:TRIGGER_LIST_CAP]]
+        by_year[str(year)] = {**_period_stats(yr), "trades": trades}
+    # Last backtest year in UTC. ``entry_year`` is JST, so a 2025-12-31 UTC
+    # boundary trade can spill into a stray JST-2026 bucket; the front-end
+    # uses this UTC last-year as the fixed CSV↔live boundary so a stray year
+    # never lets the backtest silently own (and suppress) the live 2026 feed.
+    last_year_utc = 0
+    for r in rows:
+        uy = pd.Timestamp(r.entry_ms, unit="ms", tz="UTC").year
+        if uy > last_year_utc:
+            last_year_utc = uy
+    return {"by_year": by_year, "last_year": last_year_utc}
+
+
+
+
+def _hourly_breakdown(rows: list[TradeRow]) -> list[dict]:
+    """Per-JST-hour win rate (0-23). Returns a fixed 24-element list so the
+    front-end heatmap always has every slot, even hours with no trades."""
+    buckets: dict[int, list[TradeRow]] = {h: [] for h in range(24)}
+    for r in rows:
+        buckets[r.entry_hour_jst].append(r)
+    out: list[dict] = []
+    for h in range(24):
+        sub = buckets[h]
+        n = len(sub)
+        wins = sum(1 for r in sub if r.net_pts > 0.0)
+        out.append({
+            "hour": h,
+            "n": n,
+            "wins": wins,
+            "win_rate": round(wins / n, 4) if n else None,
+        })
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -439,6 +520,8 @@ def _run_one_tf(
 
     year_rows = _year_breakdown(rows)
     period = _period_split(rows)
+    hourly = _hourly_breakdown(rows)
+    trig_hist = _trigger_history(rows)
 
     log.info(
         "%s  N=%d  WR=%.2f%%  Wilson CI=[%.1f,%.1f]  Bootstrap CI=[%.1f,%.1f]  PF=%s  tier=%s",
@@ -463,6 +546,8 @@ def _run_one_tf(
         },
         "year_breakdown": year_rows,
         "period_split": period,
+        "hourly_winrate": hourly,
+        "trigger_history": trig_hist,
     }
 
 
@@ -732,6 +817,8 @@ def _flatten_for_ui(by_symbol_rich: dict) -> dict:
                 },
                 "period_split": cell["period_split"],
                 "year_breakdown": cell["year_breakdown"],
+                "hourly_winrate": cell.get("hourly_winrate", []),
+                "trigger_history": cell.get("trigger_history", {}),
             }
         out[sym] = sym_out
     return out

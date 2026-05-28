@@ -171,6 +171,12 @@ DWS_SMT_DEFAULT_BASE: Final[str] = "H4"
 DWS_SMT_PERIOD: Final[int] = 20        # .mq5 input SMT_Period — EMA for close−EMA diff
 DWS_SMT_SMOOTH: Final[int] = 5         # .mq5 input Smooth — EMA for diff smoothing
 DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
+# Kept at 96 for a readable histogram timeline (denser windows blur the
+# per-bar alignment colours + crowd the trigger markers). The analytics
+# "trigger history" table is NO LONGER read from this live window — it is
+# served separately from the 16-year offline trigger log (oos_baseline.json
+# → trigger_history) with year-based period selection, so the display window
+# and the history sample are fully decoupled.
 
 
 # --------------------------------------------------------------------------- #
@@ -189,20 +195,24 @@ VALIDATION_REFRESH_SEC: Final[float] = 300.0    # re-validate every 5 minutes
 # 20 000 M15 bars expect a few hundred trades per base, which tightens the
 # Wilson CI from ~26 pp to ~10 pp.
 VALIDATION_HISTORY_BARS: Final[int] = 20000
-# Per-timeframe FETCH depth. Each base TF needs ~16× its bar count in the next
-# higher TF to cover the same time span (the diff-mapping is a step function
-# that uses zero for base bars older than the oldest sub-TF bar — see
-# dws_smt._map_onto). Caps below are sized so every base's 3-TF stack is
-# fully covered, and D1/W1 stay within the broker's resident history (so MT5
-# never attempts the slow cold-sync that caused the original freeze).
+# Per-timeframe FETCH depth. The deep PAST (2010-2025) of the trigger-history
+# table comes from the 16Y offline backtest (oos_baseline.json); the LIVE
+# broker fetch below only needs to cover the recent window that the backtest
+# doesn't reach (2026 onward + the broker's resident overlap), which the
+# front-end CONCATENATES onto the 16Y years. D1/W1 stay capped (freeze guard).
 VALIDATION_TF_BARS: Final[dict[str, int]] = {
     "M15": 20000,    # ~7 months
     "H1":  20000,    # ~3 years
-    "H4":  10000,    # ~7 years
+    "H4":  10000,    # ~broker resident (≈3-7 years)
     "D1":   3000,    # ~12 years
     "W1":    600,    # ~11.5 years
 }
 VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ不足"
+# How many of the most-recent closed LIVE triggers each (symbol, base TF) ships
+# to the dashboard. The live feed only supplies the recent years that the 16Y
+# backtest doesn't cover (the front-end merges them), so a few hundred is
+# plenty — the broker's resident window yields at most ~400 (M15) triggers.
+VALIDATION_RECENT_TRIGGERS: Final[int] = 1000
 # Wilson score interval z for a 95 % two-sided confidence interval.
 VALIDATION_CI_Z: Final[float] = 1.96
 # The connector serialises every MT5 fetch through one lock, and a slow cold
@@ -296,7 +306,6 @@ TARGET_ANALYSIS_BUDGET_MS: Final[int] = 50  # SPEC 19 計算 50ms 以内
 # SPEC §12.1 fiat universe + XAU shown for reference only (XAU is *not*
 # included in the cross-pair averaging because there are no XAU/EUR etc.).
 FIAT_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD", "CHF", "NZD")
-GOLD_SYMBOL: Final[str] = "XAUUSD"           # SPEC §7 — primary; XAU strength derived from it
 
 # SPEC §12.2 the full 27-pair compute set. Symbols not exposed by the
 # broker are dropped from the calculation with a warning at startup.

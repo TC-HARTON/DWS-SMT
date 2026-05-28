@@ -45,8 +45,12 @@ from analyzer.line_reader import LINES, LinesState, LinesWatcher
 from analyzer.signal_validator import SignalValidator
 from analyzer.macro_feed import MacroEngine
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
-from analyzer.pattern_matcher import PatternMatcher, SymbolPatternMatches
-from analyzer.dws_smt import COLOR_UP, COLOR_DOWN
+# Pattern matcher live pipeline is currently decommissioned — the front-end
+# does not consume the results so running it every cycle wastes CPU + WS
+# bandwidth. ``analyzer.pattern_matcher`` and the JSON tables under
+# ``data/loss_analysis/`` are kept for future walk-forward-validated
+# re-introduction; re-enable by re-importing PatternMatcher here and
+# restoring ``_publish_pattern_matches`` in ``_run_analysis_pass``.
 from analyzer.state import (
     ConnectionStatus,
     LatestState,
@@ -120,9 +124,6 @@ class AnalysisLoop:
         # The real yield moves daily, so it refreshes faster than policy rates
         # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
         self._realyield_inflight = threading.Event()
-        # Pattern matcher — loads the offline-extracted XAUUSD centroid table.
-        # No-op if the JSON is missing (graceful degradation).
-        self._pattern_matcher = PatternMatcher()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -251,60 +252,8 @@ class AnalysisLoop:
         snap = IndicatorEngine.with_broker_names(snap, self._connector.resolved_symbols)
         self._state.set_analysis(snap)
 
-        self._publish_pattern_matches(bases, rates, snap)
         self._publish_structures(bases, rates, snap)
         return len(rates)
-
-    # ------------------------------------------------------ pattern match
-    def _publish_pattern_matches(
-        self,
-        bases: list[str],
-        rates: dict[tuple[str, str], pd.DataFrame],
-        snap,
-    ) -> None:
-        """Match each (supported symbol, base TF) to its nearest pattern.
-
-        The trigger DIRECTION comes from the last non-EXIT trigger inside
-        the DWS-SMT window. ``None`` / ``EXIT`` means "no direction" and
-        skips the match (patterns are direction-signed).
-        """
-        if not self._pattern_matcher.enabled:
-            return
-        out: dict[str, SymbolPatternMatches] = {}
-        for sym in self._pattern_matcher.supported_symbols:
-            if sym not in bases:
-                continue
-            sym_rates = {tf_label: df for (b, tf_label), df in rates.items() if b == sym}
-            sym_snap = snap.by_symbol.get(sym)
-            if sym_snap is None or sym_snap.dws is None:
-                continue
-            bias_by_base: dict[str, int] = {}
-            for base_tf, window in sym_snap.dws.by_base.items():
-                # Pattern shows whenever the 3-TF alignment is CURRENTLY held
-                # on the latest closed bar — not only on the bar where the
-                # alignment first formed (which is what ``window.triggers``
-                # marks: trigger fires only at state-change bars, then stays
-                # None while the same alignment continues).
-                # The user expects "if I were to enter NOW under this active
-                # alignment, what was the historical WR?" — so we derive the
-                # bias from the LATEST CLOSED bar's row colours directly.
-                # index -1 = in-progress (skip), index -2 = latest closed.
-                if window.colors.shape[0] >= 2:
-                    last_row_colors = window.colors[-2]      # shape (n_rows,)
-                    if (last_row_colors == COLOR_UP).all():
-                        bias_by_base[base_tf] = 1
-                    elif (last_row_colors == COLOR_DOWN).all():
-                        bias_by_base[base_tf] = -1
-                    else:
-                        bias_by_base[base_tf] = 0
-                else:
-                    bias_by_base[base_tf] = 0
-            matches = self._pattern_matcher.match_symbol(
-                symbol=sym, bias_by_base=bias_by_base, frames=sym_rates,
-            )
-            if matches is not None:
-                out[sym] = matches
-        self._state.set_pattern_matches(out)
 
     # ---------------------------------------------------- structure pass
     def _publish_structures(

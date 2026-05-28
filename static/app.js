@@ -39,6 +39,7 @@ const UI = {
     strengthWindow: 'H4',
     corrWindow:     100,
     dwsBase:        'H4',   // DWS-SMT base timeframe (x-axis): H4 / H1 / M15
+    trigYear:       'all',  // trigger-history period: 'all' or a JST year string
 };
 
 // ------------------------------------------------------------
@@ -192,13 +193,7 @@ function buildPanel(sym) {
             <span class="comp-score" data-bind="comp-score-${sym}" title="複合スコア = TF別シグナル × TF加重 / 正規化">--</span>
         </div>
         <div class="signals" data-bind="signals-${sym}">
-            <div class="sig-row sig-head">
-                <span>TF</span><span>TREND</span><span>EMA</span><span>ADX</span><span>DI±</span><span>RSI</span>
-            </div>
-            <div class="sig-row" data-bind="sig-D1-${sym}"></div>
-            <div class="sig-row" data-bind="sig-H4-${sym}"></div>
-            <div class="sig-row" data-bind="sig-H1-${sym}"></div>
-            <div class="sig-row" data-bind="sig-M15-${sym}"></div>
+            <div class="sig-body" data-bind="sig-body-${sym}"></div>
         </div>
         <div class="analytics" data-bind="analytics-${sym}"></div>
         <div class="dws" data-bind="dws-${sym}"></div>
@@ -650,7 +645,7 @@ function paintCalendar(snap) {
     const todayKey = nowJst.toLocaleDateString('en-CA'); // YYYY-MM-DD JST
     const tomorrowKey = new Date(nowJst.getTime() + 86400000).toLocaleDateString('en-CA');
     root.innerHTML = events.map(e => {
-        const cat = calendarCategory(e.title);
+        const cat = e.category ? catChip(e.category) : calendarCategory(e.title);
         const dateJst = new Date(e.release_ts * 1000).toLocaleDateString('en-CA');
         const day = dateJst === todayKey ? ' today' : dateJst === tomorrowKey ? ' tomorrow' : '';
         return `<div class="cal-row${day}" data-ccy="${esc(e.currency)}">
@@ -668,6 +663,13 @@ function paintCalendar(snap) {
  *  kept in sync with backend config.CALENDAR_EVENT_KEYWORDS — every event
  *  the backend lets through belongs to one of these two categories, so
  *  the fallback "指標" is a defensive net rather than a real outcome. */
+/** Map a backend category key ('emp' | 'rate' | 'oth') to its chip. Preferred
+ *  over keyword-matching the title, which is now localised to Japanese. */
+function catChip(c) {
+    if (c === 'emp')  return {cls: 'emp',  label: '雇用'};
+    if (c === 'rate') return {cls: 'rate', label: '金利'};
+    return {cls: 'oth', label: '指標'};
+}
 function calendarCategory(title) {
     const t = (title || '').toLowerCase();
     if (/payroll|nonfarm|non-farm|employment|unemploy|jobless|hourly earnings|earnings index|claimant count|jolts|adp/.test(t)) {
@@ -859,108 +861,310 @@ function pctEmaDist(close, ema) {
     return ((close - ema) / ema) * 100;
 }
 
-/** Build the ANALYTICS section — Trade Plan + Conviction Breakdown + Risk Warnings.
- *  These turn raw indicators into actionable analyst output: where to enter,
- *  stop, target, and what's contributing positively/negatively to the bias. */
+// Trigger-history year selector (全 + the years actually present in the live
+// broker history). Global state (one panel expanded at a time). Capture-phase
+// + stopPropagation so the parent .panel collapse listener never fires.
+document.addEventListener('click', (ev) => {
+    const pill = ev.target.closest('[data-trig-year]');
+    if (!pill) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    UI.trigYear = pill.dataset.trigYear;
+    delete STAMPS['sig'];
+    if (latestSnap) paintSignals(latestSnap);
+}, true);
+
+/** JST calendar year of an epoch-ms timestamp (UTC+9). */
+function jstYear(ms) {
+    return new Date(ms + 9 * 3600 * 1000).getUTCFullYear();
+}
+
+/** Analytics section = (A) live DWS-SMT trigger history (from the connected
+ *  MT5 broker, any broker; rolling period filter) + (B) 16-year hourly
+ *  win-rate heatmap. Both empirical. */
 function buildAnalytics(snap, sym) {
     const sa = snap.analysis && snap.analysis.by_symbol && snap.analysis.by_symbol[sym];
-    if (!sa || !sa.by_tf) return '';
-    const byTf = sa.by_tf;
-    const t = (snap.price && snap.price.ticks) ? snap.price.ticks[sym] : null;
-    const price = t && t.bid;
-    const ask   = t && t.ask;
-    const h4 = byTf.H4;
-    const atr = h4 && h4.atr;
-    const comp = compositeSignal(byTf);
-    const sections = [];
+    if (!sa) return '';
+    return buildRecentTriggers(snap, sym) + buildHourlyHeatmap(snap, sym);
+}
 
-    // Trade Plan removed per user direction — SL/TP suggestions were mechanical
-    // ATR-based arithmetic and not the analyst value-add.
+/** (A) DWS-SMT trigger history from the LIVE connected MT5 broker (any
+ *  broker). Sourced from the SignalValidator's deep-history fetch
+ *  (snap.validation → recent_triggers): the validator pulls a long window
+ *  straight from the broker every 5 min, runs the deterministic DWS-SMT
+ *  signal, and ships the most-recent closed triggers. The newest is featured
+ *  prominently with a relative "X時間前" stamp so "what was the last signal
+ *  and did it win?" is answered with zero scrolling. */
+function buildRecentTriggers(snap, sym) {
+    const baseTf = UI.dwsBase;
+    const head = `<div class="anlx-title">トリガー履歴 ${esc(baseTf)}`
+               + `<span class="anlx-sub">16Y バックテスト + 接続中 MT5 ライブ連結 (net pt, spread 込み)</span></div>`;
 
-    // ───── Conviction Breakdown ─────
-    // Decompose the composite per-TF so the sum mathematically equals the
-    // displayed score. Formula: composite = Σ(tfSig.code × weight) / (2×Σweight) × 10
-    // ⇒ each TF's contribution = (tfSig.code × weight) / (2×Σweight) × 10
-    const totalWeight = TF_LABELS.reduce(
-        (s, l) => s + (byTf[l] && byTf[l].rsi != null && byTf[l].adx != null ? TF_WEIGHTS[l] : 0),
-        0
-    );
-    const factors = TF_LABELS.map(tf => {
-        const tx = byTf[tf];
-        if (!tx || tx.rsi == null || tx.adx == null) {
-            return { name: tf, score: 0, cls: 'na', hasData: false };
-        }
-        const sig = tfSignal(tx);
-        const weight = TF_WEIGHTS[tf];
-        const tfac = tfTrendFactor(tx);                  // regime gate 0..1
-        const contrib = totalWeight > 0
-            ? (sig.code * weight * tfac) / (2 * totalWeight) * 10
-            : 0;
-        return {
-            name: tf, score: contrib, cls: sig.cls, hasData: true,
-            label: sig.label, weight, tfac,
-            adx: tx.adx, adxState: tx.adx >= 25 ? 'トレンド' : 'レンジ',
-            rsi: tx.rsi,
-        };
+    // --- Two sources, concatenated by year ---
+    // CSV backtest owns the deep past (through its UTC last_year, 2025); the
+    // LIVE broker feed owns the years beyond that (2026+). The boundary is the
+    // backtest's FIXED last_year (UTC) — never a per-cell max — so a stray
+    // JST-boundary trade can't let the backtest hijack & suppress live 2026.
+    const th = snap.oos_baseline?.by_symbol?.[sym]?.[baseTf]?.trigger_history || {};
+    const csvYearsRaw = th.by_year || {};
+    const liveRt = snap.validation?.by_symbol?.[sym]?.[baseTf]?.raw?.recent_triggers || [];
+
+    const csvLastYear = th.last_year
+        || (Object.keys(csvYearsRaw).length ? Math.max(...Object.keys(csvYearsRaw).map(Number)) : 0);
+
+    // CSV owns years ≤ last_year; drop any stray JST-spill year above it.
+    const csvYears = {};
+    for (const [y, rec] of Object.entries(csvYearsRaw)) {
+        if (Number(y) <= csvLastYear) csvYears[y] = rec;
+    }
+    const csvYearNums = Object.keys(csvYears).map(Number);
+
+    // Live owns years strictly after the backtest's last_year.
+    const liveByYear = {};
+    for (const t of liveRt) {
+        const y = jstYear(t.t);
+        if (y <= csvLastYear) continue;       // backtest owns these years
+        (liveByYear[y] ||= []).push(t);
+    }
+
+    // Per-year record: {n, wins, losses, cum, gw, gl, nOpen, trades:[{t,d,p,o}], src}
+    // n / wins / losses / cum / gw / gl are REALISED (closed) only — an open
+    // trigger has no settled outcome, so counting it would corrupt the win
+    // rate / PF. It still rides along in `trades` (tagged o:true) so the
+    // トリガー履歴 list shows it the moment it fires.
+    const liveStats = (arr) => {
+        const ts = arr.slice().sort((a, b) => b.t - a.t);
+        const closed = ts.filter(t => !t.o);
+        const wins = closed.filter(t => t.p > 0).length;
+        const gw = closed.filter(t => t.p > 0).reduce((s, t) => s + t.p, 0);
+        const gl = Math.abs(closed.filter(t => t.p < 0).reduce((s, t) => s + t.p, 0));
+        return { n: closed.length, wins, losses: closed.length - wins,
+                 cum: closed.reduce((s, t) => s + t.p, 0), gw, gl,
+                 nOpen: ts.length - closed.length,
+                 trades: ts.slice(0, 30), src: 'live' };
+    };
+    const csvStats = (c) => ({
+        n: c.n, wins: c.wins, losses: c.losses, cum: c.cum_pts,
+        gw: c.gross_win || 0, gl: c.gross_loss || 0, nOpen: 0,
+        trades: c.trades || [], src: '16Y',
     });
+    const yearRecord = (y) => liveByYear[y]
+        ? liveStats(liveByYear[y])
+        : (csvYears[String(y)] ? csvStats(csvYears[String(y)]) : null);
 
-    // Fixed-column table (header + one row per TF) so every field — 寄与 /
-    // シグナル / 重み / ADX / RSI — lines up vertically across the four rows.
-    const bdHead = `<div class="anlx-bd-row anlx-bd-head">`
-        + `<span>TF</span><span>寄与</span><span>シグナル</span>`
-        + `<span>重み</span><span>ADX</span><span>RSI</span></div>`;
-    const breakdownHtml = bdHead + factors.map(f => {
-        const sign = f.score >= 0 ? '+' : '';
-        if (!f.hasData) {
-            return `<div class="anlx-bd-row na">
-                <span class="bd-tf">${f.name}</span><span class="bd-score">--</span>
-                <span class="bd-sig">データなし</span><span class="bd-dim">--</span>
-                <span class="bd-dim">--</span><span class="bd-dim">--</span>
+    const allYears = [...new Set([...csvYearNums, ...Object.keys(liveByYear).map(Number)])]
+        .sort((a, b) => b - a);
+
+    if (!allYears.length) {
+        return `<div class="anlx-block anlx-triggers">${head}
+            <div class="rt-empty">履歴データ取得待ち (ライブ検証は起動後 ~90 秒)</div>
+        </div>`;
+    }
+
+    let year = UI.trigYear || 'all';
+    if (year !== 'all' && !allYears.includes(Number(year))) year = 'all';
+
+    const yearPill = (val, label, extra) =>
+        `<span class="rt-period-pill${String(year) === String(val) ? ' on' : ''}${extra || ''}" `
+      + `data-trig-year="${val}">${esc(label)}</span>`;
+    const pills = yearPill('all', '全')
+        + allYears.map(y => yearPill(y, String(y), liveByYear[y] ? ' is-live' : '')).join('');
+
+    // Resolve the displayed summary + list for the selected period.
+    let n, wins, losses, cum, gw, gl, nOpen, trades, srcLabel;
+    if (year === 'all') {
+        n = wins = losses = cum = gw = gl = nOpen = 0;
+        for (const y of allYears) {
+            const r = yearRecord(y); if (!r) continue;
+            n += r.n; wins += r.wins; losses += r.losses; cum += r.cum;
+            gw += r.gw; gl += r.gl; nOpen += r.nOpen || 0;
+        }
+        // List for 全 = newest year's trades (carries the open trigger).
+        const newestRec = yearRecord(allYears[0]) || { trades: [] };
+        trades = newestRec.trades;
+        srcLabel = `2010–${allYears[0]} 連結`;
+    } else {
+        const r = yearRecord(Number(year)) || { n:0,wins:0,losses:0,cum:0,gw:0,gl:0,nOpen:0,trades:[] };
+        ({ n, wins, losses, cum, gw, gl, nOpen, trades } = r);
+        srcLabel = liveByYear[Number(year)] ? `${year} (ライブ)` : `${year} (16Y)`;
+    }
+    const winLabel = year === 'all' ? '全' : `${year}年`;
+    const pf = gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0);
+    const wrTxt = n ? (wins / n * 100).toFixed(1) + '%' : '--';
+    const pfTxt = pf === Infinity ? '∞' : pf.toFixed(2);
+    const cumCls = cum > 0 ? 'pos' : cum < 0 ? 'neg' : '';
+    // 保有中 (open) triggers are shown but kept out of the realised tally.
+    const openNote = nOpen ? ` · <b class="rt-open-count">保有中 ${nOpen.toLocaleString('en-US')}</b>` : '';
+
+    const listRows = trades.map((t, i) => {
+        const dirCls = t.d > 0 ? 'buy' : 'sell';
+        const dTxt = t.d > 0 ? 'BUY' : 'SELL';
+        const pTxt = `${t.p >= 0 ? '+' : ''}${fmtPtsCompact(t.p)}`;
+        if (t.o) {
+            // Still-running trigger: floating P/L, not a settled win/loss.
+            return `<div class="rt-row open newest">
+                <span class="rt-time"><span class="rt-open-tag">保有中</span>${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span>
+                <span class="rt-dir ${dirCls}">${dTxt}</span>
+                <span class="rt-wl open">保有</span>
+                <span class="rt-pts muted" title="含み損益 (未確定)">${pTxt}</span>
             </div>`;
         }
-        return `<div class="anlx-bd-row ${f.cls}">
-            <span class="bd-tf">${f.name}</span>
-            <span class="bd-score">${sign}${f.score.toFixed(2)}</span>
-            <span class="bd-sig">${f.label}</span>
-            <span class="bd-dim">${f.weight}×</span>
-            <span class="bd-dim">${f.adx.toFixed(0)} ${f.adxState}`
-            + `${f.tfac < 1 ? ' <span class="bd-gate">×' + f.tfac.toFixed(1) + '</span>' : ''}</span>
-            <span class="bd-dim">${f.rsi.toFixed(0)}</span>
+        const w = t.p > 0;
+        const newest = i === 0 ? ' newest' : '';
+        const tag = i === 0 ? '<span class="rt-newest-tag">最新</span>' : '';
+        return `<div class="rt-row ${w ? 'win' : 'loss'}${newest}">
+            <span class="rt-time">${tag}${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span>
+            <span class="rt-dir ${dirCls}">${dTxt}</span>
+            <span class="rt-wl ${w ? 'win' : 'loss'}">${w ? '✓' : '✗'}</span>
+            <span class="rt-pts ${w ? 'pos' : 'neg'}">${pTxt}</span>
+        </div>`;
+    }).join('') || `<div class="rt-empty">${esc(winLabel)}内のトリガーなし</div>`;
+
+    return `<div class="anlx-block anlx-triggers">${head}
+        <div class="rt-periods">${pills}</div>
+        <div class="rt-summary rt-summary-top">
+            <b>${esc(winLabel)} 確定 ${n.toLocaleString('en-US')} 件</b>:
+            勝率 <b>${wrTxt}</b>
+            · <b class="pos">${wins.toLocaleString('en-US')}勝</b> <b class="neg">${losses.toLocaleString('en-US')}敗</b>
+            · PF <b>${pfTxt}</b>
+            · 累積 <b class="${cumCls}">${cum >= 0 ? '+' : ''}${fmtPtsCompact(cum)}</b>${openNote}
+        </div>
+        <div class="rt-table">
+            <div class="rt-row rt-head">
+                <span class="rt-time">時刻 (JST) · 新しい順</span>
+                <span class="rt-dir">方向</span>
+                <span class="rt-wl">結果</span>
+                <span class="rt-pts">net pt</span>
+            </div>
+            <div class="rt-scroll">${listRows}</div>
+        </div>
+        <div class="rt-listnote">${esc(srcLabel)} · 青年=ライブ / 灰年=16Yバックテスト</div>
+    </div>`;
+}
+
+/** Compact points formatter — keeps the huge XAUUSD/JPY point magnitudes
+ *  readable: 1,660 → "1,660", 192,670 → "193k", 6,966,271 → "6.97M".
+ *  Sign is handled by the caller. */
+function fmtPtsCompact(v) {
+    const a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (a >= 1e4) return Math.round(v / 1e3) + 'k';
+    return Math.round(v).toLocaleString('en-US');
+}
+
+/** (B) 16-year hourly win-rate heatmap for the selected base TF. Reads the
+ *  static oos_baseline.json ``hourly_winrate`` (24 JST-hour buckets). Cells
+ *  are coloured red→amber→green by win rate; the current JST hour is ringed
+ *  so the user sees "are we in a statistically good hour right now?". */
+function buildHourlyHeatmap(snap, sym) {
+    const base = snap.oos_baseline?.by_symbol?.[sym]?.[UI.dwsBase];
+    const hourly = base && base.hourly_winrate;
+    if (!Array.isArray(hourly) || !hourly.length) return '';
+    const popWr = base.win_rate;                  // population WR for reference
+    const nowJst = (() => {
+        const d = new Date(Date.now() + 9 * 3600 * 1000);
+        return d.getUTCHours();
+    })();
+    // Colour scale anchored on the population WR: at/above pop → green ramp,
+    // below → red ramp. Keeps the heatmap honest (a 40 % hour isn't "good" in
+    // absolute terms, it's just at this symbol's baseline).
+    const cellColor = (wr) => {
+        if (wr == null) return 'rgba(255,255,255,0.05)';
+        const d = wr - popWr;                     // deviation from baseline
+        const t = Math.max(-1, Math.min(1, d / 0.10));   // ±10pp saturates
+        if (t >= 0) {
+            const a = 0.15 + t * 0.55;
+            return `rgba(56,161,105,${a.toFixed(3)})`;     // green
+        }
+        const a = 0.15 + (-t) * 0.55;
+        return `rgba(229,62,62,${a.toFixed(3)})`;          // red
+    };
+    const cells = hourly.map(h => {
+        const wr = h.win_rate;
+        const isNow = h.hour === nowJst;
+        const wrTxt = wr == null ? '--' : Math.round(wr * 100);
+        const title = wr == null
+            ? `${h.hour}時 JST — データなし`
+            : `${h.hour}時 JST — WR ${(wr*100).toFixed(1)}% (N=${h.n}、母集団比 ${((wr-popWr)*100>=0?'+':'')}${((wr-popWr)*100).toFixed(1)}pp)`;
+        return `<div class="hm-cell${isNow ? ' is-now' : ''}"
+                     style="background:${cellColor(wr)}" title="${esc(title)}">
+            <span class="hm-hour">${String(h.hour).padStart(2,'0')}</span>
+            <span class="hm-wr">${wrTxt}</span>
         </div>`;
     }).join('');
+    return `<div class="anlx-block anlx-heatmap">
+        <div class="anlx-title">時刻別勝率 ${esc(UI.dwsBase)}
+            <span class="anlx-sub">16Y OOS・JST時刻別 (母集団 WR ${(popWr*100).toFixed(1)}% 基準で配色、■=現在)</span>
+        </div>
+        <div class="hm-grid">${cells}</div>
+    </div>`;
+}
 
-    // Sum verification (will exactly equal composite due to per-TF decomposition)
-    const sumCheck = factors.reduce((s, f) => s + f.score, 0);
-    sections.push(`
-        <div class="anlx-block">
-            <div class="anlx-title">確信度の内訳
-                <span class="anlx-sub">(各TF寄与の合計 = ${sumCheck >= 0 ? '+' : ''}${sumCheck.toFixed(2)} = 複合スコア ${comp.score >= 0 ? '+' : ''}${comp.score.toFixed(2)}/10)</span>
-            </div>
-            <div class="anlx-breakdown">${breakdownHtml}</div>
-        </div>`);
 
-    // ───── Risk Warnings ─────
-    const warns = [];
-    for (const tf of TF_LABELS) {
-        const tx = byTf[tf];
-        if (!tx) continue;
-        if (tx.rsi != null && tx.rsi >= 75) warns.push(`${tf} RSI ${tx.rsi.toFixed(1)} — 極端な過熱 (反転下落リスク)`);
-        if (tx.rsi != null && tx.rsi <= 25) warns.push(`${tf} RSI ${tx.rsi.toFixed(1)} — 極端な売られすぎ (反転上昇リスク)`);
-    }
-    if (ask != null && price != null) {
-        const sp = (ask - price) * pipMultiplierFor(sym);
-        if (sp > 5) warns.push(`スプレッド ${sp.toFixed(1)} pip — 取引コスト高 (流動性低 or イベント直前)`);
-    }
-    if (Math.abs(comp.score) < 2) warns.push(`複合 BIAS ±${Math.abs(comp.score).toFixed(1)} — 確信度不足 (見送り推奨)`);
-    if (warns.length) {
-        sections.push(`
-            <div class="anlx-block warn">
-                <div class="anlx-title warn">⚠ リスク警告</div>
-                ${warns.map(w => `<div class="anlx-warn">${w}</div>`).join('')}
-            </div>`);
-    }
+// -- Per-cell formatters (shared by both signal-table modes) -------------- //
+// Each returns {txt, cls} so layout code can drop them into either grid.
+function _sigCellEma(tf) {
+    if (!tf) return { txt: '--', cls: 'num na' };
+    const dist = pctEmaDist(tf.last_close, tf.ema);
+    if (dist == null) return { txt: '--', cls: 'num' };
+    return {
+        txt: (dist > 0 ? '+' : '') + dist.toFixed(2) + '%',
+        cls: dist > 0 ? 'num pos' : 'num neg',
+    };
+}
+function _sigCellAdx(tf) {
+    if (!tf || tf.adx == null) return { txt: '--', cls: 'num na' };
+    return {
+        txt: tf.adx.toFixed(1),
+        cls: 'num' + (tf.adx >= 25 ? ' strong' : ''),
+    };
+}
+function _sigCellDi(tf) {
+    if (!tf || tf.di_plus == null || tf.di_minus == null)
+        return { txt: '--', cls: 'num na' };
+    const di = tf.di_plus - tf.di_minus;
+    return {
+        txt: (di > 0 ? '+' : '') + di.toFixed(1),
+        cls: 'num' + (Math.abs(di) >= 5 ? (di > 0 ? ' pos' : ' neg') : ''),
+    };
+}
+function _sigCellRsi(tf) {
+    if (!tf || tf.rsi == null) return { txt: '--', cls: 'num na' };
+    return {
+        txt: tf.rsi.toFixed(1),
+        cls: 'num' + (tf.rsi >= 70 || tf.rsi <= 30 ? ' warn' : ''),
+    };
+}
 
-    return sections.join('');
+/** Mode 1 (default, original): rows = TFs, columns = indicators. */
+function _renderSignalsByTf(body, byTf) {
+    const head = `<div class="sig-row sig-head">
+        <span>TF</span><span>TREND</span><span>EMA</span><span>ADX</span>
+        <span>DI±</span><span>RSI</span>
+    </div>`;
+    const rows = TF_LABELS.map(tfLabel => {
+        const tf = byTf && byTf[tfLabel];
+        if (!tf) {
+            return `<div class="sig-row na">
+                <span class="tf">${tfLabel}</span>
+                <span class="trend na">--</span>
+                <span class="num">--</span><span class="num">--</span>
+                <span class="num">--</span><span class="num">--</span>
+            </div>`;
+        }
+        const sig = tfSignal(tf);
+        const ema = _sigCellEma(tf), adx = _sigCellAdx(tf);
+        const di  = _sigCellDi(tf),  rsi = _sigCellRsi(tf);
+        return `<div class="sig-row ${sig.cls}">
+            <span class="tf">${tfLabel}</span>
+            <span class="trend ${sig.cls}">${sig.label}</span>
+            <span class="${ema.cls}">${ema.txt}</span>
+            <span class="${adx.cls}">${adx.txt}</span>
+            <span class="${di.cls}">${di.txt}</span>
+            <span class="${rsi.cls}">${rsi.txt}</span>
+        </div>`;
+    }).join('');
+    body.innerHTML = head + rows;
 }
 
 function paintSignals(snap) {
@@ -972,55 +1176,16 @@ function paintSignals(snap) {
     for (const sym of SYMBOL_ORDER) {
         const sa = analysis.by_symbol[sym];
         const byTf = sa && sa.by_tf;
-        for (const tfLabel of TF_LABELS) {
-            const row = $bind(`sig-${tfLabel}-${sym}`);
-            if (!row) continue;
-            const tf = byTf && byTf[tfLabel];
-            if (!tf) {
-                row.innerHTML = `<span class="tf">${tfLabel}</span>
-                    <span class="trend na">--</span>
-                    <span class="num">--</span>
-                    <span class="num">--</span>
-                    <span class="num">--</span>`;
-                row.className = 'sig-row na';
-                continue;
-            }
-            const sig = tfSignal(tf);
-            const rsi = tf.rsi != null ? tf.rsi.toFixed(1) : '--';
-            const adx = tf.adx != null ? tf.adx.toFixed(1) : '--';
-            const adxBadge = (tf.adx != null && tf.adx >= 25) ? ' strong' : '';
-            const dist = pctEmaDist(tf.last_close, tf.ema);
-            const distStr = dist == null ? '--' : (dist > 0 ? '+' : '') + dist.toFixed(2) + '%';
-            const emaCls = dist == null ? 'num' : (dist > 0 ? 'num pos' : 'num neg');
-            // DI± spread (DI+ minus DI-) — sign shows dominant side
-            const di = (tf.di_plus != null && tf.di_minus != null)
-                ? tf.di_plus - tf.di_minus : null;
-            const diStr = di == null ? '--' : (di > 0 ? '+' : '') + di.toFixed(1);
-            const diCls = di == null ? 'num'
-                        : Math.abs(di) >= 5 ? (di > 0 ? 'num pos' : 'num neg')
-                        : 'num';
-            // Indicator-state coloring: extreme RSI as warning.
-            const rsiCls = tf.rsi == null ? 'num'
-                         : tf.rsi >= 70 ? 'num warn'
-                         : tf.rsi <= 30 ? 'num warn'
-                         : 'num';
-            row.innerHTML = `
-                <span class="tf">${tfLabel}</span>
-                <span class="trend ${sig.cls}">${sig.label}</span>
-                <span class="${emaCls}">${distStr}</span>
-                <span class="num${adxBadge}">${adx}</span>
-                <span class="${diCls}">${diStr}</span>
-                <span class="${rsiCls}">${rsi}</span>`;
-            row.className = `sig-row ${sig.cls}`;
-        }
+        const body = $bind('sig-body-' + sym);
+        if (body) _renderSignalsByTf(body, byTf);
         // Composite badge
         const comp = compositeSignal(byTf);
-        const wrap = $bind(`composite-${sym}`);
+        const compWrap = $bind(`composite-${sym}`);
         const arrow = $bind(`comp-arrow-${sym}`);
         const text  = $bind(`comp-text-${sym}`);
         const score = $bind(`comp-score-${sym}`);
         const fill  = $bind(`comp-fill-${sym}`);
-        if (wrap)  wrap.className  = 'composite ' + comp.cls;
+        if (compWrap)  compWrap.className  = 'composite ' + comp.cls;
         if (arrow) arrow.textContent = comp.arrow;
         if (text)  text.textContent  = comp.label;
         if (score) score.textContent =
@@ -1038,7 +1203,8 @@ function paintSignals(snap) {
                 fill.className = 'comp-gauge-fill ' + (comp.score <= -7 ? 'sell strong' : 'sell');
             }
         }
-        // Analytics section (Conviction Breakdown + Warnings)
+        // Analytics section: intentionally blank — indicator charts were
+        // removed per user direction. The .analytics div renders empty.
         const analytics = $bind(`analytics-${sym}`);
         if (analytics) analytics.innerHTML = buildAnalytics(snap, sym);
         // Panel activity glow now driven by composite signal strength
@@ -1281,9 +1447,12 @@ function ensureDwsSkeleton(sym) {
             UI.dwsBase = btn.dataset.dws;
             document.querySelectorAll('.dws-pills .pill').forEach(p =>
                 p.classList.toggle('on', p.dataset.dws === UI.dwsBase));
-            // Force a redraw despite the paintDws memoization gate.
+            // Force a redraw despite the paintDws / paintSignals memoization
+            // gates — the hourly heatmap in analytics follows the selected
+            // base TF, so it must re-render on a TF switch too.
             delete STAMPS['dws'];
-            if (latestSnap) paintDws(latestSnap);
+            delete STAMPS['sig'];
+            if (latestSnap) { paintDws(latestSnap); paintSignals(latestSnap); }
         };
     });
     host.dataset.built = '1';

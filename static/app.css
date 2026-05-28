@@ -34,13 +34,15 @@
     --tier-insufficient: #4a4f5c;
 
     /* --- Type scale (7-step, pick from these only) --------------------- */
-    --text-3xs:     9px;    /* micro caps inside dense badges */
-    --text-2xs:     10px;   /* table footnote / pill labels */
-    --text-xs:      11px;   /* row text in dense tables */
-    --text-sm:      12px;   /* body / card titles */
-    --text-md:      14px;   /* emphasised values */
-    --text-lg:      16px;   /* hero numbers (acc Equity, P&L) */
-    --text-xl:      20px;   /* P&L when hero, stat-val */
+    /* Scale bumped up for readability — every size lives here so the whole
+       app grows together; tune these, not individual rules. */
+    --text-3xs:     11px;   /* micro caps inside dense badges */
+    --text-2xs:     12px;   /* table footnote / pill labels */
+    --text-xs:      13px;   /* row text in dense tables */
+    --text-sm:      14px;   /* body / card titles */
+    --text-md:      16px;   /* emphasised values */
+    --text-lg:      19px;   /* hero numbers (acc Equity, P&L) */
+    --text-xl:      24px;   /* P&L when hero, stat-val */
 
     /* --- Weight scale (4-step) ----------------------------------------- */
     --weight-normal: 500;
@@ -62,8 +64,11 @@
     --track-normal: 0.08em;
     --track-loose:  0.14em;
 
+    /* --- Layout -------------------------------------------------------- */
+    --side-w:       370px;    /* right sidebar (account/calendar/macro) width */
+
     /* --- Shape & motion ------------------------------------------------ */
-    --gap:          8px;     /* legacy alias for --space-4 */
+    --gap:var(--space-4);     /* legacy alias for --space-4 */
     --radius:       6px;
     --radius-sm:    4px;     /* tags, chips, micro pills */
 
@@ -78,11 +83,11 @@
    applyDisplayFit() in app.js. The HTML element holds the dark background
    for any letterbox area; transform-origin keeps the scaled body anchored
    to the top-left. */
-html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--bg); }
+html { margin:0; padding:0; height: 100%; overflow: hidden; background: var(--bg); }
 /* Single body block — was previously declared twice with conflicting props
    (legacy A: typography; legacy B: grid layout). Merged for clarity. */
 body {
-    margin: 0;
+    margin:0;
     transform-origin: top left;
     background: var(--bg);
     color: var(--fg);
@@ -91,9 +96,18 @@ body {
     line-height: 1.4;
     overflow: hidden;
     display: grid;
+    /* Right sidebar (account/calendar/macro) spans the middle + bottom rows so
+       it runs the full height — more room — while the bottom strength /
+       correlation row stays under the main column, lining up exactly with the
+       expanded panel's two halves (①②). */
+    grid-template-columns: 1fr var(--side-w);
     grid-template-rows: 56px 1fr 280px;
-    gap: var(--gap);
-    padding: var(--gap);
+    grid-template-areas:
+        "header header"
+        "main   side"
+        "bottom side";
+    gap:var(--gap);
+    padding:var(--gap);
     /* Pre-JS fallback so the page is not broken if the script is slow;
        applyDisplayFit() overrides width / height / transform inline. */
     width: 100vw;
@@ -120,46 +134,47 @@ body {
 }
 
 /* ============================================================
-   Layout: header / main (grid 1fr + 320px aside) / footer (50/50)
+   Layout: body grid — header (full width) / main (1fr) + side
+   (var(--side-w), spans middle+bottom rows) / bottom (under main, 50/50)
    ============================================================ */
 
 .hdr {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 0 var(--gap);
+    padding:0 var(--gap);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 14px;
+    gap:14px;
 }
-.hdr-brand { display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; }
+.hdr-brand { display: flex; align-items: baseline; gap:var(--space-4); flex: 0 0 auto; }
 
 /* Active Setups strip — the headline answer to "act now?". Made
    intentionally loud: the strip is where the trader looks first. */
 .hdr-active {
     flex: 1 1 auto;
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap:14px;
     overflow: hidden;
 }
 .hdr-active .active-label {
     font-size: var(--text-xs); letter-spacing: var(--track-loose); font-weight: var(--weight-heavy);
     color: var(--warning); text-transform: uppercase;
     white-space: nowrap;
-    padding: 3px 8px;
+    padding:3px var(--space-4);
     border-radius: var(--radius-sm);
     background: rgba(255, 183, 77, 0.12);
 }
 .hdr-active .active-chips {
-    display: flex; gap: 10px; flex-wrap: nowrap; overflow: hidden;
+    display: flex; gap:10px; flex-wrap: nowrap; overflow: hidden;
     flex: 1 1 auto;
 }
 .hdr-active .active-empty {
     color: var(--fg-2); font-size: var(--text-sm);
 }
 .active-chip {
-    display: inline-flex; align-items: center; gap: 7px;
-    padding: 5px 12px;
+    display: inline-flex; align-items: center; gap:7px;
+    padding:5px var(--space-5);
     border-radius: 16px;
     font-family: var(--mono); font-weight: var(--weight-bold); font-size: var(--text-md);
     background: var(--panel-2);
@@ -208,29 +223,36 @@ body {
     color: var(--accent);
     letter-spacing: var(--track-tight);
 }
-.hdr-stats { display: flex; gap: var(--space-7); }
-.stat { display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
+.hdr-stats { display: flex; gap:var(--space-7); }
+.stat { display: flex; flex-direction: column; gap:var(--space-1); min-width: 90px; }
 .stat-label {
     font-size: var(--text-3xs); letter-spacing: var(--track-loose);
     font-weight: var(--weight-medium);
-    color: var(--fg-2); text-transform: uppercase;
+    color: var(--fg-3); text-transform: uppercase;   /* muted label vs bright .stat-val */
 }
 .stat-val {
     font-family: var(--mono); font-size: var(--text-lg); font-weight: var(--weight-normal);
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap:var(--space-3);
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.on  { background: var(--buy);  box-shadow: 0 0 8px var(--buy); }
 .dot.off { background: var(--sell); box-shadow: 0 0 8px var(--sell); }
 
 /* ============================================================
-   Main: symbols grid + account aside
+   Main: symbols grid (the account/calendar/macro aside is a body-level
+   column — see the body grid areas above, not nested here)
    ============================================================ */
+
+/* Body-level grid placement (areas defined on <body>). */
+.hdr    { grid-area: header; }
+.grid   { grid-area: main; }
+.side   { grid-area: side; }
+.bottom { grid-area: bottom; }
 
 .grid {
     display: grid;
-    grid-template-columns: 1fr 330px;
-    gap: var(--gap);
+    grid-template-columns: 1fr;   /* sidebar is now a body-level column */
+    gap:var(--gap);
     min-height: 0;
 }
 /* 4×2 panel grid — row 1 = 金 + USD majors, row 2 = JPY crosses.
@@ -240,7 +262,7 @@ body {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: var(--gap);
+    gap:var(--gap);
     min-height: 0;
     overflow: hidden;
 }
@@ -253,7 +275,7 @@ body {
 .symbols.has-expanded .panel:not(.expanded) { display: none; }
 
 .side {
-    display: flex; flex-direction: column; gap: var(--gap);
+    display: flex; flex-direction: column; gap:var(--gap);
     min-height: 0; overflow: hidden;
 }
 
@@ -266,8 +288,8 @@ body {
     border: 1px solid var(--border);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    padding: 8px 12px 8px 11px;     /* trim left pad 1 px so the 3 px bar doesn't expand the inner area */
-    display: flex; flex-direction: column; gap: 6px;
+    padding:var(--space-4) var(--space-5) var(--space-4) 11px;     /* trim left pad 1 px so the 3 px bar doesn't expand the inner area */
+    display: flex; flex-direction: column; gap:var(--space-3);
     min-height: 0;
     transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -289,7 +311,7 @@ body {
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
     text-transform: uppercase;
     border-bottom: 1px solid var(--border);
-    padding-bottom: 4px;
+    padding-bottom:var(--space-2);
 }
 .title-accent { color: var(--accent); }
 
@@ -301,8 +323,8 @@ body {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 8px 10px;
-    display: flex; flex-direction: column; gap: 5px;
+    padding:var(--space-4) 10px;
+    display: flex; flex-direction: column; gap:5px;
     min-height: 0; overflow: hidden;
     transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
     cursor: pointer;
@@ -331,7 +353,7 @@ body {
 
 .panel-head {
     display: flex; justify-content: space-between; align-items: baseline;
-    gap: 8px; flex-wrap: nowrap;
+    gap:var(--space-4); flex-wrap: nowrap;
 }
 .panel-sym {
     font-weight: var(--weight-bold);
@@ -341,7 +363,7 @@ body {
 }
 
 .quote {
-    display: flex; gap: 8px; align-items: baseline;
+    display: flex; gap:var(--space-4); align-items: baseline;
     font-family: var(--mono); font-weight: var(--weight-medium);
     font-size: var(--text-md);
     overflow: hidden;
@@ -352,7 +374,7 @@ body {
     font-size: var(--text-3xs); letter-spacing: var(--track-loose);
     color: var(--fg-2);
     text-transform: uppercase; font-weight: var(--weight-medium);
-    margin-right: 3px;
+    margin-right:3px;
 }
 .quote .spread {
     color: var(--fg-muted); font-weight: 500;
@@ -370,9 +392,9 @@ body {
     color: var(--fg);
     background: var(--panel-2);
     border-left: 3px solid var(--fg-dim);
-    padding: 4px 8px;
+    padding:var(--space-2) var(--space-4);
     border-radius: var(--radius);
-    font-size: 12px;
+    font-size: var(--text-sm);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .panel.active .hero {
@@ -386,8 +408,8 @@ body {
 /* Bias chip */
 .bias {
     font-family: var(--mono);
-    font-size: 11px; font-weight: 700;
-    padding: 3px 6px;
+    font-size: var(--text-xs); font-weight: 700;
+    padding:3px var(--space-3);
     background: var(--panel-2);
     border-radius: var(--radius);
     border-left: 3px solid var(--fg-dim);
@@ -409,8 +431,8 @@ body {
     border: 1px solid var(--border);
     border-radius: 4px;
     font-family: var(--mono); font-weight: 800;
-    font-size: 16px;
-    padding: 4px 10px;
+    font-size: var(--text-lg);
+    padding:var(--space-2) 10px;
     cursor: pointer;
     line-height: 1;
 }
@@ -425,10 +447,10 @@ body {
     display: grid;
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
-    column-gap: 12px;
+    column-gap:var(--space-5);
     font-family: var(--mono);
     font-size: var(--text-sm);
-    padding: 5px 10px;
+    padding:5px 10px;
     background: var(--panel-2);
     border-radius: var(--radius);
     /* Normalised to 3px left accent so the composite sits flush with the
@@ -442,7 +464,7 @@ body {
     color: var(--fg-2); text-transform: uppercase;
 }
 .composite .comp-main {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap:var(--space-4);
 }
 .composite .comp-arrow { font-weight: var(--weight-heavy); font-size: var(--text-lg); line-height: 1; }
 .composite .comp-text  { font-weight: var(--weight-bold); letter-spacing: var(--track-tight); }
@@ -452,7 +474,7 @@ body {
 /* Score gauge — shows -10 ... +10 as a horizontal bar. */
 .composite .comp-gauge {
     display: flex; flex-direction: column;
-    gap: 1px;
+    gap:1px;
     align-self: center;
 }
 .comp-gauge-track {
@@ -481,7 +503,7 @@ body {
     display: flex; justify-content: space-between;
     font-size: var(--text-3xs); color: var(--fg-3);
     letter-spacing: var(--track-tight); font-weight: var(--weight-medium);
-    padding: 0 1px;
+    padding:0 1px;
 }
 
 /* ============================================================
@@ -490,7 +512,7 @@ body {
    ============================================================ */
 .analytics { display: none; }
 .panel.expanded .analytics {
-    display: flex; flex-direction: column; gap: 12px;
+    display: flex; flex-direction: column; gap:var(--space-5);
     overflow-y: auto;
     min-height: 0;
 }
@@ -499,32 +521,45 @@ body {
     /* Normalised to 3px to match .card / .composite border-bar discipline. */
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    padding: 10px 14px;
+    padding: var(--space-5) var(--space-6);
+    display: flex;
+    flex-direction: column;
+    /* Content-sized — do NOT flex-grow. The old indicator-chart grid wanted to
+       fill the column; the current trigger-history + heatmap blocks are
+       content-height, so growing only injected dead space below short blocks. */
+    flex: 0 0 auto;
 }
-.anlx-block.warn { border-left-color: var(--warning); }
+/* In the expanded panel the analytics column is as tall as the right-hand
+   OOS / histogram column. Let the trigger-history block absorb that slack and
+   reveal MORE history rows (value) while the heatmap stays content-height
+   below it — instead of leaving a dead void under the short blocks. */
+.panel.expanded .anlx-triggers { flex: 1 1 auto; min-height: 0; }
+.panel.expanded .anlx-triggers .rt-table { flex: 1 1 auto; min-height: 0; }
+.panel.expanded .anlx-triggers .rt-scroll {
+    flex: 1 1 auto; min-height: 0; max-height: none;
+}
 .anlx-title {
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
     color: var(--fg); text-transform: uppercase;
-    margin-bottom: 6px;
+    margin-bottom:var(--space-3);
     border-bottom: 1px solid var(--border);
-    padding-bottom: 4px;
+    padding-bottom:var(--space-2);
 }
-.anlx-title.warn { color: var(--warning); }
 .anlx-title .anlx-sub {
     font-size: var(--text-xs); font-weight: var(--weight-normal); letter-spacing: 0;
     color: var(--fg-2); text-transform: none;
-    margin-left: 8px;
+    margin-left:var(--space-4);
 }
 .anlx-grid.trade {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 8px;
+    gap:var(--space-4);
 }
 .anlx-cell {
     background: var(--bg-soft);
     border-radius: var(--radius-sm);
-    padding: 6px 8px;
-    display: flex; flex-direction: column; gap: 3px;
+    padding:var(--space-3) var(--space-4);
+    display: flex; flex-direction: column; gap:3px;
 }
 .anlx-cell .lbl {
     font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
@@ -535,66 +570,9 @@ body {
     color: var(--fg);
 }
 .anlx-cell .val small { font-size: var(--text-2xs); color: var(--fg-2);
-                        font-weight: var(--weight-normal); margin-left: 4px; }
+                        font-weight: var(--weight-normal); margin-left:var(--space-2); }
 .anlx-cell .val.buy  { color: var(--buy); }
 .anlx-cell .val.sell { color: var(--sell); }
-
-.anlx-breakdown { display: flex; flex-direction: column; gap: 3px; }
-.anlx-bd-row {
-    display: grid;
-    /* TF | 寄与 | シグナル | 重み | ADX | RSI. The two flex columns spread the
-       row edge-to-edge so every field lines up as a tidy table — no left skew,
-       no dead gap. minmax(0,1fr) (not 1fr) keeps both flex columns an identical
-       width on every row, so a long label like "STRONG SELL" cannot widen its
-       column and knock the table out of vertical alignment. */
-    grid-template-columns: 44px 60px minmax(0, 1fr) 56px minmax(0, 1fr) 52px;
-    gap: 8px; align-items: center;
-    padding: 5px 10px;
-    background: var(--bg-soft);
-    border-left: 3px solid var(--fg-dim);
-    border-radius: 4px;
-    font-family: var(--mono); font-size: 12px;
-}
-/* 寄与 + RSI are numeric — right-align (header cells included). */
-.anlx-bd-row > :nth-child(2),
-.anlx-bd-row > :nth-child(6) { text-align: right; }
-.anlx-bd-row.anlx-bd-head {
-    background: transparent;
-    border-left-color: transparent;
-    color: var(--fg-muted);
-    font-size: 10px; font-weight: 800;
-    letter-spacing: 0.06em; text-transform: uppercase;
-    padding: 0 10px 2px;
-}
-.anlx-bd-row .bd-tf    { color: var(--fg); font-weight: 800; }
-.anlx-bd-row .bd-score { color: var(--fg-muted); font-weight: 800; }
-.anlx-bd-row .bd-sig   { color: var(--fg-muted); font-weight: 700; }
-.anlx-bd-row .bd-dim   { color: var(--fg-muted); }
-.anlx-bd-row .bd-gate  { color: var(--warning); font-weight: 800; }
-.anlx-bd-row.na        { opacity: 0.5; }
-
-/* Colour coding — BUY green / SELL red / NEUTRAL grey — applied to the left
-   bar, the TF tag, the 寄与 score and the シグナル label. 重み/ADX/RSI stay
-   muted: they are context, not direction. */
-.anlx-bd-row.buy,
-.anlx-bd-row.strong-buy   { border-left-color: var(--buy); }
-.anlx-bd-row.buy   .bd-tf, .anlx-bd-row.strong-buy   .bd-tf,
-.anlx-bd-row.buy   .bd-score, .anlx-bd-row.strong-buy   .bd-score,
-.anlx-bd-row.buy   .bd-sig, .anlx-bd-row.strong-buy   .bd-sig { color: var(--buy); }
-
-.anlx-bd-row.sell,
-.anlx-bd-row.strong-sell  { border-left-color: var(--sell); }
-.anlx-bd-row.sell  .bd-tf, .anlx-bd-row.strong-sell  .bd-tf,
-.anlx-bd-row.sell  .bd-score, .anlx-bd-row.strong-sell  .bd-score,
-.anlx-bd-row.sell  .bd-sig, .anlx-bd-row.strong-sell  .bd-sig { color: var(--sell); }
-
-.anlx-bd-row.neutral      { border-left-color: var(--fg-dim); }
-.anlx-bd-row.neutral .bd-tf { color: var(--fg-muted); }
-
-.anlx-warn {
-    font-family: var(--mono); font-size: 12px;
-    color: var(--warning); padding: 3px 6px;
-}
 
 /* ============================================================
    DWS-SMT panel — 3-TF trend histogram (port of DWS_SMT.mq5).
@@ -604,18 +582,19 @@ body {
 .dws { display: none; }
 .panel.expanded .dws {
     flex-direction: column;
-    gap: 8px;
+    gap:var(--space-4);
     background: var(--panel-2);
     /* 3-px accent matches .anlx-block / .composite / .card discipline. */
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    padding: 10px 14px;
+    /* Match .anlx-block padding so the two expanded-panel cards align. */
+    padding: var(--space-5) var(--space-6);
     min-height: 0;
 }
 .dws-head {
-    display: flex; align-items: baseline; gap: 8px;
+    display: flex; align-items: baseline; gap:var(--space-4);
     border-bottom: 1px solid var(--border);
-    padding-bottom: 6px;
+    padding-bottom:var(--space-3);
 }
 .dws-title {
     font-family: var(--mono);
@@ -623,13 +602,13 @@ body {
     color: var(--fg); text-transform: uppercase;
 }
 .dws-sub { font-size: var(--text-xs); color: var(--fg-2); }
-.dws-pills { margin-left: auto; display: flex; gap: 4px; }
+.dws-pills { margin-left:auto; display: flex; gap:var(--space-2); }
 /* Primary status headline — current 3-TF alignment + latest trigger.
    Left accent bar turns green/red the moment a side is in control. */
 .dws-state {
     font-family: var(--mono); font-size: var(--text-md); font-weight: var(--weight-bold);
     color: var(--fg-2);
-    padding: 5px 9px; border-radius: var(--radius-sm);
+    padding:5px 9px; border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.03);
     border-left: 3px solid var(--fg-3);
 }
@@ -639,7 +618,7 @@ body {
 .dws-sync {
     font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-normal);
     color: var(--fg-3);
-    padding: 3px 9px; border-radius: var(--radius-sm);
+    padding:3px 9px; border-radius: var(--radius-sm);
 }
 .dws-sync.buy      { color: var(--buy); }
 .dws-sync.sell     { color: var(--sell); }
@@ -654,118 +633,34 @@ body {
 }
 .dws-canvas-wrap canvas { display: block; }
 .dws-legend {
-    display: flex; flex-wrap: wrap; gap: 10px;
-    font-family: var(--mono); font-size: 10px; color: var(--fg-muted);
+    display: flex; flex-wrap: wrap; gap:10px;
+    font-family: var(--mono); font-size: var(--text-2xs); color: var(--fg-muted);
 }
-.dws-legend span { display: flex; align-items: center; gap: 3px; }
+.dws-legend span { display: flex; align-items: center; gap:3px; }
 .dws-legend .sw {
     width: 10px; height: 10px; border-radius: 2px; display: inline-block;
 }
 .dws-legend .tg.buy  { color: var(--buy); }
 .dws-legend .tg.sell { color: var(--sell); }
 .dws-legend .tg.exit { color: var(--warning); }
-.dws-legend .dws-leg-sep { color: var(--fg-dim); margin-left: 4px; }
+.dws-legend .dws-leg-sep { color: var(--fg-dim); margin-left:var(--space-2); }
 
 /* Correlation concentration warning (recommendation 5). */
 .concentration:empty { display: none; }
 .concentration {
-    margin-bottom: 8px; padding: 8px 10px;
+    margin-bottom:var(--space-4); padding:var(--space-4) 10px;
     background: rgba(255, 183, 77, 0.10);
     border-left: 3px solid var(--warning);
     border-radius: 4px;
-    font-family: var(--mono); font-size: 12px;
+    font-family: var(--mono); font-size: var(--text-sm);
 }
-.conc-head { color: var(--warning); font-weight: 800; margin-bottom: 4px; }
-.conc-row  { padding: 2px 0; color: var(--fg-muted); }
+.conc-head { color: var(--warning); font-weight: 800; margin-bottom:var(--space-2); }
+.conc-row  { padding:var(--space-1) 0; color: var(--fg-muted); }
 .conc-sym  { font-weight: 800; }
 .conc-sym.buy  { color: var(--buy); }
 .conc-sym.sell { color: var(--sell); }
 .conc-tag  { color: var(--fg-muted); }
 
-/* ============================================================
-   INDICATOR CHARTS — per-TF visual comparison.
-   Mini bar charts that show RSI / ADX / EMA% / DI± across
-   D1/H4/H1/M15 so timeframe divergence pops at a glance.
-   Hidden in compact mode (no room); visible only when expanded.
-   ============================================================ */
-.ind-charts { display: none; }
-.panel.expanded .ind-charts {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-height: 0;
-}
-.panel.expanded .ind-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-.panel.expanded .ind-chart { flex: 1 1 0; }
-.ind-chart {
-    background: var(--panel-2);
-    border-radius: var(--radius);
-    padding: 8px 10px;
-    display: flex; flex-direction: column;
-    min-height: 140px;
-}
-.ind-head { display: flex; align-items: baseline; gap: 8px;
-            border-bottom: 1px solid var(--border); padding-bottom: 4px;
-            margin-bottom: 6px; }
-.ind-title { font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
-             color: var(--fg); text-transform: uppercase; }
-.ind-sub   { font-size: var(--text-2xs); color: var(--fg-2); }
-.ind-plot {
-    position: relative;
-    flex: 1 1 auto;
-    min-height: 80px;
-    margin: 12px 2px 18px 2px;
-}
-.ind-bars {
-    position: absolute; inset: 0;
-    display: flex; gap: 6px;
-    z-index: 2;
-}
-.ind-bar {
-    flex: 1; position: relative;
-    display: flex; justify-content: center;
-}
-.ind-fill {
-    position: absolute; left: 12%; right: 12%;
-    border-radius: 3px 3px 0 0;
-    transition: height 0.3s, bottom 0.3s, background 0.3s;
-    z-index: 2;
-}
-.ind-fill.buy   { background: var(--buy); }
-.ind-fill.sell  { background: var(--sell); }
-.ind-fill.warn  { background: var(--warning); }
-.ind-fill.neutral   { background: var(--fg-dim); }
-.ind-fill.buy-dim   { background: rgba(0,208,156,0.45); }
-.ind-fill.sell-dim  { background: rgba(255,91,107,0.45); }
-.ind-val {
-    position: absolute; top: -14px;
-    font-family: var(--mono); font-size: 10px; font-weight: 700;
-    color: var(--fg);
-    z-index: 3;
-    white-space: nowrap;
-}
-.ind-tf {
-    position: absolute; bottom: -16px;
-    font-family: var(--mono); font-size: 10px; font-weight: 800;
-    color: var(--accent);
-}
-.ind-ref {
-    position: absolute; left: 0; right: 0; height: 0;
-    border-top: 1px dashed var(--border);
-    z-index: 1;
-}
-.ind-ref::after {
-    content: attr(data-label);
-    position: absolute; right: -2px; top: -7px;
-    font-family: var(--mono); font-size: var(--text-3xs);
-    color: var(--fg-3);
-    background: var(--panel-2);
-    padding: 0 2px;
-}
 
 
 /* ============================================================
@@ -773,7 +668,7 @@ body {
    Things that AREN'T visible by glancing at a chart.
    ============================================================ */
 .derived {
-    display: flex; flex-direction: column; gap: 3px;
+    display: flex; flex-direction: column; gap:3px;
     flex: 1 1 auto;
     overflow-y: auto;
     min-height: 0;
@@ -783,31 +678,31 @@ body {
        Fixed widths give perfect column alignment across all rows + header. */
     display: grid;
     grid-template-columns: 60px repeat(4, 78px) minmax(0, 1fr);
-    gap: 6px;
+    gap:var(--space-3);
     align-items: center;
-    padding: 4px 6px;
+    padding:var(--space-2) var(--space-3);
     background: var(--panel-2);
     border-left: 3px solid var(--fg-dim);
     border-radius: 4px;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.3;
 }
 .d-row.d-header {
     background: transparent;
     border-left-color: transparent;
-    padding: 2px 6px;
+    padding:var(--space-1) var(--space-3);
 }
 .d-row .d-tag {
-    font-size: 14px; font-weight: 800; letter-spacing: 0.04em;
+    font-size: var(--text-md); font-weight: 800; letter-spacing: 0.04em;
     color: var(--fg); text-align: center;
 }
 .d-row .d-col-name {
     text-align: center;
-    font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+    font-size: var(--text-sm); font-weight: 800; letter-spacing: 0.08em;
     color: var(--accent); text-transform: uppercase;
 }
-.d-row .d-summary { color: var(--fg-muted); font-size: 11px;
+.d-row .d-summary { color: var(--fg-muted); font-size: var(--text-xs);
                     overflow: hidden; text-overflow: ellipsis;
                     white-space: nowrap; }
 .d-row .d-summary b { color: var(--fg); }
@@ -826,11 +721,11 @@ body {
    Value is rendered MUCH larger than the TF name — the value is the
    data, the TF name is just context. */
 .tf-chip {
-    display: inline-flex; align-items: baseline; gap: 4px;
-    padding: 3px 8px;
+    display: inline-flex; align-items: baseline; gap:var(--space-2);
+    padding:3px var(--space-4);
     border: 1px solid var(--border);
     border-radius: 4px;
-    margin: 0 4px 0 0;
+    margin:0 var(--space-2) 0 0;
     font-family: var(--mono);
     background: var(--panel-2);
     line-height: 1;
@@ -866,7 +761,7 @@ body {
 .tf-chip.neutral   .tf-name, .tf-chip.neutral   .tf-val { color: var(--fg-dim); }
 
 /* In expanded mode bump chip value further so it dominates. */
-.panel.expanded .tf-chip { padding: 4px 10px; }
+.panel.expanded .tf-chip { padding:var(--space-2) 10px; }
 .panel.expanded .tf-chip .tf-name { font-size: var(--text-2xs); }
 .panel.expanded .tf-chip .tf-val  { font-size: var(--text-lg); }
 
@@ -888,10 +783,10 @@ body {
    ============================================================ */
 
 .signals {
-    display: flex; flex-direction: column; gap: 1px;
+    display: flex; flex-direction: column; gap:1px;
     background: var(--panel-2);
     border-radius: var(--radius);
-    padding: 4px 6px;
+    padding:var(--space-2) var(--space-3);
     flex: 0 0 auto;
 }
 /* sig-row: 6-column layout (TF / TREND / EMA / ADX / DI± / RSI). The
@@ -900,11 +795,11 @@ body {
 .sig-row {
     display: grid;
     grid-template-columns: 28px minmax(0,1fr) 58px 42px 52px 42px;
-    gap: 6px;
+    gap:var(--space-3);
     align-items: center;
     font-family: var(--mono);
     font-size: var(--text-xs);
-    padding: 2px 4px;
+    padding:var(--space-1) var(--space-2);
     border-left: 3px solid transparent;
     border-radius: var(--radius-sm);
 }
@@ -917,7 +812,7 @@ body {
     text-transform: uppercase;
     font-weight: var(--weight-bold);
     border-bottom: 1px solid var(--border);
-    padding-bottom: 4px;
+    padding-bottom:var(--space-2);
 }
 /* Numeric column headers must right-align to match the values below them
    (the data cells use text-align:right via .num). Header was left-aligned
@@ -940,8 +835,9 @@ body {
 .sig-row .num.strong {
     background: rgba(255,183,77,0.18);
     border-radius: 3px;
-    padding: 0 4px;
+    padding:0 var(--space-2);
 }
+
 
 .sig-row.strong-buy   { border-left-color: var(--buy);
                         background: rgba(0,208,156,0.14); }
@@ -961,7 +857,7 @@ body {
 
 /* Structure mini-list — visible in all panels (top 3 in compact mode). */
 .struct {
-    display: flex; flex-direction: column; gap: 1px;
+    display: flex; flex-direction: column; gap:1px;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
@@ -970,9 +866,9 @@ body {
 .struct-row {
     display: grid;
     grid-template-columns: 28px minmax(0,1fr) 64px 50px;
-    gap: 4px;
+    gap:var(--space-2);
     font-family: var(--mono); font-size: var(--text-2xs);
-    padding: 2px 4px;
+    padding:var(--space-1) var(--space-2);
     /* 3-px left border to match .sig-row / .composite / card discipline.
        Was 2px alone, causing 1-px wobble against neighbouring 3-px elements. */
     border-left: 3px solid var(--fg-3);
@@ -1012,7 +908,7 @@ body {
     border-bottom: 1px solid var(--border);
     border-left-color: transparent !important;
     background: transparent;
-    padding-bottom: 4px; margin-bottom: 2px;
+    padding-bottom:var(--space-2); margin-bottom:var(--space-1);
 }
 .struct-row.struct-head .dir.resist,
 .struct-row.struct-head .dir.support { color: var(--fg-muted); }
@@ -1028,7 +924,7 @@ body {
 
 .panel.expanded {
     cursor: default;
-    padding: 14px 20px;
+    padding:14px 20px;
     display: grid;
     grid-template-areas:
         "head       head"
@@ -1036,12 +932,13 @@ body {
         "signals    dws"
         "analytics  dws";
     grid-template-columns: 1fr 1fr;
-    /* Last row is content-sized (auto), not 1fr — otherwise it is forced to
-       fill the panel and the page can't grow. With auto + overflow-y:auto
-       the panel scrolls when content exceeds the visible area. */
-    grid-template-rows: auto auto auto auto;
-    column-gap: 16px;
-    row-gap: 12px;
+    /* head / composite size to content; the signals row is min-content (just
+       the TF table) so no dead gap opens beneath it, and the analytics row
+       takes the remaining height (1fr) to sit flush under the table and fill
+       down beside the DWS panel. */
+    grid-template-rows: auto auto min-content 1fr;
+    column-gap:var(--space-6);
+    row-gap:var(--space-5);
     overflow-y: auto;
 }
 .panel.expanded:hover { transform: none; }
@@ -1049,28 +946,33 @@ body {
 .panel.expanded .composite  { grid-area: composite; }
 .panel.expanded .signals    { grid-area: signals;   align-self: start; }
 .panel.expanded .dws        { grid-area: dws;       display: flex; }
-.panel.expanded .analytics  { grid-area: analytics; align-self: start; }
+/* Analytics stretches to fill the row height (matches DWS panel) so the
+   indicator charts can use the available vertical space instead of leaving
+   the left column short. The block itself + the chart grid + canvases all
+   grow on the cross-axis below. */
+.panel.expanded .analytics  { grid-area: analytics; align-self: stretch;
+                              min-height: 0; }
 
 .panel.expanded .panel-sym  { font-size: 36px; }
-.panel.expanded .quote      { font-size: 26px; gap: 14px; }
-.panel.expanded .composite  { font-size: 30px; padding: 18px 24px; gap: 14px; }
-.panel.expanded .composite .comp-label { font-size: 14px; }
+.panel.expanded .quote      { font-size: 26px; gap:14px; }
+.panel.expanded .composite  { font-size: 30px; padding:18px var(--space-7); gap:14px; }
+.panel.expanded .composite .comp-label { font-size: var(--text-md); }
 .panel.expanded .composite .comp-arrow { font-size: 42px; }
 .panel.expanded .composite .comp-text  { font-size: 38px; letter-spacing: 0.08em; }
 .panel.expanded .composite .comp-score { font-size: 24px; }
 .panel.expanded .sig-row {
-    font-size: 16px; padding: 6px 8px;
+    font-size: var(--text-lg); padding:var(--space-3) var(--space-4);
     /* The signals box sits in the left column only — same width as the
        analytics block stacked below it. The 6 columns (TF|TREND|EMA|ADX|
        DI±|RSI) are fr-sized to fill that box edge-to-edge: no trailing
        spacer, no dead gap. TREND gets the widest share for "STRONG SELL". */
     grid-template-columns: 0.7fr 1.9fr 1.15fr 0.85fr 0.85fr 0.85fr;
 }
-.panel.expanded .sig-row.sig-head { font-size: 11px; }
+.panel.expanded .sig-row.sig-head { font-size: var(--text-xs); }
 .panel.expanded .d-row {
-    font-size: 14px; padding: 8px 12px;
+    font-size: var(--text-md); padding:var(--space-4) var(--space-5);
 }
-.panel.expanded .d-row .d-tag { font-size: 10px; }
+.panel.expanded .d-row .d-tag { font-size: var(--text-2xs); }
 
 /* ============================================================
    Account card
@@ -1082,16 +984,16 @@ body {
     position: relative;
     display: inline-flex;
     align-items: baseline;
-    gap: 4px;
+    gap:var(--space-2);
 }
 .broker-toggle {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--fg-muted);
     border-radius: 3px;
-    padding: 0 5px;
-    margin-left: 4px;
-    font-size: 10px;
+    padding:0 5px;
+    margin-left:var(--space-2);
+    font-size: var(--text-2xs);
     line-height: 1.4;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;
@@ -1102,7 +1004,7 @@ body {
     position: absolute;
     top: 100%;
     right: 0;
-    margin-top: 4px;
+    margin-top:var(--space-2);
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -1113,15 +1015,15 @@ body {
 }
 .broker-menu[hidden] { display: none; }
 .broker-opt {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap:var(--space-4);
     width: 100%;
     background: transparent;
     border: 0;
     border-bottom: 1px solid var(--border);
     color: var(--fg);
     font-family: var(--mono);
-    font-size: 12px;
-    padding: 8px 10px;
+    font-size: var(--text-sm);
+    padding:var(--space-4) 10px;
     text-align: left;
     cursor: pointer;
 }
@@ -1157,17 +1059,17 @@ body {
 .acc-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-2);
+    gap:var(--space-2);
 }
 .acc-cell {
     background: var(--panel-2);
     border-radius: var(--radius);
-    padding: var(--space-2) var(--space-4);
+    padding:var(--space-2) var(--space-4);
 }
 .acc-cell.pnl { grid-column: span 2; }
 .acc-label {
     font-size: var(--text-2xs); font-weight: var(--weight-medium);
-    color: var(--fg-2);
+    color: var(--fg-3);          /* muted label… */
     text-transform: uppercase;
     letter-spacing: var(--track-normal);
 }
@@ -1175,6 +1077,7 @@ body {
     font-family: var(--mono);
     font-size: var(--text-md);
     font-weight: var(--weight-medium);
+    color: var(--fg);            /* …bright figure */
 }
 /* Today P&L is the hero — clearly larger than the other figures so the
    trader's eye lands on it first. Other balances stay at --text-md for a
@@ -1183,16 +1086,16 @@ body {
 .acc-val.pos { color: var(--buy); }
 .acc-val.neg { color: var(--sell); }
 
-.acc-positions { margin-top: var(--space-2); }
+.acc-positions { margin-top:var(--space-2); }
 .acc-positions .empty {
-    color: var(--fg-3); font-size: var(--text-xs); padding: 4px 0;
+    color: var(--fg-3); font-size: var(--text-xs); padding:var(--space-2) 0;
 }
 .pos-row {
     display: grid;
     grid-template-columns: 40px 60px 50px 1fr 70px;
-    gap: 4px;
+    gap:var(--space-2);
     font-family: var(--mono); font-size: var(--text-xs);
-    padding: 3px 6px; margin-bottom: 2px;
+    padding:3px var(--space-3); margin-bottom:var(--space-1);
     background: var(--panel-2); border-radius: var(--radius);
     border-left: 3px solid var(--fg-3);
 }
@@ -1207,18 +1110,32 @@ body {
    Calendar card
    ============================================================ */
 
-.calendar-card { flex: 1 1 auto; min-height: 0; }
-.cal-list {
-    display: flex; flex-direction: column; gap: 2px;
+/* Calendar and Macro share the remaining sidebar height (account is fixed),
+   each scrolling internally so neither is clipped when the sidebar is short. */
+.calendar-card { flex: 1 1 0; min-height: 0; }
+.macro-card    { flex: 1 1 0; min-height: 0; }
+/* Calendar + Macro lists share one identical scroll treatment so the two
+   sidebar panels match (and match the trigger-history .rt-scroll). */
+.cal-list,
+.macro-list {
+    display: flex; flex-direction: column; gap:var(--space-1);
     overflow-y: auto; min-height: 0; flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.22) transparent;
+}
+.cal-list::-webkit-scrollbar,
+.macro-list::-webkit-scrollbar { width: 7px; }
+.cal-list::-webkit-scrollbar-thumb,
+.macro-list::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.20); border-radius: 4px;
 }
 .cal-row {
     display: grid;
     grid-template-columns: 46px 46px 34px 36px 1fr;
-    gap: 6px;
+    gap:var(--space-3);
     align-items: center;
     font-family: var(--mono); font-size: var(--text-sm);
-    padding: 5px 7px;
+    padding:5px 7px;
     background: var(--panel-2);
     border-radius: var(--radius);
     border-left: 3px solid var(--fg-3);
@@ -1230,10 +1147,10 @@ body {
 .cal-row .cal-date { color: var(--fg-2); font-weight: var(--weight-medium); }
 .cal-row .time     { color: var(--warning); font-weight: var(--weight-medium); }
 .cal-row .ccy      { color: var(--fg); font-weight: var(--weight-bold); text-align: center;
-                     padding: 1px 4px; border-radius: 3px;
+                     padding:1px var(--space-2); border-radius: 3px;
                      background: rgba(255, 255, 255, 0.04); }
 .cal-row .cat      { font-size: var(--text-2xs); font-weight: var(--weight-bold);
-                     text-align: center; padding: 1px 4px;
+                     text-align: center; padding:1px var(--space-2);
                      border-radius: 3px; letter-spacing: var(--track-tight); }
 /* Category badges use lighter tints of accent/warning to read against the
    tinted backgrounds — pulled from the same palette as the .cat.* bg colours
@@ -1265,28 +1182,28 @@ body {
 .bottom {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--gap);
+    gap:var(--gap);
     min-height: 0;
 }
 .strength-card { min-height: 0; }
 .strength-rows {
-    display: flex; flex-direction: column; gap: 4px;
+    display: flex; flex-direction: column; gap:var(--space-2);
     overflow-y: auto;
     flex: 1;
 }
 .s-row {
     display: grid;
     grid-template-columns: 50px 1fr 56px;
-    gap: 8px; align-items: center;
+    gap:var(--space-4); align-items: center;
     font-family: var(--mono); font-size: var(--text-md);
 }
 .s-row .ccy { color: var(--fg); font-weight: var(--weight-bold); text-align: right;
-              display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 6px; }
+              display: inline-flex; align-items: baseline; justify-content: flex-end; gap:var(--space-3); }
 .s-row .ccy-ref {
     font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
     color: var(--warning);
     border: 1px solid var(--warning);
-    padding: 1px 4px;
+    padding:1px var(--space-2);
     border-radius: var(--radius-sm);
     cursor: help;
 }
@@ -1317,27 +1234,27 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 
 /* Correlation Insights list — replaces the heatmap. */
 .corr-list {
-    display: flex; flex-direction: column; gap: 3px;
+    display: flex; flex-direction: column; gap:3px;
     overflow-y: auto;
     flex: 1; min-height: 0;
-    padding-right: 4px;
+    padding-right:var(--space-2);
 }
 .corr-section-title {
     font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
     color: var(--fg-2);
     text-transform: uppercase;
-    margin: 6px 0 2px;
+    margin:var(--space-3) 0 var(--space-1);
     border-bottom: 1px dashed var(--border);
-    padding-bottom: 2px;
+    padding-bottom:var(--space-1);
 }
 .corr-section-title.warn { color: var(--warning); }
 .corr-row {
     display: grid;
     grid-template-columns: minmax(150px, 1.4fr) 1fr 60px 70px;
-    gap: 8px;
+    gap:var(--space-4);
     align-items: center;
-    font-family: var(--mono); font-size: 12px;
-    padding: 4px 8px;
+    font-family: var(--mono); font-size: var(--text-sm);
+    padding:var(--space-2) var(--space-4);
     background: var(--panel-2);
     border-radius: var(--radius);
     border-left: 3px solid var(--fg-dim);
@@ -1359,7 +1276,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .corr-row .val { text-align: right; font-weight: 800; }
 .corr-row.pos .val { color: var(--buy);  }
 .corr-row.neg .val { color: var(--sell); }
-.corr-row .lbl { font-size: 10px; color: var(--fg-muted); text-align: right; }
+.corr-row .lbl { font-size: var(--text-2xs); color: var(--fg-muted); text-align: right; }
 .corr-row.very-strong { box-shadow: inset 0 0 0 1px rgba(255,183,77,0.25); }
 .corr-row.very-strong .lbl { color: var(--warning); font-weight: 700; }
 .corr-row.diverge {
@@ -1371,15 +1288,15 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     color: var(--fg); font-weight: 600;
 }
 .corr-row.diverge .lbl.warn { color: var(--warning); font-weight: 800; }
-.corr-list .empty { padding: 10px; }
+.corr-list .empty { padding:10px; }
 
 /* Pill buttons (window selectors) */
-.pill-group { display: flex; gap: 4px; }
+.pill-group { display: flex; gap:var(--space-2); }
 .pill {
     background: var(--panel-2); color: var(--fg);
     border: 1px solid var(--border); border-radius: 4px;
-    padding: 3px 11px;
-    font-family: var(--mono); font-size: 11px;
+    padding:3px 11px;
+    font-family: var(--mono); font-size: var(--text-xs);
     cursor: pointer; user-select: none;
     font-weight: 700;
     transition: background 0.12s, color 0.12s, border-color 0.12s;
@@ -1406,7 +1323,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-validation {
     font-family: var(--mono);
     font-size: var(--text-sm);
-    padding: 10px 12px;
+    padding:10px var(--space-5);
     border-radius: var(--radius-sm);
     color: var(--fg);
     background: rgba(255, 255, 255, 0.055);
@@ -1419,22 +1336,22 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-validation.caution      { border-left-color: #c08a2a; }
 .dws-validation.insufficient { border-left-color: #6a7180; }
 .dws-vhead {
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 9px;
+    display: flex; align-items: center; gap:var(--space-4);
+    margin-bottom:9px;
 }
 .dws-validation .dws-vtier {
     font-weight: 800;
-    padding: 2px 9px;
+    padding:var(--space-1) 9px;
     border-radius: 3px;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--text-sm);
     letter-spacing: 0.04em;
 }
 .dws-validation.trusted      .dws-vtier { background: var(--tier-trusted);      color: var(--fg); }
 .dws-validation.caution      .dws-vtier { background: var(--tier-caution);      color: var(--fg); }
 .dws-validation.insufficient .dws-vtier { background: var(--tier-insufficient); color: var(--fg); }
 .dws-vlabel {
-    font-size: 11px; letter-spacing: 0.06em;
+    font-size: var(--text-xs); letter-spacing: 0.06em;
     color: var(--fg-muted);
 }
 /* Metric list — one row per figure, label left / value right. The panel
@@ -1443,18 +1360,18 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-vstats {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap:7px;
 }
 .dws-vcell {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap:3px;
 }
 .dws-vrow {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 8px;
+    gap:var(--space-4);
     line-height: 1.4;
 }
 /* Collapsible per-metric / header / verdict / rolling explanations.
@@ -1473,14 +1390,14 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-vverdict-desc,
 .dws-vsec-desc {
     display: none;
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.6;
     color: rgba(255, 255, 255, 0.55);
-    padding: 5px 8px 7px 8px;
+    padding:5px var(--space-4) 7px var(--space-4);
     background: rgba(255, 255, 255, 0.025);
     border-left: 2px solid rgba(212, 160, 42, 0.40);
     border-radius: 2px;
-    margin: 2px 0 4px 0;
+    margin:var(--space-1) 0 var(--space-2) 0;
 }
 .dws-vdesc b,
 .dws-vhead-desc b,
@@ -1538,12 +1455,12 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     border-radius: 4px;
     color: #5fb3ff;
     background: rgba(95, 179, 255, 0.10);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.06em;
-    padding: 2px 9px 2px 8px;
+    padding:var(--space-1) 9px var(--space-1) var(--space-4);
     cursor: pointer;
-    display: inline-flex; align-items: center; gap: 4px;
+    display: inline-flex; align-items: center; gap:var(--space-2);
     flex: 0 0 auto;
     line-height: 1.3;
     transition: background-color 90ms ease-out, border-color 90ms ease-out;
@@ -1563,68 +1480,36 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     color: #ffffff;
     box-shadow: 0 0 0 1px rgba(95, 179, 255, 0.55);
 }
-.dws-vexplain-icon { font-size: 9px; line-height: 1; }
+.dws-vexplain-icon { font-size: var(--text-3xs); line-height: 1; }
 .dws-vexplain-label { letter-spacing: 0.10em; }
 
 /* Secondary rolling block — same description style as primary metrics. */
 .dws-vsec-row {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap:var(--space-4);
     flex-wrap: wrap;
     line-height: 1.4;
 }
+/* Label / value colour split — the label (項目) is muted secondary text, the
+   figure (数字) is bright primary. Never the same colour: the eye should jump
+   straight to the number. */
 .dws-vk {
-    color: var(--fg);
-    font-weight: 700;
+    color: var(--fg-3);
+    font-weight: 600;
     letter-spacing: 0.04em;
     white-space: nowrap;
 }
 .dws-vv {
+    color: var(--fg);
     font-weight: 800; white-space: nowrap;
     font-variant-numeric: tabular-nums;
-    font-size: 14px;
+    font-size: var(--text-md);
 }
-/* 16-year offline reference shown beneath the live metrics. Deliberately
-   compact + dim — the live numbers are the headline, this is the
-   "context" footnote so you can tell if the rolling-window tier matches
-   the long-term baseline. */
-.dws-vbase {
-    display: flex; align-items: center; gap: 8px;
-    margin-top: 8px;
-    padding-top: 7px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.18);
-    font-size: 11px;
-    color: var(--fg);
-    line-height: 1.4;
-    flex-wrap: wrap;
-}
-.dws-vbase-label {
-    font-weight: 800; letter-spacing: 0.08em;
-    color: var(--fg);
-    text-transform: uppercase;
-    flex: 0 0 auto;
-}
-.dws-vbase-fig {
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    color: var(--fg);
-    flex: 1 1 auto;
-}
-.dws-vbase-tier {
-    font-weight: 700;
-    padding: 0 5px;
-    border-radius: 2px;
-    flex: 0 0 auto;
-    opacity: 0.85;
-}
-.dws-vbase-tier.trusted      { background: var(--tier-trusted);      color: var(--fg); }
-.dws-vbase-tier.caution      { background: var(--tier-caution);      color: var(--fg); }
-.dws-vbase-tier.insufficient { background: var(--tier-insufficient); color: var(--fg); }
 /* PF-vs-baseline drift indicator next to the live PF value. */
 .dws-pf-drift {
     font-weight: 800;
-    font-size: 11px;
-    margin-left: 4px;
-    padding: 1px 5px;
+    font-size: var(--text-xs);
+    margin-left:var(--space-2);
+    padding:1px 5px;
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.06);
 }
@@ -1639,45 +1524,22 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     display: block;
     width: 100%;
     height: 22px;
-    margin-top: 6px;
+    margin-top:var(--space-3);
 }
 
 /* ============================================================
    16Y deep-history evaluation — primary OOS display
    ============================================================ */
 
-/* Sub-line under a vcell — used for the autocorrelation-honest note. */
-.dws-vsub {
-    display: block;
-    font-size: 10px;
-    color: var(--fg-dim);
-    font-weight: var(--weight-medium);
-    letter-spacing: 0.02em;
-    margin-top: 1px;
-    text-align: right;
-}
-
-/* Label affordance: dotted underline + help cursor on hoverable definitions.
-   The browser-native title="" tooltip handles the actual text — this just
-   signals to the user that the term has an inline explanation on hover. */
-.dws-vk-tip {
-    text-decoration: underline dotted rgba(255, 255, 255, 0.30);
-    text-underline-offset: 3px;
-    text-decoration-thickness: 1px;
-    cursor: help;
-}
-.dws-vcell[title] { cursor: help; }
-.dws-vtier[title], .dws-vlabel[title] { cursor: help; }
-
 /* Period-drift verdict badge in the validation header.
    STABLE = green outline, DRIFT = amber, REGIME-CHANGE = red. */
 .dws-vverdict {
     font-weight: 800;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
-    padding: 2px 7px;
+    padding:var(--space-1) 7px;
     border-radius: 3px;
-    margin-left: auto;
+    margin-left:auto;
     flex: 0 0 auto;
     cursor: help;
     white-space: nowrap;
@@ -1700,11 +1562,11 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 
 /* Secondary "直近 ローリング ~7M" line below the 16Y headline metrics. */
 .dws-vsecondary {
-    display: flex; align-items: center; gap: 8px;
-    margin-top: 8px;
-    padding-top: 7px;
+    display: flex; align-items: center; gap:var(--space-4);
+    margin-top:var(--space-4);
+    padding-top:7px;
     border-top: 1px dashed rgba(255, 255, 255, 0.18);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--fg);
     line-height: 1.4;
     flex-wrap: wrap;
@@ -1714,7 +1576,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     color: var(--fg-dim);
     text-transform: uppercase;
     flex: 0 0 auto;
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 .dws-vsec-fig {
     font-weight: 700;
@@ -1752,10 +1614,10 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     grid-template-areas:
         "pair rates diff"
         "dir  dir   dir";
-    column-gap: var(--space-3);
-    row-gap: 2px;
+    column-gap:var(--space-3);
+    row-gap:var(--space-1);
     font-size: var(--text-xs);
-    padding: var(--space-3) var(--space-2);
+    padding:var(--space-3) var(--space-2);
     align-items: baseline;
     color: var(--fg);
 }
@@ -1765,7 +1627,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    no per-cell drift across rows. All values render in --fg for readability. */
 .macro-rates { grid-area: rates; color: var(--fg); text-align: right;
                font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.macro-rates .sep { color: var(--fg-3); margin: 0 3px; }
+.macro-rates .sep { color: var(--fg-3); margin:0 3px; }
 .macro-diff  { grid-area: diff;  text-align: right; min-width: 48px;
                font-weight: var(--weight-bold); font-family: var(--mono);
                font-variant-numeric: tabular-nums; color: var(--fg); }
@@ -1787,15 +1649,217 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    visually heavier than the per-pair rows below. */
 .macro-key {
     display: flex;
-    gap: var(--space-4);
+    gap:var(--space-4);
     align-items: center;
     flex-wrap: wrap;
     font-size: var(--text-sm);
-    padding: var(--space-3) var(--space-4);
-    margin-bottom: var(--space-3);
+    padding:var(--space-3) var(--space-4);
+    margin-bottom:var(--space-3);
     background: rgba(120, 170, 255, 0.10);
     border-left: 3px solid var(--info);
     border-radius: var(--radius-sm);
 }
-.macro-key-label { color: var(--fg-2); min-width: 96px; font-weight: var(--weight-medium); }
-.macro-key-val   { font-weight: var(--weight-medium); font-size: var(--text-md); color: var(--fg); }
+/* Label hugs the left; margin-right:auto pushes the value + delta to the
+   right edge so the figures line up with the per-pair rows below. */
+.macro-key-label { color: var(--fg-3); min-width: 96px; font-weight: var(--weight-medium);
+                   margin-right: auto; }
+.macro-key-val   { font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--fg);
+                   text-align: right; }
+.macro-key .macro-rynum { text-align: right; }
+
+
+/* ============================================================
+   Analytics: (A) recent trigger history + (B) hourly win-rate heatmap.
+   Both empirical — A is the live DWS-SMT feedback loop, B is the 16Y OOS
+   per-hour win rate. Live in the expanded panel's left column.
+   ============================================================ */
+
+/* (A) Recent trigger table */
+.rt-table {
+    display: flex;
+    flex-direction: column;
+    gap:1px;
+    font-family: var(--mono);
+    font-size: var(--text-sm);
+}
+/* Trade rows live in a fixed-height scroll box so a long period (30 rows)
+   never pushes the hourly heatmap off-screen — the panel height stays
+   bounded and the list scrolls internally. ~7 rows visible at a glance. */
+.rt-scroll {
+    max-height: 196px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap:1px;
+    /* thin scrollbar so it doesn't dominate the narrow column */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.22) transparent;
+}
+.rt-scroll::-webkit-scrollbar { width: 7px; }
+.rt-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.20);
+    border-radius: 4px;
+}
+.rt-row {
+    display: grid;
+    grid-template-columns: minmax(0,1.6fr) 56px 40px minmax(0,1fr);
+    gap:var(--space-4);
+    align-items: center;
+    padding:3px var(--space-3);
+    border-left: 3px solid transparent;
+    border-radius: 3px;
+}
+.rt-row.rt-head {
+    color: var(--fg-2);
+    font-size: var(--text-2xs);
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    padding-bottom:var(--space-2);
+}
+.rt-row.win  { border-left-color: rgba(56,161,105,0.55); background: rgba(56,161,105,0.05); }
+.rt-row.loss { border-left-color: rgba(229,62,62,0.55);  background: rgba(229,62,62,0.05); }
+.rt-time { color: var(--fg-2); white-space: nowrap; }
+.rt-dir  { font-weight: 800; letter-spacing: 0.04em; }
+.rt-dir.buy  { color: var(--buy); }
+.rt-dir.sell { color: var(--sell); }
+.rt-tf   { color: var(--accent); font-weight: 700; }
+.rt-wl   { text-align: center; font-weight: 800; }
+.rt-wl.win  { color: var(--buy); }
+.rt-wl.loss { color: var(--sell); }
+.rt-pts  { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rt-pts.pos { color: var(--buy); }
+.rt-pts.neg { color: var(--sell); }
+.rt-head .rt-wl, .rt-head .rt-pts, .rt-head .rt-dir, .rt-head .rt-tf { color: var(--fg-2); }
+.rt-summary {
+    margin-top:var(--space-4);
+    padding-top:var(--space-3);
+    border-top: 1px dashed rgba(255,255,255,0.10);
+    font-size: var(--text-sm);
+    color: var(--fg-3);          /* labels muted… */
+    font-family: var(--mono);
+}
+.rt-summary b { font-weight: 800; color: var(--fg); }   /* …figures bright */
+.rt-summary b.pos { color: var(--buy); }
+.rt-summary b.neg { color: var(--sell); }
+.rt-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
+
+/* (B) Hourly win-rate heatmap — 24 JST-hour cells in a 12×2 grid. */
+.hm-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap:3px;
+    margin-top:var(--space-2);
+}
+.hm-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding:5px 0 var(--space-2) 0;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.06);
+    font-family: var(--mono);
+    line-height: 1.25;
+    cursor: help;
+}
+.hm-cell.is-now {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+.hm-hour {
+    font-size: var(--text-3xs);
+    color: rgba(255,255,255,0.55);
+    font-weight: 700;
+}
+.hm-wr {
+    font-size: var(--text-sm);
+    font-weight: 800;
+    color: var(--fg);
+}
+
+/* Rolling-window period selector (30日/90日/1年/全). */
+.rt-periods {
+    display: flex;
+    gap:3px;
+    margin:var(--space-1) 0 var(--space-4) 0;
+}
+.rt-period-pill {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--fg-dim);
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 3px;
+    padding:1px var(--space-4);
+    cursor: pointer;
+    transition: background-color 90ms, border-color 90ms, color 90ms;
+}
+.rt-period-pill:hover {
+    color: var(--fg);
+    border-color: rgba(255,255,255,0.38);
+    background: rgba(255,255,255,0.04);
+}
+.rt-period-pill.on {
+    color: var(--fg);
+    border-color: rgba(95,179,255,0.85);
+    background: rgba(95,179,255,0.18);
+    box-shadow: 0 0 0 1px rgba(95,179,255,0.35);
+}
+/* Live-broker years tinted cyan in the text so they read distinctly from the
+   16Y-backtest (grey) years even when not selected. */
+.rt-period-pill.is-live:not(.on) { color: #5fb3ff; border-color: rgba(95,179,255,0.35); }
+.rt-summary-top {
+    margin-top:0;
+    margin-bottom:var(--space-4);
+    padding-top:0;
+    border-top: none;
+    border-bottom: 1px dashed rgba(255,255,255,0.10);
+    padding-bottom:var(--space-3);
+}
+.rt-summary-top b { font-weight: 800; }
+.rt-listnote {
+    margin-top:var(--space-3);
+    font-size: var(--text-2xs);
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    text-align: right;
+}
+
+/* Newest row marker — the first (latest) trigger gets a subtle ring + a
+   小さな "最新" tag so it's unmistakable without a duplicate featured card. */
+.rt-row.newest {
+    box-shadow: inset 0 0 0 1px rgba(95,179,255,0.45);
+}
+.rt-newest-tag {
+    display: inline-block;
+    font-size: var(--text-3xs); font-weight: 800; letter-spacing: 0.04em;
+    color: var(--accent);
+    background: rgba(95,179,255,0.15);
+    border-radius: 2px;
+    padding:0 3px;
+    margin-right:var(--space-2);
+}
+/* Open (still-running) trigger — shown in the トリガー履歴 list the moment it
+   fires, but visually distinct: amber rail, no win/loss colour, floating P/L
+   muted. It is excluded from the realised win-rate / PF / cumulative stats. */
+.rt-row.open {
+    border-left-color: rgba(214,158,46,0.75);
+    background: rgba(214,158,46,0.08);
+    box-shadow: inset 0 0 0 1px rgba(214,158,46,0.40);
+}
+.rt-open-tag {
+    display: inline-block;
+    font-size: var(--text-3xs); font-weight: 800; letter-spacing: 0.04em;
+    color: #d69e2e;
+    background: rgba(214,158,46,0.18);
+    border-radius: 2px;
+    padding:0 3px;
+    margin-right:var(--space-2);
+}
+.rt-wl.open { color: #d69e2e; font-weight: 800; }
+.rt-pts.muted { color: var(--fg-dim); font-weight: 700; }
+.rt-open-count { color: #d69e2e; }

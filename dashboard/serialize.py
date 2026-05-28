@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Final, Mapping
 
 import config
 
@@ -450,11 +450,71 @@ def serialize_performance(s: PerformanceSnapshot | None) -> dict[str, Any] | Non
     }
 
 
+# Central-bank rate-decision label keyed by the event's currency. The English
+# title still drives the upstream keyword filter; this only localises display.
+_JP_RATE_BY_CCY: Final[dict[str, str]] = {
+    "USD": "FOMC 政策金利発表",
+    "EUR": "ECB 政策金利発表",
+    "GBP": "BoE 政策金利発表",
+    "JPY": "日銀 金融政策決定会合",
+    "AUD": "RBA 政策金利発表",
+}
+_JP_RATE_KEYWORDS: Final[tuple[str, ...]] = (
+    "fomc", "ecb", "boe", "boj", "rba", "governing council", "mpc",
+    "bank rate", "cash rate", "rate decision", "rate statement",
+    "monetary policy", "interest rate", "federal funds", "refinancing",
+    "policy rate",
+)
+
+
+def _jp_calendar_title(title: str, ccy: str) -> str:
+    """Localise a high-impact event title to Japanese for display.
+
+    Employment releases map by type; rate decisions map to the right central
+    bank via the event currency. Anything unrecognised falls back to the
+    original title so nothing is ever dropped."""
+    t = title.lower()
+    if any(k in t for k in ("non-farm", "nonfarm", "payroll")):
+        return "米雇用統計 (NFP)"
+    if any(k in t for k in ("unemployment", "jobless", "claimant")):
+        return "失業率"
+    if "press conference" in t:
+        return "中銀総裁会見"
+    if any(k in t for k in _JP_RATE_KEYWORDS):
+        return _JP_RATE_BY_CCY.get(ccy, "政策金利発表")
+    return title
+
+
+# Category chip keys — derived from the ENGLISH title so the badge survives
+# title localisation. Kept in sync with the front-end fallback.
+_CAT_EMP_KEYWORDS: Final[tuple[str, ...]] = (
+    "payroll", "nonfarm", "non-farm", "employment", "unemploy", "jobless",
+    "hourly earnings", "earnings index", "claimant count", "jolts", "adp",
+)
+_CAT_RATE_KEYWORDS: Final[tuple[str, ...]] = (
+    "fomc", "federal funds rate", "bank rate", "cash rate", "policy rate",
+    "refinanc", "rate statement", "rate decision", "monetary policy",
+    "interest rate", "press conference",
+)
+
+
+def _calendar_category(title: str) -> str:
+    """Classify an event as employment / rate / other from its English title."""
+    t = title.lower()
+    if any(k in t for k in _CAT_EMP_KEYWORDS):
+        return "emp"
+    if any(k in t for k in _CAT_RATE_KEYWORDS):
+        return "rate"
+    return "oth"
+
+
 def serialize_calendar_event(e: CalendarEvent) -> dict[str, Any]:
+    # Classify from the original English title, THEN localise the display text.
     return {
         "release_ts": float(e.release_ts),
         "currency": e.currency,
-        "title": e.title,
+        "title": _jp_calendar_title(e.title, e.currency),
+        "category": _calendar_category(e.title),
         "impact": e.impact,
         "forecast": e.forecast,
         "previous": e.previous,
@@ -519,6 +579,14 @@ def serialize_validation_core(c: ValidationCore) -> dict[str, Any]:
         "regime_trend": _serialize_regime(c.regime_trend),
         "regime_range": _serialize_regime(c.regime_range),
         "tier": c.tier,
+        # Live broker recent-trigger history (newest first): t=epoch ms,
+        # d=±1 direction, p=net points after spread, o=open (still-running)
+        # trigger — p is floating P/L, excluded from realised stats.
+        "recent_triggers": [
+            {"t": int(r.entry_ms), "d": int(r.direction),
+             "p": round(r.net_pts, 1), "o": bool(r.is_open)}
+            for r in c.recent_triggers
+        ],
     }
 
 
@@ -615,36 +683,6 @@ def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
     }
 
 
-def serialize_pattern_matches(by_symbol: dict[str, Any]) -> dict[str, Any]:
-    """Flatten per-symbol :class:`SymbolPatternMatches` into JSON.
-
-    Structure: ``{symbol: {base_tf: {pattern_id, win_rate, ...} | null}}``.
-    None entries are kept so the front end can show "no direction yet" cells.
-    """
-    out: dict[str, Any] = {}
-    for sym, matches in (by_symbol or {}).items():
-        if matches is None:
-            continue
-        by_base: dict[str, Any] = {}
-        for base_tf, m in matches.by_base.items():
-            if m is None:
-                by_base[base_tf] = None
-                continue
-            by_base[base_tf] = {
-                "pattern_id": m.pattern_id,
-                "learned_from_shape": m.learned_from_shape,
-                "win_rate": _opt_float(m.win_rate),
-                "win_rate_ci_low": _opt_float(m.win_rate_ci_low),
-                "win_rate_ci_high": _opt_float(m.win_rate_ci_high),
-                "sample_n": int(m.sample_n),
-                "median_net_pts": _opt_float(m.median_net_pts),
-                "distance_z": _opt_float(m.distance_z),
-                "reliability": m.reliability,
-            }
-        out[sym] = by_base
-    return out
-
-
 # --------------------------------------------------------------------------- #
 
 
@@ -698,7 +736,6 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
-        "pattern_matches": serialize_pattern_matches(snap.get("pattern_matches") or {}),
         "validation_history": snap.get("validation_history") or {},
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {

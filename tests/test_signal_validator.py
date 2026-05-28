@@ -122,6 +122,25 @@ def test_evaluate_trades_skips_open_trade():
     assert core.n_trades == 1
 
 
+def test_recent_triggers_includes_open_trigger():
+    # The dashboard panel is トリガー履歴 ("trigger history"): a trigger must be
+    # logged the moment it fires, so the still-running (open) position has to
+    # appear here — flagged is_open — even though evaluate_trades keeps it out
+    # of the realised win-rate / PF stats. Regression for the bug where open
+    # triggers were silently dropped from the history list.
+    import types
+    times = np.array([1_000, 2_000, 3_000], dtype=np.int64)
+    trades = (_trade(0, 1, 4.0), _trade(2, -1, 5.0, is_open=True))
+    window = types.SimpleNamespace(times_ms=times, trades=trades)
+    out = sv._recent_triggers_from_window(
+        window, spread_pts=np.zeros(3), point=1.0, limit=10)
+    # Both triggers present, newest first; the open one is tagged and kept.
+    assert len(out) == 2
+    assert out[0].entry_ms == 3_000 and out[0].is_open is True
+    assert out[0].direction == -1 and out[0].net_pts == pytest.approx(5.0)
+    assert out[1].entry_ms == 1_000 and out[1].is_open is False
+
+
 def test_evaluate_trades_cost_is_deducted():
     # raw +10 price points, point=1.0, spread 3 pts at entry → net 7.
     trades = (_trade(0, 1, 10.0),)

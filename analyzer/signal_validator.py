@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,30 @@ class RegimeStats:
 
 
 @dataclass(frozen=True)
+class RecentTrigger:
+    """One DWS-SMT trigger from the LIVE deep-history evaluation.
+
+    Sourced straight from the connected MT5 broker (whatever broker the user
+    is on) via the validator's deep fetch — so the dashboard's trigger history
+    is always current and broker-agnostic. ``entry_ms`` is the entry bar's
+    epoch-ms (UTC); ``direction`` is +1 long / -1 short.
+
+    The panel is named トリガー履歴 ("trigger history"), so it logs a trigger
+    the moment it fires — open positions included. ``is_open`` flags the
+    still-running trigger (at most one per symbol/TF — the current position).
+    For a closed trigger ``net_pts`` is realised P/L in points after the bar
+    spread; for an open one it is the floating P/L marked to the most recent
+    close (the dashboard shows it greyed as 保有中 and excludes it from the
+    realised win-rate / PF / cumulative stats).
+    """
+
+    entry_ms: int
+    direction: int
+    net_pts: float
+    is_open: bool = False
+
+
+@dataclass(frozen=True)
 class ValidationCore:
     """The full statistic bundle for one signal evaluation."""
 
@@ -71,6 +95,9 @@ class ValidationCore:
     regime_trend: RegimeStats
     regime_range: RegimeStats
     tier: str             # "信頼" | "要注意" | "データ不足"
+    # Last N closed triggers (newest first) for the dashboard history table.
+    # Empty by default so call sites that don't supply timestamps still work.
+    recent_triggers: tuple[RecentTrigger, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -471,5 +498,43 @@ class SignalValidator:
         adx_2d, _, _ = indicators.adx(high, low, close, config.ADX_PERIOD)
         adx = np.nan_to_num(adx_2d[0][start:], nan=0.0)
 
-        return evaluate_trades(window.trades, spread_pts=spread_pts,
+        core = evaluate_trades(window.trades, spread_pts=spread_pts,
                                adx=adx, point=point)
+        # Attach the most-recent closed triggers (newest first) so the
+        # dashboard history table is fed by the LIVE broker deep fetch. The
+        # entry timestamp comes from the window's per-bar epoch-ms array.
+        recent = _recent_triggers_from_window(
+            window, spread_pts=spread_pts, point=point,
+            limit=config.VALIDATION_RECENT_TRIGGERS,
+        )
+        return replace(core, recent_triggers=recent)
+
+
+def _recent_triggers_from_window(
+    window, *, spread_pts: np.ndarray, point: float, limit: int,
+) -> tuple[RecentTrigger, ...]:
+    """Extract the last *limit* triggers (newest first) from a window.
+
+    Net P/L mirrors ``evaluate_trades``: ``points/point − bar_spread``. Entry
+    time is the window's epoch-ms at the trade's entry bar. The panel is a
+    トリガー履歴 ("trigger history"), so every trigger is logged the moment it
+    fires — the still-running position is included with ``is_open=True`` (its
+    ``net_pts`` is the floating P/L marked to the latest close). The dashboard
+    keeps it out of the realised win-rate / PF / cumulative tallies."""
+    p = point if point > 0.0 else 1.0
+    times_ms = window.times_ms
+    out: list[RecentTrigger] = []
+    for t in window.trades:
+        ei = t.entry_idx
+        if ei < 0 or ei >= times_ms.size:
+            continue
+        cost = float(spread_pts[ei]) if ei < spread_pts.size else 0.0
+        net = t.points / p - cost
+        out.append(RecentTrigger(
+            entry_ms=int(times_ms[ei]),
+            direction=int(t.direction),
+            net_pts=float(net),
+            is_open=bool(t.is_open),
+        ))
+    out.sort(key=lambda r: r.entry_ms, reverse=True)   # newest first
+    return tuple(out[:limit])
