@@ -45,6 +45,54 @@ def _install_signal_handlers(loop: AnalysisLoop, stop_event: threading.Event) ->
             log.debug("Could not install handler for %s", sig)
 
 
+def _bring_up_when_mt5_ready(
+    loop: AnalysisLoop, connector: MT5Connector, stop: threading.Event,
+) -> None:
+    """Background bring-up: wait for MT5 to be reachable (retrying every
+    ``config.MT5_RECONNECT_INTERVAL_SEC``), then start the analysis loop ONCE.
+
+    The web server is already bound and serving before this runs, so the
+    dashboard page always comes up — it shows the "MT5 offline / reconnecting"
+    state (STATE defaults to ``connected=False``) until MT5 is ready, instead
+    of the launcher refusing to start. This removes the old coupling where
+    ``main`` exited (return 2) when MT5 was not yet up, leaving port 8050
+    unbound and Dashboard.bat timing out after 60 s.
+    """
+    attempt = 0
+    while not stop.is_set():
+        attempt += 1
+        try:
+            connector.ensure_connected()   # the MT5-readiness gate; raises until ready
+            break
+        except MT5ConnectionError as exc:
+            log.warning(
+                "MT5 not ready (attempt %d): %s — retrying in %.0f s",
+                attempt, exc, config.MT5_RECONNECT_INTERVAL_SEC,
+            )
+            if stop.wait(config.MT5_RECONNECT_INTERVAL_SEC):
+                return
+    if stop.is_set():
+        return
+
+    try:
+        # MT5 is reachable now; start lines-watcher + warm-up + the loop.
+        # (loop.start() re-calls connector.initialize(), which is idempotent.)
+        loop.start()
+    except MT5ConnectionError:
+        # Rare race: MT5 dropped between the probe and warm-up. The loop's own
+        # per-tick reconnect recovers once MT5 returns, so leave the server up.
+        log.exception("MT5 dropped during analysis-loop start-up")
+        return
+
+    # Inject per-symbol broker metadata (digits/point/pip_size) into the
+    # shared state so the frontend can render spreads/SL/TP correctly.
+    try:
+        from analyzer.state import STATE
+        STATE.set_broker_meta(connector.symbol_meta_dict())
+    except Exception:  # noqa: BLE001 — never fatal
+        log.exception("Failed to publish broker symbol meta")
+
+
 def main() -> int:
     configure_logging()
 
@@ -60,21 +108,17 @@ def main() -> int:
     loop = AnalysisLoop(connector)
     stop = threading.Event()
 
-    try:
-        loop.start()
-    except MT5ConnectionError as exc:
-        log.error("Failed to initialise MT5: %s", exc)
-        return 2
-
-    # Inject per-symbol broker metadata (digits/point/pip_size) into the
-    # shared state so the frontend can render spreads/SL/TP correctly.
-    try:
-        from analyzer.state import STATE
-        STATE.set_broker_meta(connector.symbol_meta_dict())
-    except Exception:  # noqa: BLE001 — never fatal
-        log.exception("Failed to publish broker symbol meta")
-
     _install_signal_handlers(loop, stop)
+
+    # Bring MT5 + the analysis loop up in the BACKGROUND with retry, so the web
+    # server below can bind port 8050 immediately. The dashboard then always
+    # starts (and shows "reconnecting" until MT5 is ready) — Dashboard.bat no
+    # longer times out when MT5 isn't running/ready at launch.
+    threading.Thread(
+        target=_bring_up_when_mt5_ready,
+        args=(loop, connector, stop),
+        name="mt5-bringup", daemon=True,
+    ).start()
 
     app = build_app()
 
