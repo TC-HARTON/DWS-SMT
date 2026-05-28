@@ -213,6 +213,13 @@ VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ
 # backtest doesn't cover (the front-end merges them), so a few hundred is
 # plenty — the broker's resident window yields at most ~400 (M15) triggers.
 VALIDATION_RECENT_TRIGGERS: Final[int] = 1000
+# Persistent live trigger-history store. The live broker feed is only a sliding
+# window (M15 ≈ 7 months), so to keep a COMPLETE live record (survives restarts
+# and window slides, selectable years-end and beyond) every closed live trigger
+# is appended here, keyed by BROKER (MT5 server) × symbol × base TF. Triggers
+# are price-derived so the broker is the boundary; the account/login does not
+# matter. Different brokers get separate sub-dirs so spreads never mix.
+LIVE_TRIGGER_DIR: Final[Path] = PROJECT_ROOT / "data" / "live_triggers"
 # Wilson score interval z for a 95 % two-sided confidence interval.
 VALIDATION_CI_Z: Final[float] = 1.96
 # The connector serialises every MT5 fetch through one lock, and a slow cold

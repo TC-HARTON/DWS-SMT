@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 import config
-from analyzer import confluence, price_action, structure_detector
+from analyzer import confluence, price_action, structure_detector, trigger_store
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
 from analyzer.correlation import CorrelationEngine
@@ -387,10 +387,34 @@ class AnalysisLoop:
         try:
             snap = self._signal_validator.compute(bases, self._state.broker_meta)
             self._state.set_validation(snap)
+            self._persist_live_triggers(snap)
         except Exception:               # noqa: BLE001 — never reach the loop
             log.exception("signal-validation worker failed")
         finally:
             self._validation_inflight.clear()
+
+    def _persist_live_triggers(self, snap) -> None:
+        """Append this pass's CLOSED live triggers to the per-broker on-disk
+        store, then publish the accumulated per-(symbol, TF) year history so the
+        dashboard shows the COMPLETE live record — not just the broker's sliding
+        window. Keyed by the connected broker (MT5 server)."""
+        acct = self._state.account
+        server = acct.server if acct is not None else None
+        if not server:
+            return    # no broker identity yet — skip until the account arrives
+        history: dict[str, dict[str, dict]] = {}
+        total_new = 0
+        for sym, per_tf in snap.by_symbol.items():
+            tf_hist: dict[str, dict] = {}
+            for tf, stats in per_tf.items():
+                triggers = getattr(stats.raw, "recent_triggers", ()) or ()
+                total_new += trigger_store.append_closed(server, sym, tf, triggers)
+                tf_hist[tf] = trigger_store.load_by_year(server, sym, tf)
+            history[sym] = tf_hist
+        if total_new:
+            log.info("live trigger store: +%d new closed triggers (%s)",
+                     total_new, server)
+        self._state.set_live_trigger_history(history, server)
 
     def _do_macro_refresh(self, bases: list[str]) -> None:
         """Spec Section B: refresh central-bank rates + employment every 6 h.

@@ -547,8 +547,20 @@ body {
 }
 .anlx-title .anlx-sub {
     font-size: var(--text-xs); font-weight: var(--weight-normal); letter-spacing: 0;
-    color: var(--fg-2); text-transform: none;
+    color: var(--fg-3); text-transform: none;
     margin-left:var(--space-4);
+}
+/* Connected broker the live trigger record belongs to + a "recording" badge so
+   it's obvious which broker's history this is and that it's being persisted. */
+.anlx-title .rt-broker {
+    font-family: var(--mono); font-size: var(--text-2xs); font-weight: var(--weight-bold);
+    color: var(--accent); text-transform: none; letter-spacing: 0;
+    margin-left:var(--space-4);
+}
+.anlx-title .rt-rec {
+    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: 0.04em;
+    color: var(--buy); text-transform: none;
+    margin-left:var(--space-3);
 }
 .anlx-grid.trade {
     display: grid;

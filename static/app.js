@@ -888,76 +888,84 @@ function buildAnalytics(snap, sym) {
     return buildRecentTriggers(snap, sym) + buildHourlyHeatmap(snap, sym);
 }
 
-/** (A) DWS-SMT trigger history from the LIVE connected MT5 broker (any
- *  broker). Sourced from the SignalValidator's deep-history fetch
- *  (snap.validation → recent_triggers): the validator pulls a long window
- *  straight from the broker every 5 min, runs the deterministic DWS-SMT
- *  signal, and ships the most-recent closed triggers. The newest is featured
- *  prominently with a relative "X時間前" stamp so "what was the last signal
- *  and did it win?" is answered with zero scrolling. */
+/** (A) DWS-SMT trigger history for the connected MT5 broker (any broker).
+ *  Three layers, concatenated by year:
+ *   - ≤ backtest last_year (2025): the frozen 16Y OOS baseline (oos_baseline).
+ *   - > last_year (2026+): the PERSISTENT per-broker live store
+ *     (snap.live_history.by_symbol) — a COMPLETE year-bucketed record kept on
+ *     disk, so a year stays full at year-end and survives restarts and the
+ *     broker's sliding window. Same shape as the baseline → one reader.
+ *   - the single still-open trigger (snap.validation recent_triggers, o:true):
+ *     shown live at the top of its year, excluded from realised stats.
+ *  The store is broker-scoped (triggers are price-derived, so the broker — not
+ *  the account — is the boundary); the connected broker is named in the head. */
 function buildRecentTriggers(snap, sym) {
     const baseTf = UI.dwsBase;
+    const liveHist = snap.live_history?.by_symbol?.[sym]?.[baseTf]?.by_year || {};
+    const brokerServer = snap.live_history?.server || null;
+    const brokerSub = brokerServer
+        ? `<span class="rt-broker" title="記録中ブローカー">${esc(brokerServer)}</span>`
+        + `<span class="rt-rec" title="ライブトリガーを永続記録中">● 記録中</span>`
+        : '';
     const head = `<div class="anlx-title">トリガー履歴 ${esc(baseTf)}`
-               + `<span class="anlx-sub">16Y バックテスト + 接続中 MT5 ライブ連結 (net pt, spread 込み)</span></div>`;
+               + `<span class="anlx-sub">16Y + ライブ連結 (net pt, spread 込み)${brokerSub}</span></div>`;
 
-    // --- Two sources, concatenated by year ---
-    // CSV backtest owns the deep past (through its UTC last_year, 2025); the
-    // LIVE broker feed owns the years beyond that (2026+). The boundary is the
-    // backtest's FIXED last_year (UTC) — never a per-cell max — so a stray
-    // JST-boundary trade can't let the backtest hijack & suppress live 2026.
+    // CSV backtest owns the deep past through its FIXED UTC last_year; the live
+    // store owns the years beyond it. The fixed boundary stops a stray JST year
+    // from letting the backtest silently suppress the live feed.
     const th = snap.oos_baseline?.by_symbol?.[sym]?.[baseTf]?.trigger_history || {};
     const csvYearsRaw = th.by_year || {};
-    const liveRt = snap.validation?.by_symbol?.[sym]?.[baseTf]?.raw?.recent_triggers || [];
-
     const csvLastYear = th.last_year
         || (Object.keys(csvYearsRaw).length ? Math.max(...Object.keys(csvYearsRaw).map(Number)) : 0);
 
-    // CSV owns years ≤ last_year; drop any stray JST-spill year above it.
     const csvYears = {};
     for (const [y, rec] of Object.entries(csvYearsRaw)) {
         if (Number(y) <= csvLastYear) csvYears[y] = rec;
     }
-    const csvYearNums = Object.keys(csvYears).map(Number);
-
-    // Live owns years strictly after the backtest's last_year.
-    const liveByYear = {};
-    for (const t of liveRt) {
-        const y = jstYear(t.t);
-        if (y <= csvLastYear) continue;       // backtest owns these years
-        (liveByYear[y] ||= []).push(t);
+    const liveYears = {};
+    for (const [y, rec] of Object.entries(liveHist)) {
+        if (Number(y) > csvLastYear) liveYears[y] = rec;   // live owns > boundary
     }
+    const csvYearNums = Object.keys(csvYears).map(Number);
+    const liveYearNums = Object.keys(liveYears).map(Number);
 
-    // Per-year record: {n, wins, losses, cum, gw, gl, nOpen, trades:[{t,d,p,o}], src}
-    // n / wins / losses / cum / gw / gl are REALISED (closed) only — an open
-    // trigger has no settled outcome, so counting it would corrupt the win
-    // rate / PF. It still rides along in `trades` (tagged o:true) so the
-    // トリガー履歴 list shows it the moment it fires.
-    const liveStats = (arr) => {
-        const ts = arr.slice().sort((a, b) => b.t - a.t);
-        const closed = ts.filter(t => !t.o);
-        const wins = closed.filter(t => t.p > 0).length;
-        const gw = closed.filter(t => t.p > 0).reduce((s, t) => s + t.p, 0);
-        const gl = Math.abs(closed.filter(t => t.p < 0).reduce((s, t) => s + t.p, 0));
-        return { n: closed.length, wins, losses: closed.length - wins,
-                 cum: closed.reduce((s, t) => s + t.p, 0), gw, gl,
-                 nOpen: ts.length - closed.length,
-                 trades: ts.slice(0, 30), src: 'live' };
-    };
-    const csvStats = (c) => ({
+    // The single still-running trigger (if any) — shown, never counted.
+    const openTrig = (snap.validation?.by_symbol?.[sym]?.[baseTf]?.raw?.recent_triggers || [])
+        .find(t => t.o) || null;
+    const openYear = openTrig ? jstYear(openTrig.t) : null;
+    const isLiveYear = (y) => !!liveYears[String(y)] || y === openYear;
+
+    // CSV + live years share ONE aggregate shape, so one reader. Realised stats
+    // (n/wins/losses/cum/gw/gl) are closed-only; the open trigger is grafted
+    // into its year's list with nOpen, never into the realised totals.
+    const aggStats = (c, src) => ({
         n: c.n, wins: c.wins, losses: c.losses, cum: c.cum_pts,
         gw: c.gross_win || 0, gl: c.gross_loss || 0, nOpen: 0,
-        trades: c.trades || [], src: '16Y',
+        trades: (c.trades || []).slice(), src,
     });
-    const yearRecord = (y) => liveByYear[y]
-        ? liveStats(liveByYear[y])
-        : (csvYears[String(y)] ? csvStats(csvYears[String(y)]) : null);
+    const yearRecord = (y) => {
+        let rec = null;
+        if (y > csvLastYear && liveYears[String(y)]) rec = aggStats(liveYears[String(y)], 'live');
+        else if (csvYears[String(y)])                rec = aggStats(csvYears[String(y)], '16Y');
+        if (openTrig && y === openYear) {
+            if (!rec) rec = { n:0, wins:0, losses:0, cum:0, gw:0, gl:0, nOpen:0, trades:[], src:'live' };
+            rec = { ...rec, nOpen: (rec.nOpen || 0) + 1,
+                    trades: [{ t: openTrig.t, d: openTrig.d, p: openTrig.p, o: true }, ...rec.trades] };
+        }
+        return rec;
+    };
 
-    const allYears = [...new Set([...csvYearNums, ...Object.keys(liveByYear).map(Number)])]
-        .sort((a, b) => b - a);
+    const allYears = [...new Set([
+        ...csvYearNums, ...liveYearNums,
+        ...((openYear && openYear > csvLastYear) ? [openYear] : []),
+    ])].sort((a, b) => b - a);
 
     if (!allYears.length) {
+        const msg = brokerServer
+            ? 'このブローカーの記録は蓄積開始 (確定トリガー待ち)'
+            : '履歴データ取得待ち (ライブ検証は起動後 ~90 秒)';
         return `<div class="anlx-block anlx-triggers">${head}
-            <div class="rt-empty">履歴データ取得待ち (ライブ検証は起動後 ~90 秒)</div>
+            <div class="rt-empty">${esc(msg)}</div>
         </div>`;
     }
 
@@ -968,7 +976,7 @@ function buildRecentTriggers(snap, sym) {
         `<span class="rt-period-pill${String(year) === String(val) ? ' on' : ''}${extra || ''}" `
       + `data-trig-year="${val}">${esc(label)}</span>`;
     const pills = yearPill('all', '全')
-        + allYears.map(y => yearPill(y, String(y), liveByYear[y] ? ' is-live' : '')).join('');
+        + allYears.map(y => yearPill(y, String(y), isLiveYear(y) ? ' is-live' : '')).join('');
 
     // Resolve the displayed summary + list for the selected period.
     let n, wins, losses, cum, gw, gl, nOpen, trades, srcLabel;
@@ -986,7 +994,7 @@ function buildRecentTriggers(snap, sym) {
     } else {
         const r = yearRecord(Number(year)) || { n:0,wins:0,losses:0,cum:0,gw:0,gl:0,nOpen:0,trades:[] };
         ({ n, wins, losses, cum, gw, gl, nOpen, trades } = r);
-        srcLabel = liveByYear[Number(year)] ? `${year} (ライブ)` : `${year} (16Y)`;
+        srcLabel = isLiveYear(Number(year)) ? `${year} (ライブ)` : `${year} (16Y)`;
     }
     const winLabel = year === 'all' ? '全' : `${year}年`;
     const pf = gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0);

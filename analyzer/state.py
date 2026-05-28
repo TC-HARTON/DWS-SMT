@@ -96,6 +96,12 @@ class LatestState:
         # tier is improving or decaying within the session.
         self._validation_history: dict[str, dict[str, list[float]]] = {}
         self._validation_history_max_per_cell = 24    # ~2 h at 5-min cadence
+        # Persistent live trigger history, aggregated per (symbol, base TF) from
+        # the on-disk store for the CURRENTLY connected broker. Shape per cell:
+        # {"by_year": {YYYY: {stats, trades:[last30]}}}. ``_live_trigger_server``
+        # is the broker (MT5 server) the history belongs to, surfaced in the UI.
+        self._live_trigger_history: dict[str, dict[str, dict]] = {}
+        self._live_trigger_server: Optional[str] = None
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
@@ -201,6 +207,19 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
+    def set_live_trigger_history(
+        self, history: dict[str, dict[str, dict]], server: str | None,
+    ) -> None:
+        """Publish the per-(symbol, TF) live trigger history aggregated from the
+        on-disk store, tagged with the broker it belongs to. Counts as a heavy
+        update so the next WS push is a full snapshot carrying it."""
+        with self._cond:
+            self._live_trigger_history = history
+            self._live_trigger_server = server
+            self._monotonic_version += 1
+            self._analysis_version += 1
+            self._cond.notify_all()
+
     def set_macro(self, snapshot: MacroSnapshot) -> None:
         with self._cond:
             self._macro = snapshot
@@ -241,6 +260,16 @@ class LatestState:
     def account(self) -> AccountSnapshot | None:
         with self._lock:
             return self._account
+
+    @property
+    def live_trigger_history(self) -> dict[str, dict[str, dict]]:
+        with self._lock:
+            return self._live_trigger_history
+
+    @property
+    def live_trigger_server(self) -> str | None:
+        with self._lock:
+            return self._live_trigger_server
 
     @property
     def status(self) -> ConnectionStatus:
@@ -329,6 +358,8 @@ class LatestState:
                     sym: {tf: list(buf) for tf, buf in per_tf.items()}
                     for sym, per_tf in self._validation_history.items()
                 },
+                "live_trigger_history": self._live_trigger_history,
+                "live_trigger_server": self._live_trigger_server,
                 "broker_meta": self._broker_meta,
             }
 

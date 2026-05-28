@@ -14,6 +14,9 @@ logs/*.log
 logs/*.log.*
 data/cache/*
 data/lines/*
+# Per-broker live trigger history — runtime state, accumulated on disk,
+# broker/account-specific. Never commit (like cache/lines).
+data/live_triggers/
 external/forex_factory_xml/*
 external/macro/*
 !**/.gitkeep
