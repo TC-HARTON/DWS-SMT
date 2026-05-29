@@ -90,6 +90,25 @@ class MT5ConnectionError(RuntimeError):
     """Raised when MT5 cannot be initialised or has dropped its connection."""
 
 
+def pip_size_for(base: str, digits: int, point: float) -> float:
+    """Conventional **pip size in price units** for *base*.
+
+    Metals price a pip in DOLLARS, independent of the broker's digit precision:
+      * Gold (XAU): 1 pip = $0.10 — whether the broker quotes 2 digits
+        (point 0.01) or 3 digits (point 0.001). The naive even/odd-digit rule
+        below yields $0.01 for BOTH, i.e. a 10x-too-small pip, so gold spreads
+        render 10x too large; this override fixes that.
+
+    FX follows the MT5 digit convention:
+      * odd digits (3 or 5) — "pipette" pricing, 1 pip = 10 * point
+        (EURUSD 5-digit → 0.0001, USDJPY 3-digit → 0.01)
+      * even digits (2 or 4) — legacy pricing, the point IS the pip.
+    """
+    if base.upper().startswith("XAU"):
+        return 0.10
+    return point * 10.0 if digits % 2 == 1 else point
+
+
 class MT5Connector:
     """Thread-safe wrapper around the MetaTrader5 package.
 
@@ -318,13 +337,9 @@ class MT5Connector:
         by the frontend to render spreads/SL/TP in the broker's native pip
         units (avoids hard-coding pip multipliers per symbol).
 
-        ``pip_size`` follows the universal MT5 convention:
-          * **Odd digits (3 or 5)** — broker uses "pipette" pricing:
-            1 pip = 10 × point (e.g. EURUSD digits=5 point=0.00001 → pip 0.0001,
-            USDJPY digits=3 point=0.001 → pip 0.01,
-            XAUUSD digits=3 point=0.001 → pip 0.01)
-          * **Even digits (2 or 4)** — broker uses legacy pricing:
-            1 pip = 1 × point (point IS the pip)
+        ``pip_size`` is computed by :func:`pip_size_for` — the MT5 digit
+        convention for FX, with a metals override (gold's pip is $0.10
+        regardless of whether the broker quotes 2 or 3 digits).
         """
         out: dict[str, dict[str, float]] = {}
         with self._lock:
@@ -334,9 +349,9 @@ class MT5Connector:
                     continue
                 digits = int(info.digits)
                 point  = float(info.point)
-                # Derive pip_size from broker digit precision — matches MT5
-                # native convention and avoids hardcoded per-symbol guessing.
-                pip_size = point * 10.0 if digits % 2 == 1 else point
+                # pip_size follows the MT5 digit convention for FX, with a
+                # metals override (gold's pip is $0.10 regardless of digits).
+                pip_size = pip_size_for(base, digits, point)
                 out[base] = {
                     "digits": digits,
                     "point": point,

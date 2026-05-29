@@ -101,7 +101,10 @@ class CorrelationEngine:
         closes = pd.DataFrame(series_by_sym).dropna(how="all")
         # Bar timestamps differ slightly across symbols on some brokers; use
         # the intersection so every column shares the same row index.
-        returns = closes.pct_change().dropna()
+        # fill_method=None: do NOT forward-fill gaps before differencing (the
+        # old pandas default 'pad' silently injected spurious zero-returns and
+        # is deprecated — it printed a FutureWarning on every startup).
+        returns = closes.pct_change(fill_method=None).dropna()
         present_symbols = tuple(returns.columns)
 
         by_window: dict[int, CorrelationMatrix] = {}
