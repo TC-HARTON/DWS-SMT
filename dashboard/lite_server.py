@@ -93,48 +93,55 @@ def _spawn_restart_then_exit(new_terminal_path: str) -> None:
     simpler and avoids both quoting traps.
     """
     import sys
+    import tempfile
     import time
-    time.sleep(0.4)
-    # The user's environment puts the running python in a Windows job that
-    # kills "detached" child processes the moment we os._exit — even with
-    # DETACHED_PROCESS / CREATE_NEW_PROCESS_GROUP / CREATE_BREAKAWAY_FROM_JOB
-    # plus DEVNULL stdio (verified empirically: every flag combination still
-    # has the child die within 200 ms of parent exit).
-    #
-    # The one Windows pattern that DOES survive is ``cmd /c start "" …``.
-    # The inner ``start`` command itself spawns truly independently and the
-    # outer ``cmd /c`` exits immediately; the spawned process is owned by
-    # the shell, not by us, so it outlives our ``os._exit``. We use it to
-    # launch a small inline cmd that sleeps 3 s (port-release window),
-    # then starts the new main.py in its own console.
-    DETACHED_PROCESS = 0x00000008
+    time.sleep(0.4)   # let the broker-switch HTTP response reach the browser
+
     python_exe = sys.executable
     project_root = str(config.PROJECT_ROOT)
-    # The inner cmd: wait via ping (cmd's built-in sleep), then start the new
-    # main.py via `start "TITLE" cmd /k python main.py` (same shape Dashboard.bat
-    # uses so the user gets the familiar "MT5 Dashboard" window).
-    inner = (
-        f'ping -n 4 127.0.0.1 >nul && '
-        f'start "MT5 Dashboard" /D "{project_root}" cmd /k "{python_exe}" main.py'
+    # Robust relaunch: write the steps to a plain-text .bat on disk and launch
+    # THAT — instead of an inline nested ``cmd /c start … cmd /c "…"`` string.
+    # The previous inline form nested quotes (``"{project_root}"`` /
+    # ``"{python_exe}"`` inside an already-quoted ``"{inner}"``); under
+    # CreateProcess those mangled and the relaunch SILENTLY never started,
+    # taking the dashboard down on a broker switch. A .bat file is plain text
+    # with no quote-nesting to mangle.
+    #
+    # The .bat sets the new broker path (python-dotenv's load_dotenv is
+    # non-overriding, so an env var shadows .env), waits ~3 s for :8050 to
+    # release, then opens the familiar "MT5 Dashboard" console (same shape as
+    # Dashboard.bat). The outer ``cmd /c start`` makes the OS shell own the
+    # child so it survives this process's os._exit.
+    bat = (
+        "@echo off\r\n"
+        f'set "MT5_TERMINAL_PATH={new_terminal_path}"\r\n'
+        f'cd /d "{project_root}"\r\n'
+        "ping -n 4 127.0.0.1 >nul\r\n"
+        f'start "MT5 Dashboard" cmd /k "{python_exe}" main.py\r\n'
     )
-    outer = f'cmd /c start "" /MIN cmd /c "{inner}"'
-    child_env = dict(os.environ)
-    child_env["MT5_TERMINAL_PATH"] = new_terminal_path
+    bat_path = os.path.join(tempfile.gettempdir(), "mt5_broker_switch_relaunch.bat")
     try:
+        with open(bat_path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(bat)
+    except OSError:
+        log.exception("broker-switch: could not write relaunch .bat — staying up")
+        return                      # do NOT exit without a guaranteed relaunch
+    DETACHED_PROCESS = 0x00000008
+    try:
+        # Args as a LIST so Windows does not re-parse/mangle the quoting.
         subprocess.Popen(
-            outer,
+            ["cmd", "/c", "start", "", "/MIN", bat_path],
             cwd=project_root,
             creationflags=DETACHED_PROCESS,
             close_fds=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            shell=False,
-            env=child_env,
         )
     except OSError:
-        log.exception("broker-switch restart spawn failed")
-    log.info("broker-switch: exiting so the new main.py can bind 8050 in ~3 s")
+        log.exception("broker-switch restart spawn failed — staying up")
+        return                      # do NOT exit if the relaunch did not spawn
+    log.info("broker-switch: relaunch .bat spawned; exiting so it can bind 8050 in ~3 s")
     os._exit(0)
 
 
