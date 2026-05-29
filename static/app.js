@@ -127,24 +127,6 @@ function fmtJSTdate(epochSec) {
     const d = new Date(epochSec * 1000 + 9 * 3600 * 1000);
     return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
 }
-function touchClass(distance, atr) {
-    if (atr == null || !isFinite(atr) || atr <= 0) return '';
-    const a = Math.abs(distance);
-    if (a <= 0.10 * atr) return 'touch';
-    if (a <= 0.30 * atr) return 'near';
-    if (a <= 0.50 * atr) return 'far';
-    return '';
-}
-function categoryLabel(cat) {
-    return ({
-        resistance: 'R',  support: 'S',
-        trend_up: 'TL↑',  trend_down: 'TL↓',
-        supply_zone: 'Sup', demand_zone: 'Dem',
-        channel: 'CH', fibonacci: 'Fib', note: 'Txt',
-        previous: 'Prev', round: 'Rnd', swing: 'Sw',
-        session: 'Ses', vwap: 'VWAP', other: 'Lv',
-    })[cat] || 'Lv';
-}
 
 // ------------------------------------------------------------
 // One-time DOM building
@@ -211,15 +193,15 @@ function onPanelClick(ev, panel, grid) {
         ev.stopPropagation();
         panel.classList.remove('expanded');
         grid.classList.remove('has-expanded');
-        // Re-render to refresh struct row count for new mode
-        if (latestSnap) { delete STAMPS['struct']; delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+        // Re-render so the sig / dws panels repaint for the new mode.
+        if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
         return;
     }
     // Clear any other expansion + toggle this one
     grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
     grid.classList.toggle('has-expanded', !wasExpanded);
     if (!wasExpanded) panel.classList.add('expanded');
-    if (latestSnap) { delete STAMPS['struct']; delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+    if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
 }
 
 // Esc key collapses expanded panel
@@ -229,7 +211,7 @@ document.addEventListener('keydown', (e) => {
     if (!grid || !grid.classList.contains('has-expanded')) return;
     grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
     grid.classList.remove('has-expanded');
-    if (latestSnap) { delete STAMPS['struct']; delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+    if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
 });
 
 function buildStrengthRows() {
@@ -370,141 +352,6 @@ function paintPrices(snap) {
     }
 }
 
-function _setPanelMod(panel, mod) {
-    // Preserve `expanded` across paint cycles; just swap the activity tier.
-    panel.classList.remove('quiet', 'active', 'touch');
-    panel.classList.add(mod);
-}
-
-function paintHero(snap) {
-    // Hero = nearest structure with state classification on the panel.
-    const ticks = (snap.price && snap.price.ticks) || {};
-    const analysis = snap.analysis;
-    const structures = snap.structures;
-    if (!structures) return;
-    for (const sym of SYMBOL_ORDER) {
-        const t = ticks[sym];
-        const price = t ? t.bid : null;
-        const sa = analysis && analysis.by_symbol && analysis.by_symbol[sym];
-        const h4 = sa && sa.by_tf && sa.by_tf.H4;
-        const atr = h4 ? h4.atr : null;
-        const levels = (structures.levels_by_symbol || {})[sym] || [];
-        const panel = document.getElementById('panel-' + sym);
-        const hero  = $bind('hero-' + sym);
-        if (!panel || !hero) continue;
-
-        if (price == null || atr == null || levels.length === 0) {
-            _setPanelMod(panel, 'quiet');
-            hero.textContent = 'no signal';
-            continue;
-        }
-        let nearest = null, dist = Infinity;
-        for (const l of levels) {
-            if (l.price == null || !isFinite(l.price)) continue;
-            const d = Math.abs(l.price - price);
-            if (d < dist) { dist = d; nearest = l; }
-        }
-        if (!nearest) {
-            _setPanelMod(panel, 'quiet');
-            hero.textContent = 'no signal';
-            continue;
-        }
-        const dig = priceDigits(price);
-        const signed = nearest.price - price;
-        const pip = signed * Math.pow(10, dig);
-        const tier = touchClass(signed, atr);
-        const arrow = signed > 0 ? '↑' : signed < 0 ? '↓' : '·';
-        const stateLabel = tier === 'touch' ? 'TOUCHING'
-                         : tier === 'near'  ? 'NEAR'
-                         : tier === 'far'   ? 'APPROACH'
-                         : 'idle';
-        hero.textContent = arrow + ' ' + categoryLabel(nearest.category) +
-            ' ' + fmtPrice(nearest.price, dig) +
-            '  ' + (pip > 0 ? '+' : '') + pip.toFixed(1) + ' pip  · ' + stateLabel;
-        let mod = 'quiet';
-        if (tier === 'touch') mod = 'touch';
-        else if (tier === 'near' || tier === 'far') mod = 'active';
-        _setPanelMod(panel, mod);
-    }
-}
-
-function paintStruct(snap, force) {
-    const structures = snap.structures;
-    if (!structures) return;
-    if (!force && !changed('struct', structures.generated_at)) return;
-    const ticks = (snap.price && snap.price.ticks) || {};
-    const analysis = snap.analysis;
-    for (const sym of SYMBOL_ORDER) {
-        const root = $bind('struct-' + sym);
-        if (!root) continue;
-        const panel = document.getElementById('panel-' + sym);
-        const isExpanded = panel && panel.classList.contains('expanded');
-        const cap = isExpanded ? 16 : 3;
-
-        const levels = (structures.levels_by_symbol || {})[sym] || [];
-        const t = ticks[sym];
-        const price = t ? t.bid : null;
-        const sa = analysis && analysis.by_symbol && analysis.by_symbol[sym];
-        const h4 = sa && sa.by_tf && sa.by_tf.H4;
-        const atr = h4 ? h4.atr : null;
-        const dig = priceDigits(price || (levels[0] && levels[0].price));
-
-        const items = levels.filter(l => l.price != null && isFinite(l.price))
-            .map(l => {
-                const d = price != null ? l.price - price : NaN;
-                const pip = isFinite(d) ? d * Math.pow(10, dig) : NaN;
-                const atrMult = (atr != null && atr > 0 && isFinite(d))
-                    ? Math.abs(d) / atr : null;
-                return Object.assign({}, l, {
-                    _d: d,
-                    _pip: pip,
-                    _abs: isFinite(d) ? Math.abs(d) : Infinity,
-                    _tier: touchClass(d, atr),
-                    _atrMult: atrMult,
-                });
-            })
-            .sort((a, b) => a._abs - b._abs)
-            .slice(0, cap);
-
-        const dataHtml = items.map(l => {
-            const tier = l._tier;
-            const dir   = l._d > 0 ? 'R' : l._d < 0 ? 'S' : '·';
-            const dirCls= l._d > 0 ? 'resist' : 'support';
-            const pipStr = isFinite(l._pip)
-                ? (l._pip > 0 ? '+' : '') + l._pip.toFixed(1) : '--';
-            const atrStr = (l._atrMult != null) ? l._atrMult.toFixed(2) + '×' : '--';
-            const tf  = l.tf || '--';
-            const imp = Math.min(5, Math.max(1, l.importance || 1));
-            const stars = '★'.repeat(imp) + '☆'.repeat(5 - imp);
-            return `<div class="struct-row ${tier}" title="${l.category} | source=${l.source || '--'} | tf=${tf}">
-                <span class="cat" title="カテゴリ">${categoryLabel(l.category)}</span>
-                <span class="name" title="${l.name}">${l.name}</span>
-                <span class="src" title="検出した足">${tf}</span>
-                <span class="imp" title="重要度 (1-5)">${stars}</span>
-                <span class="dir ${dirCls}" title="${dirCls === 'resist' ? '現在価格より上 (レジスタンス)' : '現在価格より下 (サポート)'}">${dir}</span>
-                <span class="price" title="価格">${fmtPrice(l.price, dig)}</span>
-                <span class="pip"   title="pip距離">${pipStr}</span>
-                <span class="atr"   title="H4 ATR 倍">${atrStr}</span>
-            </div>`;
-        }).join('');
-
-        // Header row (only meaningful when expanded — compact panel is too narrow)
-        const headerHtml = isExpanded ? `
-            <div class="struct-row struct-head" title="">
-                <span class="cat" title="カテゴリ (Sup/Res/Swing/Rnd/Ses/VWAP/...)">CAT</span>
-                <span class="name">NAME</span>
-                <span class="src" title="検出した足 (M15/H1/H4/D1/EA)">TF</span>
-                <span class="imp" title="重要度 (1-5 ★)">IMP</span>
-                <span class="dir" title="R=現価より上 / S=現価より下">R/S</span>
-                <span class="price">PRICE</span>
-                <span class="pip" title="現在価格との pip 距離">PIPS</span>
-                <span class="atr" title="距離 ÷ H4 ATR (≤0.1 で TOUCH 判定)">ATR×</span>
-            </div>` : '';
-
-        root.innerHTML = headerHtml + (dataHtml || '<div class="empty">no levels</div>');
-    }
-}
-
 function paintAccount(snap) {
     const a = snap.account;
     if (!a) return;
@@ -538,8 +385,8 @@ function paintAccount(snap) {
             const d = priceDigits(p.price_open, p.symbol);
             const cls = p.type === 'BUY' ? 'buy' : 'sell';
             return `<div class="pos-row ${cls}">
-                <span class="type-${cls}">${p.type}</span>
-                <span>${p.symbol}</span>
+                <span class="type-${cls}">${esc(p.type)}</span>
+                <span>${esc(p.symbol)}</span>
                 <span>${p.volume.toFixed(2)}L</span>
                 <span>${fmtPrice(p.price_open, d)}→${fmtPrice(p.price_current, d)}</span>
                 <span class="pos-pnl ${p.profit > 0 ? 'pos' : 'neg'}">${fmtSigned(p.profit, 2)}</span>
@@ -1139,10 +986,12 @@ function _sigCellDi(tf) {
 }
 function _sigCellRsi(tf) {
     if (!tf || tf.rsi == null) return { txt: '--', cls: 'num na' };
-    return {
-        txt: tf.rsi.toFixed(1),
-        cls: 'num' + (tf.rsi >= 70 || tf.rsi <= 30 ? ' warn' : ''),
-    };
+    // Split the extremes so the zone reads at a glance: ≥70 overbought (red),
+    // ≤30 oversold (green); mid-range stays neutral.
+    let z = '';
+    if (tf.rsi >= 70) z = ' warn-high';
+    else if (tf.rsi <= 30) z = ' warn-low';
+    return { txt: tf.rsi.toFixed(1), cls: 'num' + z };
 }
 
 /** Mode 1 (default, original): rows = TFs, columns = indicators. */
@@ -1566,6 +1415,18 @@ function drawDwsMarker(ctx, cx, cy, g, tradeable) {
     }
 }
 
+// Base-TF bar length in minutes — used for the "confirm in …" countdown.
+const TF_MINUTES = { M15: 15, H1: 60, H4: 240, D1: 1440, W1: 10080 };
+
+/** Format ms-until-close as "確定まで H:MM:SS" (or M:SS under an hour). */
+function fmtCountdown(ms) {
+    if (ms <= 0) return '足確定 (更新待ち)';
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const p = n => String(n).padStart(2, '0');
+    return '確定まで ' + (h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`);
+}
+
 /** Update the state line above the canvas (current alignment + latest trigger). */
 function updateDwsState(el, win) {
     if (!el) return;
@@ -1573,18 +1434,38 @@ function updateDwsState(el, win) {
     const last = win.c[N - 1];
     const allUp = last.every(c => c === 0);
     const allDown = last.every(c => c === 1);
-    let txt, cls;
-    if (allUp)        { txt = '▲ 3TF 全green 揃い'; cls = 'dws-state buy'; }
-    else if (allDown) { txt = '▼ 3TF 全red 揃い';   cls = 'dws-state sell'; }
-    else              { txt = '— 不一致 (待機)';     cls = 'dws-state'; }
+    // Each semantic element gets its OWN visual identity (not all one grey):
+    //  STATE  = filled pill, direction-coloured (the headline);
+    //  SIGNAL = chip, direction word in its colour + bars-ago muted;
+    //  TIME   = cool (blue) chip — "time" is its own colour family, kept apart
+    //           from the warm buy/sell palette. The rightmost bar is FORMING
+    //           (EMA colours flicker intra-bar); the countdown shows when it
+    //           confirms, ticked every 1 s by startTickers().
+    let pillCls, pillTxt;
+    if (allUp)        { pillCls = 'buy';  pillTxt = '▲ 揃い BUY'; }
+    else if (allDown) { pillCls = 'sell'; pillTxt = '▼ 揃い SELL'; }
+    else              { pillCls = 'wait'; pillTxt = '— 待機 (不一致)'; }
+    let html = `<span class="dws-pill ${pillCls}">${esc(pillTxt)}</span>`;
+
     for (let j = N - 1; j >= 0; j--) {
         if (win.g[j]) {
-            txt += `  ·  最新 ${win.g[j]} (${N - 1 - j}本前)`;
+            const g = win.g[j];
+            const gc = g === 'BUY' ? 'tg-buy' : g === 'SELL' ? 'tg-sell' : 'tg-exit';
+            html += `<span class="dws-chip"><span class="ck">最新</span>`
+                  + `<span class="${gc}">${esc(g)}</span>`
+                  + `<span class="cv">${N - 1 - j}本前</span></span>`;
             break;
         }
     }
-    el.className = cls;
-    el.textContent = txt;
+
+    const mins = TF_MINUTES[UI.dwsBase];
+    if (mins && win.t && win.t.length) {
+        const closeMs = win.t[win.t.length - 1] + mins * 60000;
+        html += `<span class="dws-chip cd"><span class="dws-cd" data-close="${closeMs}">`
+              + `${esc(fmtCountdown(closeMs - Date.now()))}</span></span>`;
+    }
+    el.className = 'dws-state';
+    el.innerHTML = html;
 }
 
 /** Composite BIAS score (-10..+10) for a symbol, or 0 when unavailable. */
@@ -1778,12 +1659,20 @@ function updateDwsValidation(sym, snap) {
           + `期待値 <em>${fmtN(Math.round(base.expectancy))} pt × ${Math.ceil(base.max_drawdown / Math.max(1, base.expectancy))} 回</em> のトレードで回復計算`,
     };
 
+    // Quality colours so "is this edge good?" reads at a glance:
+    //   勝率 green when it clears Breakeven (an edge exists), red if below.
+    //   PF green ≥2 (strong), amber 1-2 (marginal), red <1 (losing); ∞→green.
+    const wrCls = 'dws-num ' + (base.breakeven_wr != null && base.win_rate < base.breakeven_wr
+        ? 'neg' : 'pos');
+    const pfv = base.profit_factor;
+    const pfCls = 'dws-num ' + (pfv == null || pfv >= 2 ? 'pos' : pfv >= 1 ? 'warn' : 'neg');
+
     const statsHtml =
         `<div class="dws-vstats">`
-      + cell('勝率',         pct(base.win_rate),            '',                       DESC.wr)
+      + cell('勝率',         pct(base.win_rate),            wrCls,                    DESC.wr)
       + cell('Wilson 95%CI', esc(wilsonCi),                 '',                       DESC.wilson)
       + (bootCi ? cell('Bootstrap 95%CI', esc(bootCi),      '',                       DESC.boot) : '')
-      + cell('PF',           esc(fmtPf(base.profit_factor)), '',                      DESC.pf)
+      + cell('PF',           esc(fmtPf(base.profit_factor)), pfCls,                   DESC.pf)
       + cell('期待値',       `${expVal >= 0 ? '+' : ''}${fmtN(expVal)} pt`,
              'dws-num ' + expCls,                                                     DESC.ev)
       + cell('Breakeven WR', esc(breakeven),                '',                       DESC.be)
@@ -2111,9 +2000,14 @@ function paintAll() {
 // 1-second clock + countdown tick (independent of WS)
 function startTickers() {
     setInterval(() => {
-        if (latestSnap) {
-            $bind('clock').textContent = fmtJSTclock(Date.now() / 1000);
-        }
+        if (!latestSnap) return;
+        $bind('clock').textContent = fmtJSTclock(Date.now() / 1000);
+        // Smoothly tick the DWS bar-close countdown(s) between 5 s snapshots.
+        const now = Date.now();
+        document.querySelectorAll('.dws-cd[data-close]').forEach(s => {
+            const c = Number(s.dataset.close);
+            if (c) s.textContent = fmtCountdown(c - now);
+        });
     }, 1000);
 }
 

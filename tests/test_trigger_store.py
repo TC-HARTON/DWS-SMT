@@ -17,6 +17,7 @@ def store_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(ts.config, "LIVE_TRIGGER_DIR", tmp_path)
     ts._seen.clear()
     ts._locks.clear()
+    ts._by_year_cache.clear()
     return tmp_path
 
 
@@ -89,3 +90,26 @@ def test_broker_isolation_and_slug(store_dir):
 
 def test_load_empty_when_no_store(store_dir):
     assert ts.load_by_year("Nobody", "XAUUSD", "M15") == {"by_year": {}}
+
+
+def test_load_by_year_cache_invalidates_on_append(store_dir):
+    """The memoised load result refreshes when the store grows, and is never
+    the cached object itself (so a caller cannot mutate the cache)."""
+    server = "BrokerX"
+    jan = int(pd.Timestamp("2026-01-15 10:00", tz="Asia/Tokyo").timestamp() * 1000)
+    ts.append_closed(server, "EURUSD", "H1", [_rt(jan, 1, 10.0)])
+
+    first = ts.load_by_year(server, "EURUSD", "H1")
+    assert first["by_year"]["2026"]["n"] == 1
+
+    # Two reads with no change between are equal but independent objects.
+    again = ts.load_by_year(server, "EURUSD", "H1")
+    assert again == first and again is not first
+    again["by_year"]["2026"]["n"] = 999                      # mutate the copy …
+    assert ts.load_by_year(server, "EURUSD", "H1")["by_year"]["2026"]["n"] == 1  # … no leak
+
+    # A fresh append grows the file → cache self-invalidates → reflects it.
+    feb = int(pd.Timestamp("2026-02-20 10:00", tz="Asia/Tokyo").timestamp() * 1000)
+    ts.append_closed(server, "EURUSD", "H1", [_rt(feb, -1, -4.0)])
+    after = ts.load_by_year(server, "EURUSD", "H1")
+    assert after["by_year"]["2026"]["n"] == 2

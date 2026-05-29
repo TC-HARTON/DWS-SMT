@@ -385,26 +385,6 @@ body {
     color: var(--fg-dim); font-size: 0.6em; align-self: baseline;
 }
 
-/* Hero: at-a-glance metric */
-.hero {
-    font-family: var(--mono);
-    font-weight: 700;
-    color: var(--fg);
-    background: var(--panel-2);
-    border-left: 3px solid var(--fg-dim);
-    padding:var(--space-2) var(--space-4);
-    border-radius: var(--radius);
-    font-size: var(--text-sm);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.panel.active .hero {
-    border-left-color: var(--warning); color: var(--warning);
-}
-.panel.touch  .hero {
-    border-left-color: var(--critical); color: var(--critical);
-    background: rgba(255,61,84,0.10);
-}
-
 /* Bias chip */
 .bias {
     font-family: var(--mono);
@@ -617,15 +597,43 @@ body {
 .dws-pills { margin-left:auto; display: flex; gap:var(--space-2); }
 /* Primary status headline — current 3-TF alignment + latest trigger.
    Left accent bar turns green/red the moment a side is in control. */
+/* Verdict line = a row of distinct chips, each its own visual identity. */
 .dws-state {
-    font-family: var(--mono); font-size: var(--text-md); font-weight: var(--weight-bold);
-    color: var(--fg-2);
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3);
+    font-family: var(--mono); font-size: var(--text-sm);
     padding:5px 9px; border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.03);
     border-left: 3px solid var(--fg-3);
 }
-.dws-state.buy  { color: var(--buy);  border-left-color: var(--buy); }
-.dws-state.sell { color: var(--sell); border-left-color: var(--sell); }
+/* STATE pill — filled, direction-coloured: the headline that pops. */
+.dws-pill {
+    font-weight: 900; letter-spacing: 0.04em; white-space: nowrap;
+    padding: 3px 11px; border-radius: 999px;
+}
+.dws-pill.buy  { color: #04150f; background: var(--buy); }
+.dws-pill.sell { color: #1c0205; background: var(--sell); }
+.dws-pill.wait { color: var(--warning); background: rgba(255,183,77,0.14);
+                 box-shadow: inset 0 0 0 1px rgba(255,183,77,0.55); }
+/* SIGNAL chip — faint surface; the direction word carries the colour. */
+.dws-chip {
+    display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap;
+    padding: 2px 9px; border-radius: var(--radius-sm);
+    background: rgba(255,255,255,0.05);
+    font-size: var(--text-xs); color: var(--fg-2);
+}
+.dws-chip .ck { color: var(--fg-3); }
+.dws-chip .cv { color: var(--fg-3); }
+.dws-chip .tg-buy  { color: var(--buy);     font-weight: 900; }
+.dws-chip .tg-sell { color: var(--sell);    font-weight: 900; }
+.dws-chip .tg-exit { color: var(--warning); font-weight: 900; }
+/* TIME chip — cool (blue) family so "time" is visually apart from buy/sell. */
+.dws-chip.cd {
+    background: rgba(95,179,255,0.14);
+    box-shadow: inset 0 0 0 1px rgba(95,179,255,0.40);
+}
+.dws-chip.cd .dws-cd {
+    color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums;
+}
 /* BIAS ⇄ DWS divergence caveat — secondary line, de-emphasised. */
 .dws-sync {
     font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-normal);
@@ -640,6 +648,7 @@ body {
 .dws-num     { font-weight: 800; }
 .dws-num.pos { color: var(--buy); }
 .dws-num.neg { color: var(--sell); }
+.dws-num.warn { color: var(--warning); }
 .dws-canvas-wrap {
     flex: 1 1 auto; min-height: 200px; position: relative;
 }
@@ -674,108 +683,6 @@ body {
 .conc-tag  { color: var(--fg-muted); }
 
 
-
-/* ============================================================
-   DERIVED SIGNALS — multi-TF ADX/RSI/EMA/DI synthesis.
-   Things that AREN'T visible by glancing at a chart.
-   ============================================================ */
-.derived {
-    display: flex; flex-direction: column; gap:3px;
-    flex: 1 1 auto;
-    overflow-y: auto;
-    min-height: 0;
-}
-.d-row {
-    /* Indicator | D | 4H | 1H | M15 | summary
-       Fixed widths give perfect column alignment across all rows + header. */
-    display: grid;
-    grid-template-columns: 60px repeat(4, 78px) minmax(0, 1fr);
-    gap:var(--space-3);
-    align-items: center;
-    padding:var(--space-2) var(--space-3);
-    background: var(--panel-2);
-    border-left: 3px solid var(--fg-dim);
-    border-radius: 4px;
-    font-family: var(--mono);
-    font-size: var(--text-sm);
-    line-height: 1.3;
-}
-.d-row.d-header {
-    background: transparent;
-    border-left-color: transparent;
-    padding:var(--space-1) var(--space-3);
-}
-.d-row .d-tag {
-    font-size: var(--text-md); font-weight: 800; letter-spacing: 0.04em;
-    color: var(--fg); text-align: center;
-}
-.d-row .d-col-name {
-    text-align: center;
-    font-size: var(--text-sm); font-weight: 800; letter-spacing: 0.08em;
-    color: var(--accent); text-transform: uppercase;
-}
-.d-row .d-summary { color: var(--fg-muted); font-size: var(--text-xs);
-                    overflow: hidden; text-overflow: ellipsis;
-                    white-space: nowrap; }
-.d-row .d-summary b { color: var(--fg); }
-.d-row.buy   { border-left-color: var(--buy);  background: rgba(0,208,156,0.10); }
-.d-row.buy   .d-text, .d-row.buy   .d-tag { color: var(--buy); }
-.d-row.buy   .d-text b { color: var(--buy); }
-.d-row.sell  { border-left-color: var(--sell); background: rgba(255,91,107,0.10); }
-.d-row.sell  .d-text, .d-row.sell  .d-tag { color: var(--sell); }
-.d-row.sell  .d-text b { color: var(--sell); }
-.d-row.warn  { border-left-color: var(--warning); background: rgba(255,183,77,0.10); }
-.d-row.warn  .d-text, .d-row.warn  .d-tag { color: var(--warning); }
-.d-row.warn  .d-text b { color: var(--warning); }
-.d-row.neutral { border-left-color: var(--border); }
-
-/* TF chip — color-coded per TF (D1/H4/H1/M15) for instant scan.
-   Value is rendered MUCH larger than the TF name — the value is the
-   data, the TF name is just context. */
-.tf-chip {
-    display: inline-flex; align-items: baseline; gap:var(--space-2);
-    padding:3px var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    margin:0 var(--space-2) 0 0;
-    font-family: var(--mono);
-    background: var(--panel-2);
-    line-height: 1;
-    /* Fixed width per chip so the 4 TF columns align vertically across
-       EMA / RSI / ADX / DI± rows. */
-    min-width: 78px;
-    justify-content: center;
-    box-sizing: border-box;
-}
-.tf-chip .tf-name {
-    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-tight);
-    color: var(--fg-2);
-}
-.tf-chip .tf-val {
-    font-size: var(--text-md); font-weight: var(--weight-bold);
-    color: var(--fg);
-}
-.tf-chip.buy       { border-color: var(--buy);
-                     background: rgba(0,208,156,0.18); }
-.tf-chip.buy       .tf-name, .tf-chip.buy       .tf-val { color: var(--buy); }
-.tf-chip.buy-dim   { border-color: rgba(0,208,156,0.5);
-                     background: rgba(0,208,156,0.08); }
-.tf-chip.buy-dim   .tf-name, .tf-chip.buy-dim   .tf-val { color: var(--buy); }
-.tf-chip.sell      { border-color: var(--sell);
-                     background: rgba(255,91,107,0.18); }
-.tf-chip.sell      .tf-name, .tf-chip.sell      .tf-val { color: var(--sell); }
-.tf-chip.sell-dim  { border-color: rgba(255,91,107,0.5);
-                     background: rgba(255,91,107,0.08); }
-.tf-chip.sell-dim  .tf-name, .tf-chip.sell-dim  .tf-val { color: var(--sell); }
-.tf-chip.warn      { border-color: var(--warning);
-                     background: rgba(255,183,77,0.18); }
-.tf-chip.warn      .tf-name, .tf-chip.warn      .tf-val { color: var(--warning); }
-.tf-chip.neutral   .tf-name, .tf-chip.neutral   .tf-val { color: var(--fg-dim); }
-
-/* In expanded mode bump chip value further so it dominates. */
-.panel.expanded .tf-chip { padding:var(--space-2) 10px; }
-.panel.expanded .tf-chip .tf-name { font-size: var(--text-2xs); }
-.panel.expanded .tf-chip .tf-val  { font-size: var(--text-lg); }
 
 .composite.strong-buy  { border-left-color: var(--buy);
                          background: rgba(0,208,156,0.18); }
@@ -844,6 +751,9 @@ body {
 .sig-row .num.pos  { color: var(--buy);  }
 .sig-row .num.neg  { color: var(--sell); }
 .sig-row .num.warn { color: var(--warning); font-weight: 800; }
+/* RSI extremes split for instant read: overbought=red, oversold=green. */
+.sig-row .num.warn-high { color: var(--sell); font-weight: 800; }
+.sig-row .num.warn-low  { color: var(--buy);  font-weight: 800; }
 .sig-row .num.strong {
     background: rgba(255,183,77,0.18);
     border-radius: 3px;
@@ -866,64 +776,6 @@ body {
 /* Header transparent border declared LAST so it wins the cascade over the
    colour modifiers above without needing !important. */
 .sig-row.sig-head     { border-left-color: transparent; }
-
-/* Structure mini-list — visible in all panels (top 3 in compact mode). */
-.struct {
-    display: flex; flex-direction: column; gap:1px;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-}
-/* Compact struct row (default, in small panels): 4 columns only. */
-.struct-row {
-    display: grid;
-    grid-template-columns: 28px minmax(0,1fr) 64px 50px;
-    gap:var(--space-2);
-    font-family: var(--mono); font-size: var(--text-2xs);
-    padding:var(--space-1) var(--space-2);
-    /* 3-px left border to match .sig-row / .composite / card discipline.
-       Was 2px alone, causing 1-px wobble against neighbouring 3-px elements. */
-    border-left: 3px solid var(--fg-3);
-    align-items: center;
-}
-.struct-row .cat   { color: var(--accent); font-weight: var(--weight-medium); }
-.struct-row .name  { color: var(--fg); overflow: hidden;
-                     text-overflow: ellipsis; white-space: nowrap; }
-.struct-row .src   { color: var(--accent); font-size: 0.85em;
-                     text-align: center; font-weight: 700; }
-.struct-row .imp   { color: var(--warning); font-size: 0.85em;
-                     letter-spacing: -1px; }
-.struct-row .dir   { font-weight: 800; text-align: center; }
-.struct-row .dir.resist  { color: var(--sell); }
-.struct-row .dir.support { color: var(--buy);  }
-.struct-row .price { color: var(--fg); font-weight: 600; text-align: right; }
-.struct-row .pip   { color: var(--fg-muted); text-align: right;
-                     font-size: 0.9em; }
-.struct-row .atr   { color: var(--fg-muted); text-align: right;
-                     font-size: 0.9em; }
-/* In compact mode, hide the rich columns — only cat/name/price/pip. */
-.struct-row > .src, .struct-row > .imp, .struct-row > .dir,
-.struct-row > .atr { display: none; }
-/* Default 4-col layout maps to: cat | name | price | pip
-   (we use pip column slot for the existing 50px "dist" slot)  */
-
-/* Touch state was 4px left-border vs the rest of the row's 2-3px; bumping
-   to 3px keeps the urgency without the +1px wobble vs sibling rows. */
-.struct-row.touch  { background: rgba(255,61,84,0.30);
-                     border-left-color: var(--critical);
-                     font-weight: var(--weight-medium); }
-.struct-row.near   { border-left-color: var(--warning); }
-.struct-row.far    { border-left-color: var(--warning); }
-.struct-row.struct-head {
-    color: var(--fg-2); font-size: var(--text-3xs);
-    letter-spacing: var(--track-loose); font-weight: var(--weight-bold); text-transform: uppercase;
-    border-bottom: 1px solid var(--border);
-    border-left-color: transparent !important;
-    background: transparent;
-    padding-bottom:var(--space-2); margin-bottom:var(--space-1);
-}
-.struct-row.struct-head .dir.resist,
-.struct-row.struct-head .dir.support { color: var(--fg-muted); }
 
 /* ============================================================
    Expanded mode — click any panel to focus on it.
@@ -981,10 +833,6 @@ body {
     grid-template-columns: 0.7fr 1.9fr 1.15fr 0.85fr 0.85fr 0.85fr;
 }
 .panel.expanded .sig-row.sig-head { font-size: var(--text-xs); }
-.panel.expanded .d-row {
-    font-size: var(--text-md); padding:var(--space-4) var(--space-5);
-}
-.panel.expanded .d-row .d-tag { font-size: var(--text-2xs); }
 
 /* ============================================================
    Account card

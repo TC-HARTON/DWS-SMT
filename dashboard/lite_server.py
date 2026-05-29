@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import threading
+from urllib.parse import urlparse
 from flask import Flask, jsonify, request, send_from_directory
 
 import config
@@ -34,6 +35,25 @@ log = logging.getLogger(__name__)
 _STATIC_DIR = config.PROJECT_ROOT / "static"
 _ENV_FILE = config.PROJECT_ROOT / ".env"
 _RESTART_SCRIPT = config.PROJECT_ROOT / "Dashboard.bat"
+
+# Hosts that count as "this machine" for the broker-switch same-origin guard.
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+
+
+def _origin_is_local(origin: str | None) -> bool:
+    """True if the request ``Origin`` is absent or points at this machine.
+
+    A cross-site page loaded in the user's browser cannot forge a local
+    ``Origin`` header, so requiring one blocks CSRF-style broker switches
+    (which restart the process) while leaving the dashboard's own same-origin
+    fetch — and header-less clients like curl / tests — working.
+    """
+    if not origin:
+        return True
+    try:
+        return urlparse(origin).hostname in _LOCAL_HOSTS
+    except ValueError:
+        return False
 
 
 def _rewrite_env_terminal_path(new_path: str) -> None:
@@ -153,6 +173,16 @@ def build_app() -> Flask:
         static_url_path="/static",
     )
 
+    @app.after_request
+    def _revalidate_assets(resp):
+        # index.html + /static/* are patched live over the WebSocket, so force
+        # the browser to REVALIDATE on every load (a cheap 304 when unchanged)
+        # rather than serve a stale cached copy. This is what lets a plain
+        # reload pick up a CSS/JS edit without needing a hard refresh.
+        if request.path == "/" or request.path.startswith("/static/"):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     @app.route("/")
     def index():  # pragma: no cover — exercised via the smoke verifier
         return send_from_directory(str(_STATIC_DIR), "index.html")
@@ -170,6 +200,10 @@ def build_app() -> Flask:
 
     @app.route("/api/broker", methods=["POST"])
     def post_broker():
+        # Broker switch restarts the process — block forged cross-origin POSTs.
+        if not _origin_is_local(request.headers.get("Origin")):
+            return jsonify({"ok": False,
+                            "error": "cross-origin request rejected"}), 403
         body = request.get_json(silent=True) or {}
         name = body.get("name")
         if name not in config.BROKER_PRESETS:

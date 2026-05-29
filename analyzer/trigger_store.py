@@ -22,6 +22,7 @@ toward the recorded win-rate / PF.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -46,10 +47,14 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # One lock per store file (process-wide) so concurrent append/read on the same
 # file are serialised. Plus a cache of the entry-ms already on disk per file so
 # repeated 5-minute cycles append only genuinely new triggers without re-reading
-# the whole file each time.
+# the whole file each time. ``_by_year_cache`` memoises the fully-bucketed
+# load_by_year() result keyed by the file's (size, mtime) so an unchanged store
+# is not re-read / re-parsed / re-bucketed every cycle — it grows with years of
+# live history, and append_closed bumps the size so the cache self-invalidates.
 _locks_guard = threading.Lock()
 _locks: dict[Path, threading.Lock] = {}
 _seen: dict[Path, set[int]] = {}
+_by_year_cache: dict[Path, tuple[tuple[int, int], dict[str, Any]]] = {}
 
 
 class _ClosableTrigger(Protocol):
@@ -159,8 +164,14 @@ def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
     path = store_path(server, symbol, tf)
     if not path.exists():
         return {"by_year": {}}
-    recs: list[dict[str, Any]] = []
     with _lock_for(path):
+        st = path.stat()
+        sig = (st.st_size, st.st_mtime_ns)
+        cached = _by_year_cache.get(path)
+        if cached is not None and cached[0] == sig:
+            return copy.deepcopy(cached[1])     # unchanged file → skip re-parse
+
+        recs: list[dict[str, Any]] = []
         with path.open("r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -173,18 +184,20 @@ def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
                 except (ValueError, KeyError, TypeError):
                     continue
 
-    by_year_rows: dict[int, list[dict[str, Any]]] = {}
-    for rec in recs:
-        # JST-year bucketing — matches the front-end and the CSV baseline.
-        year = int(pd.Timestamp(rec["t"], unit="ms", tz="UTC")
-                   .tz_convert(_JST).year)
-        by_year_rows.setdefault(year, []).append(rec)
+        by_year_rows: dict[int, list[dict[str, Any]]] = {}
+        for rec in recs:
+            # JST-year bucketing — matches the front-end and the CSV baseline.
+            year = int(pd.Timestamp(rec["t"], unit="ms", tz="UTC")
+                       .tz_convert(_JST).year)
+            by_year_rows.setdefault(year, []).append(rec)
 
-    by_year: dict[str, dict[str, Any]] = {}
-    for year, rows in by_year_rows.items():
-        ordered = sorted(rows, key=lambda r: r["t"], reverse=True)
-        trades = [{"t": r["t"], "d": r["d"], "p": round(r["p"], 1)}
-                  for r in ordered[:_TRIGGER_LIST_CAP]]
-        by_year[str(year)] = {**_period_stats([r["p"] for r in rows]),
-                              "trades": trades}
-    return {"by_year": by_year}
+        by_year: dict[str, dict[str, Any]] = {}
+        for year, rows in by_year_rows.items():
+            ordered = sorted(rows, key=lambda r: r["t"], reverse=True)
+            trades = [{"t": r["t"], "d": r["d"], "p": round(r["p"], 1)}
+                      for r in ordered[:_TRIGGER_LIST_CAP]]
+            by_year[str(year)] = {**_period_stats([r["p"] for r in rows]),
+                                  "trades": trades}
+        result = {"by_year": by_year}
+        _by_year_cache[path] = (sig, result)
+        return copy.deepcopy(result)

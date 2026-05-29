@@ -12,6 +12,7 @@ while keeping the heavier indicator pass on a 5 s cadence.
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from dataclasses import dataclass, field
@@ -264,7 +265,7 @@ class LatestState:
     @property
     def live_trigger_history(self) -> dict[str, dict[str, dict]]:
         with self._lock:
-            return self._live_trigger_history
+            return copy.deepcopy(self._live_trigger_history)
 
     @property
     def live_trigger_server(self) -> str | None:
@@ -358,9 +359,13 @@ class LatestState:
                     sym: {tf: list(buf) for tf, buf in per_tf.items()}
                     for sym, per_tf in self._validation_history.items()
                 },
-                "live_trigger_history": self._live_trigger_history,
+                # Copy the two nested mutables so a concurrent writer
+                # (validation worker / broker bring-up) that rebinds them can
+                # never mutate a structure the WS thread is still iterating
+                # after the lock is released — matches validation_history above.
+                "live_trigger_history": copy.deepcopy(self._live_trigger_history),
                 "live_trigger_server": self._live_trigger_server,
-                "broker_meta": self._broker_meta,
+                "broker_meta": {k: dict(v) for k, v in self._broker_meta.items()},
             }
 
 
