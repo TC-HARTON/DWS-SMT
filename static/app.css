@@ -1631,13 +1631,27 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .rt-summary b.neg { color: var(--sell); }
 .rt-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
 
-/* (B) Hourly win-rate heatmap — 24 JST-hour cells in a 12×2 grid. */
-.hm-grid {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    gap:3px;
+/* (B) Session-grouped time-of-day win-rate heatmap: アジア / ロンドン / NY
+   rows, each a label + that session's JST-hour boxes (DST-aware boundaries). */
+.hm-sessions {
+    display: flex; flex-direction: column; gap:4px;
     margin-top:var(--space-2);
 }
+.hm-session { display: flex; align-items: stretch; gap:6px; }
+.hm-session-label {
+    flex:0 0 72px; display: flex; flex-direction: column; justify-content: center;
+    padding:0 8px; border-radius:3px;
+    font-family: var(--mono); font-weight: var(--weight-bold); font-size: var(--text-2xs);
+    border-left:3px solid var(--fg-3);
+}
+.hm-session-label .hm-sess-rng {
+    font-size: var(--text-3xs); font-weight: var(--weight-medium); color: var(--fg-3);
+}
+.hm-session-label.asia   { background: rgba(255,183,77,0.12);  border-left-color:#ffb74d; color:#ffcf8a; }
+.hm-session-label.london { background: rgba(95,179,255,0.12);  border-left-color:#5fb3ff; color:#9ccbff; }
+.hm-session-label.ny     { background: rgba(178,124,255,0.13); border-left-color:#b27cff; color:#cbb0ff; }
+.hm-session-cells { display: flex; gap:3px; flex:1 1 auto; min-width:0; }
+.hm-session-cells .hm-cell { flex:1 1 0; min-width:0; }
 .hm-cell {
     display: flex;
     flex-direction: column;

@@ -90,7 +90,16 @@ _DATE_RANGE: dict[str, str] = {
 
 
 def _load_csv(symbol: str, tf: str, side: str) -> pd.DataFrame:
-    """Load one Dukascopy CSV (Bid or Ask). EET → UTC (-2h)."""
+    """Load one Dukascopy CSV (Bid or Ask), indexed by true UTC.
+
+    Dukascopy "EET" timestamps OBSERVE EU daylight saving (EET=UTC+2 winter,
+    EEST=UTC+3 summer) — verified empirically from the daily maintenance gap
+    sitting at a constant EET wall-clock year-round. A fixed -2h therefore left
+    every summer bar +1h late, smearing the hour-of-day win-rate by 1h for ~half
+    the history. Localizing to a DST-aware EET zone and converting to UTC fixes
+    the hour buckets in both seasons. (Whole-hour relabel only — bar OHLC, the
+    DWS-SMT triggers and all P/L are unchanged; only timestamps/hours move.)
+    """
     fname = f"{symbol}_{_TF_FILENAMES[tf]}_{side}_{_DATE_RANGE[tf]}.csv"
     path = PROJECT_ROOT / fname
     if not path.exists():
@@ -101,8 +110,12 @@ def _load_csv(symbol: str, tf: str, side: str) -> pd.DataFrame:
         "Time (EET)": "time", "Open": "open", "High": "high",
         "Low": "low", "Close": "close", "Volume": "tick_volume",
     })
-    df["time"] = pd.to_datetime(df["time"], format="%Y.%m.%d %H:%M:%S")
-    df["time"] = df["time"] - pd.Timedelta(hours=2)
+    naive = pd.to_datetime(df["time"], format="%Y.%m.%d %H:%M:%S")
+    df["time"] = (
+        naive.dt.tz_localize("Europe/Bucharest",
+                             ambiguous=True, nonexistent="shift_forward")
+             .dt.tz_convert("UTC").dt.tz_localize(None)
+    )
     return df.set_index("time").sort_index()
 
 

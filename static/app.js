@@ -948,6 +948,26 @@ function fmtPips(v) {
  *  static oos_baseline.json ``hourly_winrate`` (24 JST-hour buckets). Cells
  *  are coloured red→amber→green by win rate; the current JST hour is ringed
  *  so the user sees "are we in a statistically good hour right now?". */
+/** EU summer time (London): last Sun Mar 01:00 UTC → last Sun Oct 01:00 UTC. */
+function isDstEU(ms) {
+    const y = new Date(ms).getUTCFullYear();
+    const lastSun = (mon) => {                       // mon 0-based; 01:00 UTC
+        const last = new Date(Date.UTC(y, mon + 1, 0));
+        return Date.UTC(y, mon, last.getUTCDate() - last.getUTCDay(), 1);
+    };
+    return ms >= lastSun(2) && ms < lastSun(9);      // Mar → Oct
+}
+/** US summer time (New York): 2nd Sun Mar 07:00 UTC → 1st Sun Nov 06:00 UTC. */
+function isDstUS(ms) {
+    const y = new Date(ms).getUTCFullYear();
+    const nthSun = (mon, n, hr) => {
+        const first = new Date(Date.UTC(y, mon, 1));
+        const day = 1 + ((7 - first.getUTCDay()) % 7) + (n - 1) * 7;
+        return Date.UTC(y, mon, day, hr);
+    };
+    return ms >= nthSun(2, 2, 7) && ms < nthSun(10, 1, 6);   // Mar(2nd) → Nov(1st)
+}
+
 function buildHourlyHeatmap(snap, sym) {
     const baseTf = UI.dwsBase;
     const base = snap.oos_baseline?.by_symbol?.[sym]?.[baseTf];
@@ -999,24 +1019,54 @@ function buildHourlyHeatmap(snap, sym) {
         const a = 0.15 + (-t) * 0.55;
         return `rgba(229,62,62,${a.toFixed(3)})`;          // red
     };
-    const cells = hourly.map(h => {
+    const byHour = {};
+    for (const h of hourly) byHour[h.hour] = h;
+
+    // ① Order the boxes by FX session (Asia → London → NY) instead of 00:00.
+    // ② DST-aware: Japan has no DST so the JST buckets are fixed; only the
+    // London/NY session *boundaries* shift ±1h with EU/US summer time, detected
+    // automatically from the current date.
+    const nowMs = Date.now();
+    const lonOpen = isDstEU(nowMs) ? 16 : 17;        // London 08:00 local → JST
+    const nyOpen  = isDstUS(nowMs) ? 21 : 22;        // New York 08:00 local → JST
+    const ASIA_OPEN = 8;                              // Tokyo-ish session start
+    const SESS = { asia: 'アジア', london: 'ロンドン', ny: 'NY' };
+    const seq = [];
+    const push = (a, b, s) => { for (let x = a; x < b; x++) seq.push({ h: x % 24, s }); };
+    push(ASIA_OPEN, lonOpen, 'asia');
+    push(lonOpen, nyOpen, 'london');
+    push(nyOpen, ASIA_OPEN + 24, 'ny');              // wraps past midnight
+
+    const cell = (hr) => {
+        const h = byHour[hr] || { hour: hr, n: 0, win_rate: null };
         const wr = h.win_rate;
-        const isNow = h.hour === nowJst;
+        const isNow = hr === nowJst;
         const wrTxt = wr == null ? '--' : Math.round(wr * 100);
         const title = wr == null
-            ? `${h.hour}時 JST — データなし`
-            : `${h.hour}時 JST — WR ${(wr*100).toFixed(1)}% (N=${h.n}、母集団比 ${((wr-popWr)*100>=0?'+':'')}${((wr-popWr)*100).toFixed(1)}pp)`;
+            ? `${hr}時 JST — データなし`
+            : `${hr}時 JST — WR ${(wr*100).toFixed(1)}% (N=${h.n}、母集団比 ${((wr-popWr)*100>=0?'+':'')}${((wr-popWr)*100).toFixed(1)}pp)`;
         return `<div class="hm-cell${isNow ? ' is-now' : ''}"
                      style="background:${cellColor(wr)}" title="${esc(title)}">
-            <span class="hm-hour">${String(h.hour).padStart(2,'0')}</span>
+            <span class="hm-hour">${String(hr).padStart(2,'0')}</span>
             <span class="hm-wr">${wrTxt}</span>
         </div>`;
+    };
+    const rowsHtml = ['asia', 'london', 'ny'].map(s => {
+        const hrs = seq.filter(x => x.s === s).map(x => x.h);
+        if (!hrs.length) return '';
+        const rng = `${String(hrs[0]).padStart(2,'0')}–${String((hrs[hrs.length-1]+1)%24).padStart(2,'0')}`;
+        return `<div class="hm-session">
+            <div class="hm-session-label ${s}">${esc(SESS[s])}<span class="hm-sess-rng">${rng} JST</span></div>
+            <div class="hm-session-cells">${hrs.map(cell).join('')}</div>
+        </div>`;
     }).join('');
+
+    const dstTag = (isDstEU(nowMs) || isDstUS(nowMs)) ? '夏時間' : '冬時間';
     return `<div class="anlx-block anlx-heatmap">
         <div class="anlx-title">時刻別勝率 ${esc(UI.dwsBase)}
-            <span class="anlx-sub">16Y${liveN ? ' + ライブ ' + liveN.toLocaleString('en-US') + '件' : ''}・JST時刻別 (母集団 WR ${(popWr*100).toFixed(1)}% 基準で配色、■=現在)</span>
+            <span class="anlx-sub">16Y${liveN ? ' + ライブ ' + liveN.toLocaleString('en-US') + '件' : ''}・セッション別 (${dstTag}・母集団 WR ${(popWr*100).toFixed(1)}%基準、■=現在)</span>
         </div>
-        <div class="hm-grid">${cells}</div>
+        <div class="hm-sessions">${rowsHtml}</div>
     </div>`;
 }
 

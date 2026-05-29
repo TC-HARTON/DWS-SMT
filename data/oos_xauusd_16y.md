@@ -1,6 +1,6 @@
 # 16-year deep-history OOS validation (multi-symbol)
 
-Generated: 2026-05-28T06:47:45Z
+Generated: 2026-05-29T11:57:59Z
 
 Source: Dukascopy CSV W1/D1/H4/H1/M15, full history (W1: 2009-12-28 onwards, others: 2010-01-01 onwards), through 2025-12-31. NO year filter. NO warmup skip.
 
