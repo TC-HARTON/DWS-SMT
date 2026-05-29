@@ -12,7 +12,7 @@ highlights the strongest cluster nearest to price.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import config
 from analyzer.structure_types import StructureLevel

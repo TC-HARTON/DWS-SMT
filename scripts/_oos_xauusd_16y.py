@@ -366,9 +366,9 @@ def _two_proportion_z(w1: int, n1: int, w2: int, n2: int) -> tuple[float, float]
 def _welch_t(x: list[float], y: list[float]) -> tuple[float, float]:
     """Welch's t-test on two independent samples (means). Returns (t, p_two_sided).
 
-    Two-sided p approximated via the standard-normal CDF (valid for the
-    sample sizes here: thousands of trades per period → df is large enough
-    that the t distribution is indistinguishable from N(0,1)).
+    Two-sided p uses the EXACT Student-t distribution with Welch-Satterthwaite
+    degrees of freedom (via the regularized incomplete beta function, no scipy
+    dependency) — correct for any sample size, not just the large-N regime.
     """
     n1, n2 = len(x), len(y)
     if n1 < 2 or n2 < 2:
@@ -380,13 +380,76 @@ def _welch_t(x: list[float], y: list[float]) -> tuple[float, float]:
     if se <= 0.0:
         return 0.0, 1.0
     t = (m1 - m2) / se
-    p_two = 2.0 * (1.0 - _normal_cdf(abs(t)))
+    s1, s2 = v1 / n1, v2 / n2
+    df = (s1 + s2) ** 2 / (s1 ** 2 / (n1 - 1) + s2 ** 2 / (n2 - 1))
+    p_two = _student_t_sf_two_sided(abs(t), df)
     return float(t), float(p_two)
 
 
 def _normal_cdf(x: float) -> float:
     """Φ(x) via the standard error function — no scipy dependency."""
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _student_t_sf_two_sided(t: float, df: float) -> float:
+    """Two-sided tail P(|T| > t) for Student's t with *df* dof.
+
+    P(|T| > t) = I_x(df/2, 1/2) with x = df / (df + t^2), where I is the
+    regularized incomplete beta. No scipy dependency.
+    """
+    if df <= 0.0:
+        return 1.0
+    x = df / (df + t * t)
+    return float(_betai(df / 2.0, 0.5, x))
+
+
+def _betai(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a, b) (Numerical Recipes, lgamma-based)."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    lbeta = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+    front = math.exp(lbeta + a * math.log(x) + b * math.log(1.0 - x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued-fraction evaluation of the incomplete beta (Lentz's method)."""
+    max_it, eps, fpmin = 200, 3.0e-12, 1.0e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < fpmin:
+        d = fpmin
+    d = 1.0 / d
+    h = d
+    for m in range(1, max_it + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < eps:
+            break
+    return h
 
 
 def _moving_block_bootstrap_wr_ci(

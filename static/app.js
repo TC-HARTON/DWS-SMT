@@ -15,13 +15,6 @@ const SYMBOL_ORDER = ["XAUUSD", "EURUSD", "GBPUSD", "AUDUSD",
 // Strength is a pure 7-fiat metric; XAU is excluded entirely (gold is not
 // a fiat currency). CHF/NZD computed backend-side but not displayed.
 const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD"];
-const JP_BIAS = {
-    "STRONG BUY":  "STRONG BUY優位",
-    "BUY":         "BUY優位",
-    "NEUTRAL":     "NEUTRAL",
-    "SELL":        "SELL優位",
-    "STRONG SELL": "STRONG SELL優位",
-};
 const STRENGTH_WINDOWS = ["H1", "H4", "D1", "W1"];
 const CORR_WINDOWS = [20, 100, 500];
 
@@ -155,6 +148,12 @@ function buildPanel(sym) {
                 <span class="spread" data-bind="spread-${sym}"></span>
                 <span class="age" data-bind="age-${sym}"></span>
             </div>
+            <div class="trade-panel">
+                <button class="trade-btn sell" type="button" data-side="SELL"><span class="tb-ar">▼</span><span class="tb-lbl">SELL</span></button>
+                <label class="trade-lot-wrap">LOT<input class="trade-lot" type="number" step="0.01" min="0.01" inputmode="decimal"></label>
+                <button class="trade-btn buy" type="button" data-side="BUY"><span class="tb-ar">▲</span><span class="tb-lbl">BUY</span></button>
+                <span class="trade-note" data-bind="trade-note-${sym}"></span>
+            </div>
             <button class="panel-close" type="button" title="閉じる (Esc)">✕</button>
         </div>
         <div class="composite" data-bind="composite-${sym}">
@@ -180,6 +179,12 @@ function buildPanel(sym) {
         <div class="analytics" data-bind="analytics-${sym}"></div>
         <div class="dws" data-bind="dws-${sym}"></div>
     `;
+    // Wire the trade controls. stopPropagation so clicking buttons/inputs does
+    // NOT toggle the panel's expand/collapse (the panel-level click handler).
+    const tp = a.querySelector('.trade-panel');
+    tp.addEventListener('click', (e) => e.stopPropagation());
+    tp.querySelectorAll('.trade-btn').forEach(btn =>
+        btn.addEventListener('click', () => onTradeClick(sym, btn.dataset.side, a)));
     return a;
 }
 
@@ -187,6 +192,9 @@ function buildPanel(sym) {
  *  Clicking the close button (✕) inside an expanded panel collapses it
  *  without re-triggering expansion. */
 function onPanelClick(ev, panel, grid) {
+    // Trade controls handle their own clicks (and stopPropagation), but guard
+    // here too so a stray bubble never toggles the panel while trading.
+    if (ev.target.closest('.trade-panel')) return;
     const closeBtn = ev.target.closest('.panel-close');
     const wasExpanded = panel.classList.contains('expanded');
     if (closeBtn && wasExpanded) {
@@ -207,6 +215,10 @@ function onPanelClick(ev, panel, grid) {
 // Esc key collapses expanded panel
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    // If the order-confirm modal is open, Esc dismisses THAT, not the panel —
+    // and must not trigger the repaint below (which would reset the lot field).
+    const ocOv = document.getElementById('order-confirm');
+    if (ocOv && !ocOv.hidden) return;
     const grid = document.querySelector('.symbols');
     if (!grid || !grid.classList.contains('has-expanded')) return;
     grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
@@ -239,13 +251,9 @@ function buildStrengthRows() {
             UI.strengthWindow = w;
             wins.querySelectorAll('.pill').forEach(p =>
                 p.classList.toggle('on', p.dataset.win === w));
-            // Force re-render of strength + bias on next snapshot.
+            // Force re-render of strength on next snapshot.
             for (const c of STRENGTH_CCYS) delete STAMPS[`strength:${c}`];
-            for (const s of SYMBOL_ORDER) delete STAMPS[`bias:${s}`];
-            if (latestSnap) {
-                paintStrength(latestSnap.strength, true);
-                paintBias(latestSnap.strength, true);
-            }
+            if (latestSnap) paintStrength(latestSnap.strength, true);
         };
         wins.appendChild(b);
     }
@@ -274,6 +282,9 @@ function buildCorrelationButtons() {
 // ------------------------------------------------------------
 
 let latestSnap = null;
+// Cached once per session: the static 16Y OOS baseline arrives only in the
+// first full WS snapshot (it never changes), then is re-attached to later fulls.
+let OOS_BASELINE = null;
 
 function paintHeader(snap) {
     $bind('clock').textContent = fmtJSTclock(snap.ts);
@@ -297,6 +308,9 @@ function paintActiveSetups(snap) {
         root.innerHTML = '<span class="active-empty">waiting for data...</span>';
         return;
     }
+    // Active-setups are 100% analysis-derived; skip the 8x compositeSignal +
+    // innerHTML rebuild on the 2 Hz light ticks where analysis is unchanged.
+    if (!changed('active', analysis.generated_at)) return;
     const scored = [];
     for (const sym of SYMBOL_ORDER) {
         const sa = analysis.by_symbol[sym];
@@ -373,7 +387,7 @@ function paintAccount(snap) {
             const r = a.lot_rule || {};
             const stepMan = r.step ? Math.round(r.step / 10000) : null;
             $bind('acc-reco-sub').textContent = stepMan
-                ? `0.01 / ${stepMan}万円 ・ 上限${r.max}` : '';
+                ? `0.01 / ${stepMan}万円 ・ 上限${r.max ?? '--'}` : '';
         } else {
             recoEl.textContent = '--';
             $bind('acc-reco-sub').textContent = '';
@@ -393,45 +407,212 @@ function paintAccount(snap) {
 
     // Positions
     const posRoot = $bind('positions');
-    if (!a.positions || a.positions.length === 0) {
-        posRoot.innerHTML = '<div class="empty">no open positions</div>';
-    } else {
-        posRoot.innerHTML = a.positions.map(p => {
-            const d = priceDigits(p.price_open, p.symbol);
-            const cls = p.type === 'BUY' ? 'buy' : 'sell';
-            return `<div class="pos-row ${cls}">
-                <span class="type-${cls}">${esc(p.type)}</span>
-                <span>${esc(p.symbol)}</span>
-                <span>${p.volume.toFixed(2)}L</span>
-                <span>${fmtPrice(p.price_open, d)}→${fmtPrice(p.price_current, d)}</span>
-                <span class="pos-pnl ${p.profit > 0 ? 'pos' : 'neg'}">${fmtSigned(p.profit, 2)}</span>
-            </div>`;
-        }).join('');
+    const positions = a.positions || [];
+    // Rebuild the DOM (and the ✕ buttons) ONLY when the set of tickets or the
+    // trade permission changes. Account updates arrive at ~2 Hz; rebuilding
+    // innerHTML every tick destroyed the close buttons mid-click, so individual
+    // 決済 never registered. Floating price/PnL are updated in place below.
+    // Include type + volume so a partial close (volume change) or a same-ticket
+    // flip rebuilds the row — otherwise the static parts (lot, side) go stale.
+    const sig = positions.map(p => `${p.ticket}:${p.type}:${p.volume}`).join(',')
+        + '|' + (a.trade_allowed ? 1 : 0);
+    if (sig !== posRoot._sig) {
+        posRoot._sig = sig;
+        if (!positions.length) {
+            posRoot.innerHTML = '<div class="empty">no open positions</div>';
+        } else {
+            const rows = positions.map(p => {
+                const d = priceDigits(p.price_open, p.symbol);
+                const cls = p.type === 'BUY' ? 'buy' : 'sell';
+                const closeBtn = a.trade_allowed
+                    ? `<button class="pos-close" type="button" data-ticket="${p.ticket}" title="この建玉を成行決済">✕</button>` : '';
+                return `<div class="pos-row ${cls}" data-ticket="${p.ticket}">
+                    <div class="pos-line1">
+                        <span class="type-${cls}">${esc(p.type)}</span>
+                        <span class="pos-sym">${esc(p.symbol)}</span>
+                        <span class="pos-vol">${(p.volume != null ? p.volume : 0).toFixed(2)}L</span>
+                        ${closeBtn}
+                    </div>
+                    <div class="pos-line2">
+                        <span class="pos-px"></span>
+                        <span class="pos-pnl"></span>
+                    </div>
+                </div>`;
+            }).join('');
+            const allBtn = a.trade_allowed
+                ? `<button class="pos-close-all" type="button">全決済 (${positions.length})</button>` : '';
+            posRoot.innerHTML = allBtn + rows;
+        }
     }
+    // Live in-place refresh of price + floating PnL for the existing rows.
+    for (const p of positions) {
+        const row = posRoot.querySelector(`.pos-row[data-ticket="${p.ticket}"]`);
+        if (!row) continue;
+        const d = priceDigits(p.price_open, p.symbol);
+        const px = row.querySelector('.pos-px');
+        if (px) px.textContent = `${fmtPrice(p.price_open, d)}→${fmtPrice(p.price_current, d)}`;
+        const pnl = row.querySelector('.pos-pnl');
+        if (pnl) {
+            pnl.textContent = fmtSigned(p.profit, 2);
+            pnl.className = 'pos-pnl ' + (p.profit > 0 ? 'pos' : 'neg');
+        }
+    }
+    applyTradeGating(a);
+    wireCloseButtons();
 }
 
-function paintBias(strength, force) {
-    if (!strength) return;
-    const w = (strength.by_window || {})[UI.strengthWindow];
-    if (!w) return;
-    for (const sym of SYMBOL_ORDER) {
-        const el = $bind('bias-' + sym);
-        if (!el) continue;
-        const b = (w.pair_biases || {})[sym];
-        if (!b || b.label === 'NEUTRAL') {
-            el.className = 'bias hidden';
-            el.textContent = '';
-            continue;
+// ------------------------------------------------------------
+// Discretionary order panel — confirm-then-send (no auto trading)
+// ------------------------------------------------------------
+
+/** Enable/disable trade buttons by the account's trade permission and prefill
+ *  the lot field with the recommended lot (unless the user is editing it). */
+function applyTradeGating(acc) {
+    const ok = !!(acc && acc.trade_allowed);
+    // Gate: only touch the DOM when permission or recommended lot changes
+    // (paintAccount runs at ~2 Hz; nothing here changes per tick otherwise).
+    const reco = (acc && acc.recommended_lot != null) ? Number(acc.recommended_lot).toFixed(2) : '';
+    if (!changed('tradegate', (ok ? 1 : 0) + '|' + reco)) return;
+    document.querySelectorAll('.trade-panel').forEach(tp => {
+        tp.classList.toggle('disabled', !ok);
+        tp.querySelectorAll('.trade-btn').forEach(b => { b.disabled = !ok; });
+        const note = tp.querySelector('.trade-note');
+        if (note) {
+            if (!ok) note.textContent = '取引不可：口座/端末の Algo Trading 許可を確認';
+            else if (note.textContent.startsWith('取引不可')) note.textContent = '';
         }
-        const sign = b.delta > 0 ? '+' : '';
-        const txt = `${b.base} vs ${b.quote}: ${sign}${Number(b.delta).toFixed(0)} (${JP_BIAS[b.label] || b.label})`;
-        let mod = 'buy';
-        if (b.label === 'STRONG BUY')   mod = 'strong-buy';
-        else if (b.label === 'SELL')    mod = 'sell';
-        else if (b.label === 'STRONG SELL') mod = 'strong-sell';
-        el.className = 'bias ' + mod;
-        el.textContent = txt;
+        const lotEl = tp.querySelector('.trade-lot');
+        if (lotEl && document.activeElement !== lotEl
+            && acc && acc.recommended_lot != null) {
+            lotEl.value = Number(acc.recommended_lot).toFixed(2);
+        }
+    });
+}
+
+function onTradeClick(sym, side, panelEl) {
+    if (!latestSnap) return;
+    const acc = latestSnap.account || {};
+    const note = $bind('trade-note-' + sym);
+    if (!acc.trade_allowed) {
+        if (note) note.textContent = '取引不可：口座/端末の Algo Trading 許可を確認';
+        return;
     }
+    const lot = parseFloat(panelEl.querySelector('.trade-lot').value);
+    if (!(lot > 0)) { if (note) note.textContent = 'ロットを入力してください'; return; }
+    const tk = (latestSnap.price && latestSnap.price.ticks && latestSnap.price.ticks[sym]) || {};
+    if (note) note.textContent = '';
+    openOrderConfirm({ symbol: sym, side, lot, bid: tk.bid, ask: tk.ask });
+}
+
+function _ocEls() {
+    return {
+        ov: document.getElementById('order-confirm'),
+        title: $bind('oc-title'), detail: $bind('oc-detail'),
+        result: $bind('oc-result'),
+        go: document.querySelector('#order-confirm .oc-go'),
+        cancel: document.querySelector('#order-confirm .oc-cancel'),
+    };
+}
+
+function openOrderConfirm(o) {
+    const e = _ocEls();
+    const dig = priceDigits(o.ask || o.bid || 0, o.symbol);
+    const px = o.side === 'BUY' ? o.ask : o.bid;
+    e.title.textContent = `${o.side} ${o.symbol}`;
+    e.title.className = 'oc-title ' + (o.side === 'BUY' ? 'buy' : 'sell');
+    e.detail.innerHTML =
+        `<div>方向 <b class="${o.side === 'BUY' ? 'pos' : 'neg'}">${esc(o.side)}</b> ・ ロット <b>${o.lot.toFixed(2)}</b></div>`
+      + `<div>成行 約定目安 <b>${fmtPrice(px, dig)}</b> <span class="mute">(BID ${fmtPrice(o.bid, dig)} / ASK ${fmtPrice(o.ask, dig)})</span></div>`;
+    e.result.textContent = ''; e.result.className = 'oc-result';
+    e.go.disabled = false; e.go.textContent = '確定して発注';
+    e.go.onclick = () => submitOrder(o, e.go);
+    e.cancel.onclick = () => { e.ov.hidden = true; };
+    e.ov.hidden = false;
+}
+
+function submitOrder(o, goBtn) {
+    goBtn.disabled = true; goBtn.textContent = '送信中…';
+    fetch('/api/order', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: o.symbol, side: o.side, lots: o.lot, sl: o.sl, tp: o.tp }),
+    }).then(r => r.json()).then(j => {
+        const el = $bind('oc-result');
+        if (j.ok) {
+            el.className = 'oc-result ok';
+            el.textContent = `約定 #${j.order} @ ${j.price} (${j.volume} lot)`;
+            goBtn.textContent = '完了';
+            setTimeout(() => { document.getElementById('order-confirm').hidden = true; }, 1500);
+        } else {
+            el.className = 'oc-result err';
+            el.textContent = 'エラー: ' + (j.error || ('retcode ' + j.retcode + ' ' + (j.comment || '')));
+            goBtn.disabled = false; goBtn.textContent = '再送信';
+        }
+    }).catch(err => {
+        const el = $bind('oc-result');
+        el.className = 'oc-result err'; el.textContent = '通信エラー: ' + err;
+        goBtn.disabled = false; goBtn.textContent = '再送信';
+    });
+}
+
+function confirmClose(target) {
+    const e = _ocEls();
+    e.title.textContent = target.all ? '全決済の確認' : '決済の確認';
+    e.title.className = 'oc-title warn';
+    e.detail.innerHTML = target.all
+        ? '<div>保有中の<b>全建玉</b>を成行で決済します。</div>'
+        : `<div>建玉 <b>#${target.ticket}</b> を成行で決済します。</div>`;
+    e.result.textContent = ''; e.result.className = 'oc-result';
+    e.go.disabled = false; e.go.textContent = '確定して決済';
+    e.go.onclick = () => submitClose(target, e.go);
+    e.cancel.onclick = () => { e.ov.hidden = true; };
+    e.ov.hidden = false;
+}
+
+function submitClose(target, goBtn) {
+    goBtn.disabled = true; goBtn.textContent = '送信中…';
+    fetch('/api/close', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(target),
+    }).then(r => r.json()).then(j => {
+        const el = $bind('oc-result');
+        if (j.ok) {
+            el.className = 'oc-result ok';
+            el.textContent = target.all ? `全決済 ${j.closed}/${j.n} 完了` : '決済完了';
+            goBtn.textContent = '完了';
+            setTimeout(() => { document.getElementById('order-confirm').hidden = true; }, 1300);
+        } else {
+            el.className = 'oc-result err';
+            el.textContent = 'エラー: ' + (j.error || ('retcode ' + j.retcode));
+            goBtn.disabled = false; goBtn.textContent = '再試行';
+        }
+    }).catch(err => {
+        const el = $bind('oc-result');
+        el.className = 'oc-result err'; el.textContent = '通信エラー: ' + err;
+        goBtn.disabled = false; goBtn.textContent = '再試行';
+    });
+}
+
+/** Delegated close-button handler on the positions list (rendered each paint). */
+function wireCloseButtons() {
+    const root = $bind('positions');
+    if (!root || root._wiredClose) return;
+    root._wiredClose = true;
+    root.addEventListener('click', (e) => {
+        if (e.target.closest('.pos-close-all')) { confirmClose({ all: true }); return; }
+        const one = e.target.closest('.pos-close');
+        if (one) confirmClose({ ticket: Number(one.dataset.ticket) });
+    });
+}
+
+/** One-time: dismiss the order modal on backdrop click or Esc. */
+function setupOrderModal() {
+    const ov = document.getElementById('order-confirm');
+    if (!ov || ov._wired) return;
+    ov._wired = true;
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.hidden = true; });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !ov.hidden) ov.hidden = true;
+    });
 }
 
 function paintStrength(strength, force) {
@@ -503,12 +684,14 @@ function paintCalendar(snap) {
     // The currency tag drives a left-border colour and a coloured chip so
     // the reader can spot e.g. "USD event tomorrow" in one glance, and the
     // category chip distinguishes rate decisions from labour data.
-    const nowJst = new Date();
-    const todayKey = nowJst.toLocaleDateString('en-CA'); // YYYY-MM-DD JST
-    const tomorrowKey = new Date(nowJst.getTime() + 86400000).toLocaleDateString('en-CA');
+    // "today/tomorrow" must be keyed in JST (UTC+9), like every other date here,
+    // not the browser's local timezone — otherwise a non-JST client mis-highlights.
+    const JST_MS = 9 * 3600 * 1000;
+    const todayKey = new Date(Date.now() + JST_MS).toISOString().slice(0, 10);
+    const tomorrowKey = new Date(Date.now() + JST_MS + 86400000).toISOString().slice(0, 10);
     root.innerHTML = events.map(e => {
         const cat = e.category ? catChip(e.category) : calendarCategory(e.title);
-        const dateJst = new Date(e.release_ts * 1000).toLocaleDateString('en-CA');
+        const dateJst = new Date(e.release_ts * 1000 + JST_MS).toISOString().slice(0, 10);
         const day = dateJst === todayKey ? ' today' : dateJst === tomorrowKey ? ' tomorrow' : '';
         return `<div class="cal-row${day}" data-ccy="${esc(e.currency)}">
             <span class="cal-date">${esc(fmtJSTdate(e.release_ts))}</span>
@@ -940,6 +1123,7 @@ function pipsFactor(sym, source) {
  *  digit). Sub-100 values keep one decimal; ≥100 are whole pips with comma
  *  grouping (e.g. 70,800). Sign handled by the caller. */
 function fmtPips(v) {
+    if (v == null || !isFinite(v)) return '--';
     if (Math.abs(v) < 100) return v.toFixed(1);
     return Math.round(v).toLocaleString('en-US');
 }
@@ -1340,7 +1524,7 @@ function paintCorrelationList(corr, force) {
         const valStr = (p.v >= 0 ? '+' : '') + p.v.toFixed(2);
         return `
             <div class="corr-row ${sign} ${strength.kind}">
-                <span class="pair"><b>${p.a}</b> ${arrow} <b>${p.b}</b></span>
+                <span class="pair"><b>${esc(p.a)}</b> ${arrow} <b>${esc(p.b)}</b></span>
                 <span class="bar"><i style="width:${barWidth}%"></i></span>
                 <span class="val">${valStr}</span>
                 <span class="lbl">${strength.txt}${dirTxt}</span>
@@ -1358,7 +1542,7 @@ function paintCorrelationList(corr, force) {
             const curStr = (p.v    >= 0 ? '+' : '') + p.v.toFixed(2);
             return `
                 <div class="corr-row diverge ${sign}">
-                    <span class="pair"><b>${p.a}</b> ⚠ <b>${p.b}</b></span>
+                    <span class="pair"><b>${esc(p.a)}</b> ⚠ <b>${esc(p.b)}</b></span>
                     <span class="div-detail">通常 ${refStr} → 現在 ${curStr}</span>
                     <span class="lbl warn">${dirTxt}崩れ</span>
                 </div>`;
@@ -1451,11 +1635,13 @@ function paintDws(snap) {
  *   - H1  (96 bars ≈ 4 days) → M/D HH:MM  (HH:MM alone repeats every 24h)
  *   - H4  (96 bars ≈ 16 days) → M/D */
 function dwsAxisLabel(ms, base) {
-    const dt = new Date(ms);
+    // Render in JST (UTC+9), consistent with the clock, trigger history and
+    // heatmap — getMonth/getHours would use the browser's local tz instead.
+    const dt = new Date(ms + 9 * 3600 * 1000);
     if (isNaN(dt.getTime())) return '';
     const p = n => String(n).padStart(2, '0');
-    const md = `${p(dt.getMonth() + 1)}/${p(dt.getDate())}`;
-    const hm = `${p(dt.getHours())}:${p(dt.getMinutes())}`;
+    const md = `${p(dt.getUTCMonth() + 1)}/${p(dt.getUTCDate())}`;
+    const hm = `${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}`;
     if (base === 'H4') return md;
     if (base === 'H1') return `${md} ${hm}`;
     return hm;
@@ -1726,14 +1912,15 @@ function updateDwsValidation(sym, snap) {
       + (desc ? `<div class="dws-vdesc">${desc}</div>` : '')
       + `</div>`;
 
-    const verdictDescHtml = ps ? `<div class="dws-vverdict-desc">
+    const verdictDescHtml = (ps && ps.early && ps.late
+            && ps.drift_wr_pp != null && ps.p_wr_raw != null) ? `<div class="dws-vverdict-desc">
         <b>期間ドリフト検定</b>:
         <em>2010-2017</em> (N=${fmtN(ps.early.n)} WR ${(ps.early.win_rate*100).toFixed(2)}%)
         vs <em>2018-2025</em> (N=${fmtN(ps.late.n)} WR ${(ps.late.win_rate*100).toFixed(2)}%) を
         <b>2-proportion z-test</b> で比較。drift <em>${ps.drift_wr_pp>=0?'+':''}${ps.drift_wr_pp.toFixed(2)}pp</em>,
         p=<em>${ps.p_wr_raw.toExponential(2)}</em>,
-        <b>Bonferroni α/3=0.0167</b> ${ps.p_wr_bonferroni_significant?'<span class="dws-sig">クリア (有意)</span>':'未クリア (非有意)'}。
-        Verdict <b>${ps.verdict}</b>: ${ps.verdict==='STABLE'?'両期間で統計的に差なし':
+        <b>Bonferroni α/3=0.0167（症状毎=3TF）</b> ${ps.p_wr_bonferroni_significant?'<span class="dws-sig">クリア (有意)</span>':'未クリア (非有意)'}。
+        Verdict <b>${esc(ps.verdict)}</b>: ${ps.verdict==='STABLE'?'両期間で統計的に差なし':
             ps.verdict==='DRIFT'?'有意差あり、ただし <em>|drift|<5pp</em>':'有意差あり、<em>|drift|≥5pp</em> で局面変化レベル'}
     </div>` : '';
 
@@ -1828,7 +2015,7 @@ function updateDwsValidation(sym, snap) {
  *  Verdict is precomputed offline in the OOS baseline JSON using a
  *  Bonferroni-corrected 2-prop z-test on WR + Welch t-test on expectancy. */
 function _buildPeriodVerdict(ps) {
-    if (!ps) return '';
+    if (!ps || ps.drift_wr_pp == null || ps.p_wr_raw == null) return '';
     const v = ps.verdict;
     const drift = ps.drift_wr_pp;
     let cls = 'stable', label = 'STABLE', dir = '';
@@ -1963,8 +2150,13 @@ function drawDwsCanvas(snap, sym) {
     if (W === 0 || H === 0) return;            // panel collapsed / hidden
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const bw = Math.round(W * dpr), bh = Math.round(H * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+        // Reassigning width/height reallocates + clears the bitmap; only do it
+        // on a real size change. setTransform+clearRect below clear every draw.
+        canvas.width = bw; canvas.height = bh;
+        canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    }
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -2083,6 +2275,11 @@ function connect() {
             latestSnap.price = msg.price;
             latestSnap.account = msg.account;
         } else {
+            // Full snapshot. The static 16Y oos_baseline (~2 MB) ships only on
+            // the FIRST full per connection; cache it and re-attach to every
+            // later full so all readers keep seeing snap.oos_baseline.
+            if (msg.oos_baseline) OOS_BASELINE = msg.oos_baseline;
+            else if (OOS_BASELINE) msg.oos_baseline = OOS_BASELINE;
             latestSnap = msg;
         }
         // Schedule paint on next frame so we coalesce bursts.
@@ -2234,6 +2431,7 @@ document.addEventListener('DOMContentLoaded', () => {
     buildCorrelationButtons();
     startTickers();
     setupBrokerSwitcher();
+    setupOrderModal();
     connect();
 });
 

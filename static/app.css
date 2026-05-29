@@ -117,21 +117,6 @@ body {
 /* --- Utility classes --------------------------------------------------- */
 .mono     { font-family: var(--mono); }
 .mute     { color: var(--fg-2); }
-.dim      { color: var(--fg-3); }
-/* Single-line truncate with ellipsis. min-width:0 is required so the rule
-   actually works inside grid/flex children (default min-content = auto). */
-.truncate {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-/* Generic surface tile used by row striping, badges, cells — replaces 19+
-   repetitions of `background: var(--panel-2)` scattered through the file. */
-.surface {
-    background: var(--panel-2);
-    border-radius: var(--radius);
-}
 
 /* ============================================================
    Layout: body grid — header (full width) / main (1fr) + side
@@ -385,24 +370,6 @@ body {
     color: var(--fg-dim); font-size: 0.6em; align-self: baseline;
 }
 
-/* Bias chip */
-.bias {
-    font-family: var(--mono);
-    font-size: var(--text-xs); font-weight: 700;
-    padding:3px var(--space-3);
-    background: var(--panel-2);
-    border-radius: var(--radius);
-    border-left: 3px solid var(--fg-dim);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.bias.strong-buy   { color: var(--buy);  border-left-color: var(--buy);
-                     background: rgba(0,208,156,0.15); }
-.bias.buy          { color: var(--buy);  border-left-color: var(--buy); }
-.bias.sell         { color: var(--sell); border-left-color: var(--sell); }
-.bias.strong-sell  { color: var(--sell); border-left-color: var(--sell);
-                     background: rgba(255,91,107,0.15); }
-.bias.hidden       { display: none; }
-
 /* Panel close button (✕) — visible only when panel is .expanded. */
 .panel-close {
     display: none;
@@ -516,6 +483,9 @@ body {
 .panel.expanded .anlx-triggers { flex: 1 1 auto; min-height: 0; }
 .panel.expanded .anlx-triggers .rt-table { flex: 1 1 auto; min-height: 0; }
 .panel.expanded .anlx-triggers .rt-scroll {
+    /* Flex to fill the column and scroll internally. (A fixed min-height here
+       fought the flex allocation and pushed the source-note up over the rows.)
+       With the trade controls now in the header, this column has room again. */
     flex: 1 1 auto; min-height: 0; max-height: none;
 }
 .anlx-title {
@@ -542,29 +512,6 @@ body {
     color: var(--buy); text-transform: none;
     margin-left:var(--space-3);
 }
-.anlx-grid.trade {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap:var(--space-4);
-}
-.anlx-cell {
-    background: var(--bg-soft);
-    border-radius: var(--radius-sm);
-    padding:var(--space-3) var(--space-4);
-    display: flex; flex-direction: column; gap:3px;
-}
-.anlx-cell .lbl {
-    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
-    color: var(--fg-2); text-transform: uppercase;
-}
-.anlx-cell .val {
-    font-family: var(--mono); font-size: var(--text-md); font-weight: var(--weight-medium);
-    color: var(--fg);
-}
-.anlx-cell .val small { font-size: var(--text-2xs); color: var(--fg-2);
-                        font-weight: var(--weight-normal); margin-left:var(--space-2); }
-.anlx-cell .val.buy  { color: var(--buy); }
-.anlx-cell .val.sell { color: var(--sell); }
 
 /* ============================================================
    DWS-SMT panel — 3-TF trend histogram (port of DWS_SMT.mq5).
@@ -801,14 +748,15 @@ body {
     /* head / composite size to content; the signals row is min-content (just
        the TF table) so no dead gap opens beneath it, and the analytics row
        takes the remaining height (1fr) to sit flush under the table and fill
-       down beside the DWS panel. */
+       down beside the DWS panel. The trade controls live INSIDE the head row
+       (right of the price), so they add no row and don't squeeze the history. */
     grid-template-rows: auto auto min-content 1fr;
     column-gap:var(--space-6);
     row-gap:var(--space-5);
     overflow-y: auto;
 }
 .panel.expanded:hover { transform: none; }
-.panel.expanded .panel-head { grid-area: head; }
+.panel.expanded .panel-head { grid-area: head; position: relative; }
 .panel.expanded .composite  { grid-area: composite; }
 .panel.expanded .signals    { grid-area: signals;   align-self: start; }
 .panel.expanded .dws        { grid-area: dws;       display: flex; }
@@ -820,7 +768,7 @@ body {
                               min-height: 0; }
 
 .panel.expanded .panel-sym  { font-size: 36px; }
-.panel.expanded .quote      { font-size: 26px; gap:14px; }
+.panel.expanded .quote      { font-size: 26px; gap:14px; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
 .panel.expanded .composite  { font-size: 30px; padding:18px var(--space-7); gap:14px; }
 .panel.expanded .composite .comp-label { font-size: var(--text-md); }
 .panel.expanded .composite .comp-arrow { font-size: 42px; }
@@ -976,21 +924,131 @@ body {
 .acc-positions .empty {
     color: var(--fg-3); font-size: var(--text-xs); padding:var(--space-2) 0;
 }
+/* Two-line position card so the ✕ close button always fits the narrow
+   sidebar (a single-row grid overflowed and clipped ✕ off the right edge). */
 .pos-row {
-    display: grid;
-    grid-template-columns: 40px 60px 50px 1fr 70px;
-    gap:var(--space-2);
+    display: flex; flex-direction: column; gap:2px;
     font-family: var(--mono); font-size: var(--text-xs);
-    padding:3px var(--space-3); margin-bottom:var(--space-1);
+    padding:var(--space-2) var(--space-3); margin-bottom:var(--space-1);
     background: var(--panel-2); border-radius: var(--radius);
     border-left: 3px solid var(--fg-3);
 }
 .pos-row.buy  { border-left-color: var(--buy); }
 .pos-row.sell { border-left-color: var(--sell); }
-.pos-row .type-buy  { color: var(--buy);  font-weight: var(--weight-medium); }
-.pos-row .type-sell { color: var(--sell); font-weight: var(--weight-medium); }
-.pos-row .pos-pnl.pos { color: var(--buy); }
-.pos-row .pos-pnl.neg { color: var(--sell); }
+.pos-line1 { display:flex; align-items:center; gap:var(--space-2); }
+.pos-line2 { display:flex; align-items:baseline; justify-content:space-between;
+             font-size: var(--text-2xs); color: var(--fg-2); }
+.pos-row .pos-sym { font-weight: var(--weight-medium); }
+.pos-row .pos-vol { color: var(--fg-3); }
+.pos-row .type-buy  { color: var(--buy);  font-weight: var(--weight-bold); }
+.pos-row .type-sell { color: var(--sell); font-weight: var(--weight-bold); }
+.pos-row .pos-pnl.pos { color: var(--buy);  font-weight: var(--weight-medium); }
+.pos-row .pos-pnl.neg { color: var(--sell); font-weight: var(--weight-medium); }
+.pos-close {
+    margin-left:auto;                       /* pin ✕ to the right edge */
+    border:none; background: rgba(255,91,107,0.18); color: var(--sell);
+    border-radius:3px; cursor:pointer; font-weight:900; line-height:1;
+    padding:3px 9px; font-size: var(--text-xs);
+}
+.pos-close:hover { background: var(--sell); color:#1c0205; }
+.pos-close-all {
+    width:100%; margin-bottom:var(--space-2); padding:4px;
+    border:1px solid rgba(255,91,107,0.5); background: rgba(255,91,107,0.10);
+    color: var(--sell); border-radius: var(--radius); cursor:pointer;
+    font-family: var(--mono); font-weight:800; font-size: var(--text-2xs);
+}
+.pos-close-all:hover { background: var(--sell); color:#1c0205; }
+
+/* ---- Discretionary order controls — live in the EXPANDED panel HEADER, to
+   the right of the BID/ASK quote (no extra row → the trigger history keeps its
+   space). Hidden in the compact grid. SELL | LOT | BUY, balanced + refined. -- */
+.trade-panel { display:none; }
+.panel.expanded .panel-head .trade-panel {
+    display:flex; align-items:flex-end; gap:var(--space-3);
+    margin-left:auto; position:relative;        /* push to the right of the quote; LOT input bottom-aligns with the buttons */
+}
+.trade-panel.disabled { opacity:0.6; }
+.trade-lot-wrap {
+    flex:0 0 auto; display:flex; flex-direction:column; gap:3px;
+    justify-content:center; align-items:center;
+    font-size: var(--text-3xs); color: var(--fg-3);
+    text-transform:uppercase; letter-spacing: var(--track-normal);
+}
+.trade-lot-wrap input {
+    width:66px; box-sizing:border-box; padding:6px 4px; text-align:center;
+    background: var(--panel-2); border:1px solid var(--border); border-radius:6px;
+    color: var(--fg); font-family: var(--mono); font-weight: var(--weight-bold);
+    font-size: var(--text-md); line-height:1;
+}
+.trade-lot-wrap input:focus { outline:none; border-color: var(--accent);
+    box-shadow:0 0 0 2px rgba(77,142,255,0.25); }
+.trade-note {
+    position:absolute; top:100%; right:0; margin-top:4px; white-space:nowrap;
+    font-size: var(--text-2xs); color: var(--warning);
+}
+.trade-note:empty { display:none; }
+.trade-btn {
+    flex:0 0 auto; min-width:108px; position:relative; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    padding:9px 18px; border:none; border-radius: var(--radius);
+    font-family: var(--mono); font-weight:900; letter-spacing:0.10em;
+    font-size: var(--text-sm); cursor:pointer;
+    transition: transform .08s ease, box-shadow .16s ease, filter .16s ease;
+}
+/* glossy top sheen for depth */
+.trade-btn::before {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0) 58%);
+}
+.trade-btn .tb-ar { font-size: 0.82em; opacity:0.92; }
+.trade-btn .tb-lbl { position:relative; }
+.trade-btn.sell {
+    color:#fff;
+    background: linear-gradient(180deg, #ff7a86 0%, #ec3b4d 100%);
+    box-shadow: 0 3px 13px rgba(255,91,107,0.34), inset 0 0 0 1px rgba(255,255,255,0.14);
+}
+.trade-btn.buy {
+    color:#042b20;
+    background: linear-gradient(180deg, #28e6b6 0%, #00bf8c 100%);
+    box-shadow: 0 3px 13px rgba(0,208,156,0.34), inset 0 0 0 1px rgba(255,255,255,0.18);
+}
+.trade-btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.07); }
+.trade-btn.sell:hover:not(:disabled) { box-shadow: 0 5px 18px rgba(255,91,107,0.50), inset 0 0 0 1px rgba(255,255,255,0.20); }
+.trade-btn.buy:hover:not(:disabled)  { box-shadow: 0 5px 18px rgba(0,208,156,0.50), inset 0 0 0 1px rgba(255,255,255,0.24); }
+.trade-btn:active:not(:disabled) { transform: translateY(0) scale(0.985); filter: brightness(0.96); box-shadow: inset 0 2px 6px rgba(0,0,0,0.30); }
+.trade-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.trade-btn:disabled { cursor:not-allowed; filter:grayscale(0.75) brightness(0.62); box-shadow:none; }
+/* ---- Order confirmation modal (mandatory before any live order) ---- */
+.order-confirm {
+    position:fixed; inset:0; z-index:1000;
+    background: rgba(4,8,18,0.66); backdrop-filter: blur(2px);
+    display:flex; align-items:center; justify-content:center;
+}
+.order-confirm[hidden] { display:none; }
+.oc-box {
+    width:min(420px, 92vw); background: var(--panel); border-radius: var(--radius);
+    box-shadow:0 18px 60px rgba(0,0,0,0.6), inset 0 0 0 1px var(--border);
+    padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-3);
+    font-family: var(--mono);
+}
+.oc-title { font-size: var(--text-lg); font-weight:900; letter-spacing:0.04em; }
+.oc-title.buy  { color: var(--buy); }
+.oc-title.sell { color: var(--sell); }
+.oc-title.warn { color: var(--warning); }
+.oc-detail { display:flex; flex-direction:column; gap:4px; font-size: var(--text-sm); color: var(--fg-2); }
+.oc-detail b { color: var(--fg); }
+.oc-detail .pos { color: var(--buy); } .oc-detail .neg { color: var(--sell); }
+.oc-result { min-height:1em; font-size: var(--text-xs); }
+.oc-result.ok  { color: var(--buy); }
+.oc-result.err { color: var(--sell); }
+.oc-actions { display:flex; gap:var(--space-3); justify-content:flex-end; }
+.oc-actions button {
+    padding:7px 16px; border:none; border-radius: var(--radius-sm);
+    font-family: var(--mono); font-weight:800; font-size: var(--text-sm); cursor:pointer;
+}
+.oc-cancel { background: var(--panel-2); color: var(--fg-2); }
+.oc-go { background: var(--accent); color:#04150f; }
+.oc-go:disabled { opacity:0.6; cursor:default; }
 
 /* ============================================================
    Calendar card
@@ -1085,14 +1143,6 @@ body {
 }
 .s-row .ccy { color: var(--fg); font-weight: var(--weight-bold); text-align: right;
               display: inline-flex; align-items: baseline; justify-content: flex-end; gap:var(--space-3); }
-.s-row .ccy-ref {
-    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
-    color: var(--warning);
-    border: 1px solid var(--warning);
-    padding:1px var(--space-2);
-    border-radius: var(--radius-sm);
-    cursor: help;
-}
 .s-row .val { color: var(--fg); text-align: right; }
 .s-row .bar-track {
     position: relative; height: 20px;
@@ -1610,14 +1660,13 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .rt-dir  { font-weight: 800; letter-spacing: 0.04em; }
 .rt-dir.buy  { color: var(--buy); }
 .rt-dir.sell { color: var(--sell); }
-.rt-tf   { color: var(--accent); font-weight: 700; }
 .rt-wl   { text-align: center; font-weight: 800; }
 .rt-wl.win  { color: var(--buy); }
 .rt-wl.loss { color: var(--sell); }
 .rt-pts  { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 .rt-pts.pos { color: var(--buy); }
 .rt-pts.neg { color: var(--sell); }
-.rt-head .rt-wl, .rt-head .rt-pts, .rt-head .rt-dir, .rt-head .rt-tf { color: var(--fg-2); }
+.rt-head .rt-wl, .rt-head .rt-pts, .rt-head .rt-dir { color: var(--fg-2); }
 .rt-summary {
     margin-top:var(--space-4);
     padding-top:var(--space-3);
@@ -1657,11 +1706,11 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding:5px 0 var(--space-2) 0;
+    padding:2px 0;
     border-radius: 3px;
     border: 1px solid rgba(255,255,255,0.06);
     font-family: var(--mono);
-    line-height: 1.25;
+    line-height: 1.12;
     cursor: help;
 }
 .hm-cell.is-now {

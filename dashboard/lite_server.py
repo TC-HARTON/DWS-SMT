@@ -165,8 +165,13 @@ def _spawn_restart_then_exit(new_terminal_path: str) -> None:
     os._exit(0)
 
 
-def build_app() -> Flask:
-    """Construct the Flask app, mount static + ``/ws``, return it."""
+def build_app(connector=None) -> Flask:
+    """Construct the Flask app, mount static + ``/ws``, return it.
+
+    *connector* is the live :class:`MT5Connector`; when present the
+    discretionary order endpoints (``/api/order``, ``/api/close``) are wired to
+    it. ``None`` (e.g. the smoke verifier) leaves them returning 503.
+    """
     app = Flask(
         __name__,
         static_folder=str(_STATIC_DIR),
@@ -223,6 +228,64 @@ def build_app() -> Flask:
             daemon=True,
         ).start()
         return jsonify({"ok": True, "name": name, "path": new_path})
+
+    # ----------------------------------------------------- discretionary orders
+    def _order_guard():
+        """Shared gate for the order endpoints: master switch + same-origin."""
+        if not config.TRADING_ENABLED:
+            return jsonify({"ok": False, "error": "trading disabled (TRADING_ENABLED)"}), 403
+        if not _origin_is_local(request.headers.get("Origin")):
+            return jsonify({"ok": False, "error": "cross-origin request rejected"}), 403
+        if connector is None:
+            return jsonify({"ok": False, "error": "connector unavailable"}), 503
+        return None
+
+    @app.route("/api/order", methods=["POST"])
+    def post_order():
+        guard = _order_guard()
+        if guard is not None:
+            return guard
+        body = request.get_json(silent=True) or {}
+        symbol = body.get("symbol")
+        side = body.get("side")
+        if symbol not in {s.base for s in config.SYMBOLS}:
+            return jsonify({"ok": False, "error": f"unknown symbol {symbol!r}"}), 400
+        if side not in ("BUY", "SELL"):
+            return jsonify({"ok": False, "error": f"bad side {side!r}"}), 400
+        try:
+            lots = float(body.get("lots"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "bad lots"}), 400
+        if not (lots > 0):
+            return jsonify({"ok": False, "error": "lots must be > 0"}), 400
+        sl = body.get("sl") or None
+        tp = body.get("tp") or None
+        try:
+            sl = float(sl) if sl is not None else None
+            tp = float(tp) if tp is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "bad sl/tp"}), 400
+        res = connector.place_market_order(symbol, side, lots, sl=sl, tp=tp)
+        log.info("order %s %s lots=%s sl=%s tp=%s -> %s", side, symbol, lots, sl, tp,
+                 res.get("retcode", res.get("error")))
+        return jsonify(res), (200 if res.get("ok") else 400)
+
+    @app.route("/api/close", methods=["POST"])
+    def post_close():
+        guard = _order_guard()
+        if guard is not None:
+            return guard
+        body = request.get_json(silent=True) or {}
+        if body.get("all"):
+            res = connector.close_all(body.get("symbol") or None)
+        else:
+            try:
+                ticket = int(body.get("ticket"))
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "bad ticket"}), 400
+            res = connector.close_position(ticket)
+        log.info("close %s -> %s", body, res.get("ok"))
+        return jsonify(res), (200 if res.get("ok") else 400)
 
     mount_websocket(app)
     log.info(

@@ -9,7 +9,7 @@ constant traceable back to a specific SPEC section.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -53,7 +53,7 @@ MT5_TERMINAL_PATH: Final[str] = _get_env(
 
 # Known MT5 broker presets exposed by the in-app broker switcher (the
 # ACCOUNT badge dropdown). Order = display order. The lite_server's
-# /api/switch_broker endpoint validates the user's pick against this map
+# /api/broker endpoint validates the user's pick against this map
 # so a malicious WS client can't write an arbitrary path into .env.
 BROKER_PRESETS: Final[dict[str, str]] = {
     "Exness":     r"C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe",
@@ -143,14 +143,6 @@ RSI_PERIOD: Final[int] = 14
 # SPEC 6.4 ATR(14) Wilder
 ATR_PERIOD: Final[int] = 14
 
-# SPEC §6 mandated *display* timeframes for each indicator. Computation runs
-# on every TF unconditionally (cheap and useful for derived signals), but
-# only the labels in these sets are shown in the symbol panels.
-EMA_DISPLAY_TFS: Final[frozenset[str]] = frozenset({"D1", "H4", "H1", "M15"})  # §6.1
-ADX_DISPLAY_TFS: Final[frozenset[str]] = frozenset({"D1", "H4"})               # §6.2
-RSI_DISPLAY_TFS: Final[frozenset[str]] = frozenset({"H1", "M15"})              # §6.3
-ATR_DISPLAY_TFS: Final[frozenset[str]] = frozenset({"H4"})                     # §6.4
-
 
 # --------------------------------------------------------------------------- #
 # DWS-SMT indicator — port of MQL5/Indicators/DWS_SMT.mq5 v2.00
@@ -167,7 +159,6 @@ DWS_SMT_STACKS: Final[dict[str, tuple[str, ...]]] = {
 }
 # Switchable base timeframes — also the histogram x-axis resolution.
 DWS_SMT_BASE_TFS: Final[tuple[str, ...]] = tuple(DWS_SMT_STACKS)
-DWS_SMT_DEFAULT_BASE: Final[str] = "H4"
 DWS_SMT_PERIOD: Final[int] = 20        # .mq5 input SMT_Period — EMA for close−EMA diff
 DWS_SMT_SMOOTH: Final[int] = 5         # .mq5 input Smooth — EMA for diff smoothing
 DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
@@ -219,6 +210,20 @@ PIP_PRICE: Final[dict[str, float]] = {
 
 
 # --------------------------------------------------------------------------- #
+# Discretionary order panel (manual market orders from the dashboard)
+# --------------------------------------------------------------------------- #
+# Master kill-switch + guards for the in-dashboard BUY/SELL/close buttons. Real
+# orders still require the account's + terminal's trade permission at runtime;
+# these are the *additional* app-side safety rails. Discretionary only — NOT an
+# auto-trading EA. ORDER_MAX_LOT is a hard ceiling the server clamps every order
+# to, independent of what the UI sends.
+TRADING_ENABLED: Final[bool] = True                   # app-side master switch
+ORDER_MAGIC: Final[int] = 770115                      # tags dashboard-placed orders
+ORDER_DEVIATION_POINTS: Final[int] = 20               # max slippage (points) for market fills
+ORDER_MAX_LOT: Final[float] = LOT_MAX                 # hard per-order lot ceiling (10.0)
+
+
+# --------------------------------------------------------------------------- #
 # Signal validation layer (precision-optimization spec, Section A)
 # --------------------------------------------------------------------------- #
 # Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread
@@ -259,8 +264,9 @@ VALIDATION_RECENT_TRIGGERS: Final[int] = 1000
 # are price-derived so the broker is the boundary; the account/login does not
 # matter. Different brokers get separate sub-dirs so spreads never mix.
 LIVE_TRIGGER_DIR: Final[Path] = PROJECT_ROOT / "data" / "live_triggers"
-# Wilson score interval z for a 95 % two-sided confidence interval.
-VALIDATION_CI_Z: Final[float] = 1.96
+# Wilson score interval z for a 95 % two-sided CI — the exact 0.975 normal
+# quantile (not the 1.96 rounding), so the displayed bounds are exact.
+VALIDATION_CI_Z: Final[float] = 1.959963984540054
 # The connector serialises every MT5 fetch through one lock, and a slow cold
 # deep-history call can hold that lock (and the GIL) for seconds. The validator
 # therefore fetches ONE symbol at a time and sleeps this long between symbols
@@ -679,47 +685,12 @@ DASH_HOST: Final[str] = _get_env("DASH_HOST", "127.0.0.1")
 DASH_PORT: Final[int] = _get_env_int("DASH_PORT", 8050)
 DASH_DEBUG: Final[bool] = _get_env_bool("DASH_DEBUG", False)
 DASH_WS_PATH: Final[str] = "/ws"             # dash-extensions WebSocket endpoint
-DASH_PAGE_TITLE: Final[str] = "MT5 Trading Dashboard"
 
 # WebSocket broadcaster cadence (kept in config per SPEC §23.2).
 WS_HEARTBEAT_INTERVAL_SEC: Final[float] = 15.0   # keep-alive resend interval
 WS_WAIT_TIMEOUT_SEC: Final[float] = 5.0          # poll cadence to check ws.connected
 
 
-# --------------------------------------------------------------------------- #
-# Colors (SPEC 16.4) — referenced from CSS variables and Plotly figures
-# --------------------------------------------------------------------------- #
-
-@dataclass(frozen=True)
-class Theme:
-    bg: str = "#0d0d0d"
-    bg_panel: str = "#1a1a1a"
-    fg: str = "#e0e0e0"
-    fg_muted: str = "#888888"
-    buy: str = "#00ff7f"
-    sell: str = "#ff4444"
-    neutral: str = "#888888"
-    warning: str = "#ffaa00"
-    critical: str = "#ff0066"
-
-
-THEME: Final[Theme] = Theme()
-
-
-# --------------------------------------------------------------------------- #
-# Structure-touch coloring (SPEC 17.1)
-# --------------------------------------------------------------------------- #
-
-@dataclass(frozen=True)
-class TouchThresholds:
-    """Distance-to-structure thresholds expressed as multiples of H4 ATR."""
-
-    far: float = 0.5      # within 0.5 * ATR → yellow
-    near: float = 0.3     # within 0.3 * ATR → orange
-    touch: float = 0.1    # within 0.1 * ATR → red + bold border
-
-
-TOUCH_THRESHOLDS: Final[TouchThresholds] = TouchThresholds()
 
 
 # --------------------------------------------------------------------------- #

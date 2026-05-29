@@ -120,7 +120,7 @@ def main() -> int:
         name="mt5-bringup", daemon=True,
     ).start()
 
-    app = build_app()
+    app = build_app(connector)
 
     try:
         app.run(

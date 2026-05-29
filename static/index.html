@@ -90,6 +90,19 @@
   </section>
 </footer>
 
+<!-- Discretionary order confirmation (mandatory before any live order). -->
+<div id="order-confirm" class="order-confirm" hidden>
+  <div class="oc-box">
+    <div class="oc-title" data-bind="oc-title">注文確認</div>
+    <div class="oc-detail" data-bind="oc-detail"></div>
+    <div class="oc-result" data-bind="oc-result"></div>
+    <div class="oc-actions">
+      <button class="oc-cancel" type="button">キャンセル</button>
+      <button class="oc-go" type="button">確定して発注</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

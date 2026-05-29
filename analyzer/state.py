@@ -15,7 +15,7 @@ from __future__ import annotations
 import copy
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from analyzer.account_monitor import PerformanceSnapshot
@@ -366,6 +366,26 @@ class LatestState:
                 "live_trigger_history": copy.deepcopy(self._live_trigger_history),
                 "live_trigger_server": self._live_trigger_server,
                 "broker_meta": {k: dict(v) for k, v in self._broker_meta.items()},
+            }
+
+    def light_snapshot(self) -> dict[str, object]:
+        """Minimal view for the 2 Hz price tick: version/ts/status/price/account.
+
+        The light WS path serialises only these fields, so calling the full
+        :meth:`snapshot` (which deep-copies the unbounded, ever-growing live
+        trigger history and rebuilds the validation-history buffers twice a
+        second for data it then discards) is pure waste — and holds the lock
+        longer against the 2 Hz price/account writers. This copies nothing
+        heavy: the snapshot dataclasses are replaced wholesale by writers, so
+        returning the current references under the lock is safe.
+        """
+        with self._lock:
+            return {
+                "version": self._monotonic_version,
+                "ts": time.time(),
+                "status": self._status,
+                "price": self._price,
+                "account": self._account,
             }
 
 

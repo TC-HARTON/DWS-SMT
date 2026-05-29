@@ -18,12 +18,13 @@ serialisation.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Any, Iterable
 
 import MetaTrader5 as mt5
 import numpy as np
@@ -65,6 +66,7 @@ class AccountSnapshot:
     margin_level: float      # %
     leverage: int
     positions: tuple["PositionRow", ...]
+    trade_allowed: bool = True   # account AND terminal both permit live trading
 
 
 @dataclass(frozen=True)
@@ -520,10 +522,15 @@ class MT5Connector:
         """
         with self._lock:
             ai = mt5.account_info()
+            ti = mt5.terminal_info()
             raw_positions = mt5.positions_get() or ()
 
         if ai is None:
             return None
+        # Live trading needs BOTH the account permission and the terminal's
+        # Algo-Trading toggle. The order panel disables itself when this is False.
+        trade_allowed = bool(getattr(ai, "trade_allowed", False)
+                             and (ti is None or getattr(ti, "trade_allowed", False)))
 
         positions = tuple(
             PositionRow(
@@ -554,7 +561,157 @@ class MT5Connector:
             margin_level=ai.margin_level,
             leverage=ai.leverage,
             positions=positions,
+            trade_allowed=trade_allowed,
         )
+
+    # --------------------------------------------------------------- orders
+    def _filling_mode(self, info: Any) -> int:
+        """Pick a filling mode the symbol accepts (IOC > FOK > RETURN). MT5's
+        ``filling_mode`` is a bitmask of SYMBOL_FILLING_FOK(1)/IOC(2).
+
+        *info* is an ``mt5.SymbolInfo`` (the package ships no type stub)."""
+        fm = int(getattr(info, "filling_mode", 0) or 0)
+        if fm & 2:
+            return mt5.ORDER_FILLING_IOC
+        if fm & 1:
+            return mt5.ORDER_FILLING_FOK
+        return mt5.ORDER_FILLING_RETURN
+
+    def _normalize_lot(self, info: Any, lots: float) -> float:
+        """Clamp lots to broker volume_min/max/step AND the app cap, snapped to
+        the broker's volume step at the step's OWN decimal precision (so a
+        0.001- or 0.1-step broker is handled correctly, not force-rounded to
+        2 dp). A hard ceiling independent of the UI input. Sub-minimum requests
+        are rejected by the caller, so this never silently *inflates* a lot.
+
+        *info* is an ``mt5.SymbolInfo`` (the package ships no type stub)."""
+        vmin = float(getattr(info, "volume_min", 0.01) or 0.01)
+        vmax = float(getattr(info, "volume_max", 100.0) or 100.0)
+        step = float(getattr(info, "volume_step", 0.01) or 0.01)
+        cap = min(vmax, float(config.ORDER_MAX_LOT))
+        lot = max(vmin, min(cap, float(lots)))
+        lot = vmin + round((lot - vmin) / step) * step
+        lot = max(vmin, min(cap, lot))
+        ndigits = 0 if step >= 1 else max(2, int(round(-math.log10(step))))
+        return round(lot, ndigits)
+
+    @staticmethod
+    def _order_result(res, lot: float) -> dict:
+        """Normalise an ``order_send`` result into a JSON-able dict."""
+        if res is None:
+            code, msg = mt5.last_error()
+            return {"ok": False, "error": f"order_send returned None ({code}: {msg})"}
+        ok = int(res.retcode) == int(mt5.TRADE_RETCODE_DONE)
+        return {
+            "ok": ok,
+            "retcode": int(res.retcode),
+            "comment": str(getattr(res, "comment", "") or ""),
+            "order": int(getattr(res, "order", 0) or 0),
+            "deal": int(getattr(res, "deal", 0) or 0),
+            "price": float(getattr(res, "price", 0.0) or 0.0),
+            "volume": float(getattr(res, "volume", lot) or lot),
+        }
+
+    def place_market_order(self, base: str, side: str, lots: float,
+                           sl: float | None = None, tp: float | None = None) -> dict:
+        """Send a market BUY/SELL for *base*. Returns a result dict; never raises
+        for a trading error. Guards: app master switch, account + terminal trade
+        permission, and a hard lot clamp (``ORDER_MAX_LOT`` + broker limits)."""
+        if not config.TRADING_ENABLED:
+            return {"ok": False, "error": "trading disabled in config (TRADING_ENABLED)"}
+        if side not in ("BUY", "SELL"):
+            return {"ok": False, "error": f"bad side {side!r}"}
+        broker = self.broker_name(base)
+        with self._lock:
+            info = mt5.symbol_info(broker)
+            tick = mt5.symbol_info_tick(broker)
+            ai = mt5.account_info()
+            ti = mt5.terminal_info()
+            if info is None or tick is None:
+                return {"ok": False, "error": f"no symbol/tick for {broker}"}
+            if ai is None or not getattr(ai, "trade_allowed", False):
+                return {"ok": False, "error": "account is not allowed to trade"}
+            if ti is not None and not getattr(ti, "trade_allowed", False):
+                return {"ok": False, "error": "terminal Algo Trading is disabled"}
+            vmin = float(getattr(info, "volume_min", 0.01) or 0.01)
+            if float(lots) < vmin:
+                # Never silently bump a sub-minimum request up to vmin: that
+                # would open a position LARGER than the user asked for.
+                return {"ok": False,
+                        "error": f"requested lot {lots} is below the broker minimum {vmin}"}
+            is_buy = side == "BUY"
+            lot = self._normalize_lot(info, lots)
+            req = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": broker,
+                "volume": lot,
+                "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,
+                "price": float(tick.ask if is_buy else tick.bid),
+                "deviation": int(config.ORDER_DEVIATION_POINTS),
+                "magic": int(config.ORDER_MAGIC),
+                "comment": "DWS-dash",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": self._filling_mode(info),
+            }
+            if sl is not None:
+                req["sl"] = float(sl)
+            if tp is not None:
+                req["tp"] = float(tp)
+            res = mt5.order_send(req)
+        return self._order_result(res, lot)
+
+    def close_position(self, ticket: int) -> dict:
+        """Close one open position by ticket with an opposite market deal."""
+        if not config.TRADING_ENABLED:
+            return {"ok": False, "error": "trading disabled in config (TRADING_ENABLED)"}
+        with self._lock:
+            poss = mt5.positions_get(ticket=int(ticket)) or ()
+            if not poss:
+                return {"ok": False, "error": f"position {ticket} not found"}
+            p = poss[0]
+            info = mt5.symbol_info(p.symbol)
+            tick = mt5.symbol_info_tick(p.symbol)
+            if info is None or tick is None:
+                return {"ok": False, "error": "no symbol/tick"}
+            # Same permission gate as opening (a programmatic close still goes
+            # through order_send, so it needs trade permission + Algo enabled).
+            # Surfaces a clean message instead of an opaque broker reject.
+            ai = mt5.account_info()
+            ti = mt5.terminal_info()
+            if ai is None or not getattr(ai, "trade_allowed", False):
+                return {"ok": False, "error": "account is not allowed to trade"}
+            if ti is not None and not getattr(ti, "trade_allowed", False):
+                return {"ok": False, "error": "terminal Algo Trading is disabled"}
+            is_buy = p.type == mt5.POSITION_TYPE_BUY
+            req = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": p.symbol,
+                "volume": float(p.volume),
+                "type": mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY,
+                "position": int(p.ticket),
+                "price": float(tick.bid if is_buy else tick.ask),
+                "deviation": int(config.ORDER_DEVIATION_POINTS),
+                "magic": int(config.ORDER_MAGIC),
+                "comment": "DWS-dash close",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": self._filling_mode(info),
+            }
+            res = mt5.order_send(req)
+        return self._order_result(res, float(p.volume))
+
+    def close_all(self, base: str | None = None) -> dict:
+        """Close every open position (optionally only *base*'s broker symbol)."""
+        target = self.broker_name(base) if base else None
+        with self._lock:
+            poss = mt5.positions_get() or ()
+        tickets = [int(p.ticket) for p in poss if target is None or p.symbol == target]
+        results = [self.close_position(t) for t in tickets]   # sequential, lock not nested
+        return {
+            "ok": all(r.get("ok") for r in results) if results else True,
+            "closed": sum(1 for r in results if r.get("ok")),
+            "n": len(results),
+            "results": results,
+        }
 
     # -------------------------------------------------------- trade history
     def history_deals(self, from_ts: float, to_ts: float | None = None) -> tuple:

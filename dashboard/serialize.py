@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Final, Mapping
+from typing import Any, Final
 
 import config
 
@@ -51,7 +51,6 @@ from analyzer.confluence import ConfluenceCluster
 from analyzer.correlation import CorrelationMatrix, CorrelationSnapshot
 from analyzer.currency_strength import (
     CurrencyScore,
-    PairBias,
     StrengthSnapshot,
     StrengthWindowResult,
 )
@@ -84,7 +83,6 @@ from analyzer.state import (
     LatestState,
     PriceSnapshot,
     StructuresSnapshot,
-    SymbolStructures,
 )
 from analyzer.structure_types import StructureLevel
 
@@ -218,6 +216,9 @@ def serialize_account(acc: AccountSnapshot | None) -> dict[str, Any] | None:
         "margin_free": _opt_float(acc.margin_free),
         "margin_level": _opt_float(acc.margin_level),
         "leverage": int(acc.leverage),
+        # Both account + terminal permit live trading — the order panel enables
+        # its BUY/SELL/close buttons only when this is true.
+        "trade_allowed": bool(getattr(acc, "trade_allowed", False)),
         # Recommended trade size from the validated fixed-fractional lot ladder
         # (single source of truth in analyzer.position_sizing). Sized off the
         # settled BALANCE (not equity) so the recommendation does not wobble
@@ -305,14 +306,6 @@ def serialize_confluence(c: ConfluenceCluster) -> dict[str, Any]:
     }
 
 
-def serialize_symbol_structures(s: SymbolStructures) -> dict[str, Any]:
-    return {
-        "levels": [serialize_level(lv) for lv in s.levels],
-        "price_action": [serialize_price_action(ev) for ev in s.price_action],
-        "confluences": [serialize_confluence(c) for c in s.confluences],
-    }
-
-
 def serialize_structures(s: StructuresSnapshot | None) -> dict[str, Any] | None:
     if s is None:
         return None
@@ -351,18 +344,13 @@ def serialize_score(s: CurrencyScore) -> dict[str, Any]:
     }
 
 
-def serialize_pair_bias(b: PairBias) -> dict[str, Any]:
-    return {
-        "pair": b.pair, "base": b.base, "quote": b.quote,
-        "delta": _opt_float(b.delta), "label": b.label,
-    }
-
-
 def serialize_strength_window(w: StrengthWindowResult) -> dict[str, Any]:
+    # pair_biases is intentionally NOT serialised: its only consumer was the
+    # removed paintBias() front-end function (dead). The dataclass still
+    # computes it for any future use.
     return {
         "window": w.window,
         "scores": {ccy: serialize_score(sc) for ccy, sc in w.scores.items()},
-        "pair_biases": {p: serialize_pair_bias(b) for p, b in w.pair_biases.items()},
     }
 
 
@@ -731,10 +719,18 @@ def _safe_meta(
     return out
 
 
-def snapshot_to_json(state: LatestState) -> dict[str, Any]:
-    """Render the entire :class:`LatestState` into a flat JSON-ready dict."""
+def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[str, Any]:
+    """Render the entire :class:`LatestState` into a flat JSON-ready dict.
+
+    *include_baseline* controls whether the static 2 MB ``oos_baseline`` is
+    embedded. It never changes for the process lifetime, so the broadcaster
+    ships it only in the FIRST full snapshot per connection and passes
+    ``include_baseline=False`` on every recurring full — the client caches the
+    first copy. Default ``True`` keeps the function self-contained for tests
+    and the smoke verifier.
+    """
     snap = state.snapshot()
-    return {
+    out: dict[str, Any] = {
         "version": int(snap["version"]),  # type: ignore[arg-type]
         "ts": float(snap["ts"]),  # type: ignore[arg-type]
         "status": serialize_status(snap["status"]),  # type: ignore[arg-type]
@@ -780,11 +776,13 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
             }
             for s in config.SYMBOLS
         },
-        # Static 16-y OOS baseline (loaded once, same payload every snapshot).
-        # The cost is one extra dict lookup; the front end uses it to render
-        # a tiny "16y reference" line beside the rolling-window tier.
-        "oos_baseline": load_oos_baseline(),
     }
+    # Static 16-y OOS baseline: ~2 MB and constant for the whole process. Ship
+    # it only on the first full snapshot per connection (the client caches it),
+    # so it is not re-serialised + re-sent on every analysis tick + heartbeat.
+    if include_baseline:
+        out["oos_baseline"] = load_oos_baseline()
+    return out
 
 
 def snapshot_light(state: LatestState) -> dict[str, Any]:
@@ -793,8 +791,12 @@ def snapshot_light(state: LatestState) -> dict[str, Any]:
     Sent at the 2 Hz price cadence so the ~169 KB analysis payload is not
     re-shipped every tick. ``partial: True`` tells the client to MERGE this
     into the snapshot it already holds rather than replace it.
+
+    Uses :meth:`LatestState.light_snapshot` (not the full ``snapshot``) so the
+    ever-growing live-trigger history is not deep-copied twice a second for
+    fields this payload never includes.
     """
-    snap = state.snapshot()
+    snap = state.light_snapshot()
     return {
         "partial": True,
         "version": int(snap["version"]),  # type: ignore[arg-type]
@@ -803,8 +805,3 @@ def snapshot_light(state: LatestState) -> dict[str, Any]:
         "price": serialize_price(snap["price"]),  # type: ignore[arg-type]
         "account": serialize_account(snap["account"]),  # type: ignore[arg-type]
     }
-
-
-def jsonable(mapping: Mapping[str, Any]) -> dict[str, Any]:
-    """Pass-through for things that are already pure dicts (kept for symmetry)."""
-    return dict(mapping)
