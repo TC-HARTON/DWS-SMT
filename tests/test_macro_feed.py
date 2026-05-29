@@ -243,3 +243,14 @@ def test_cache_survives_restart(monkeypatch, tmp_path):
     assert eng2._cached_real_yield is not None
     assert eng2._cached_real_yield.stale is True
     assert eng2._cached_real_yield.value == pytest.approx(2.10)
+
+
+def test_redact_strips_fred_api_key():
+    """The FRED api_key must never survive into a log / error string."""
+    msg = ("504 Server Error: Gateway Time-out for url: "
+           "https://api.stlouisfed.org/fred/series/observations"
+           "?series_id=DFII10&api_key=abc123SECRETkey&file_type=json")
+    out = mf._redact(msg)
+    assert "abc123SECRETkey" not in out
+    assert "api_key=***" in out
+    assert "series_id=DFII10" in out      # non-secret params preserved

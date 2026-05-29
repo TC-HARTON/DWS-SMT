@@ -32,6 +32,16 @@ import config
 
 log = logging.getLogger(__name__)
 
+# FRED request URLs carry ``api_key=<secret>``; requests echoes the full URL in
+# its error messages. Redact the key before any error string reaches the logs
+# (or the serialised ``last_error`` shipped to the browser).
+_API_KEY_RE = re.compile(r"(api_key=)[^&\s\"']+")
+
+
+def _redact(text: object) -> str:
+    """Strip a FRED ``api_key`` value from *text* so it never lands in logs."""
+    return _API_KEY_RE.sub(r"\1***", str(text))
+
 
 # --------------------------------------------------------------------------- #
 # Data model
@@ -290,7 +300,7 @@ class MacroEngine:
             try:
                 rates[ccy] = self._fetch_rate(ccy)
             except (requests.RequestException, ValueError, KeyError) as exc:
-                errors.append(f"{ccy}: {exc}")
+                errors.append(_redact(f"{ccy}: {exc}"))
                 cached = self._cached_rates.get(ccy)
                 if cached is not None:
                     rates[ccy] = MacroRate(
@@ -301,7 +311,7 @@ class MacroEngine:
             employment = self._fetch_employment()
             self._cached_employment = employment
         except (requests.RequestException, ValueError, KeyError) as exc:
-            errors.append(f"employment: {exc}")
+            errors.append(_redact(f"employment: {exc}"))
             # Re-use the last-good reading (stale) rather than blanking the row.
             employment = (replace(self._cached_employment, stale=True)
                           if self._cached_employment is not None else None)
@@ -352,7 +362,7 @@ class MacroEngine:
             doc = json.loads(
                 self._fred_get(config.MACRO_FRED_REALYIELD_SERIES, limit=12))
         except (requests.RequestException, ValueError, KeyError) as exc:
-            log.warning("macro: real-yield fetch failed - %s", exc)
+            log.warning("macro: real-yield fetch failed - %s", _redact(exc))
             prev = self._cached_real_yield
             if prev is not None:
                 return RealYieldSnapshot(

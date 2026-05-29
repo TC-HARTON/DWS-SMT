@@ -19,6 +19,7 @@ and warning colour. The events list is the entirety of what we surface.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -31,6 +32,15 @@ import xmltodict
 import config
 
 log = logging.getLogger(__name__)
+
+# The FRED NFP-release fetch carries ``api_key=<secret>``; redact it before any
+# error string (which echoes the request URL) reaches the logs.
+_API_KEY_RE = re.compile(r"(api_key=)[^&\s\"']+")
+
+
+def _redact(text: object) -> str:
+    """Strip a FRED ``api_key`` value from *text* so it never lands in logs."""
+    return _API_KEY_RE.sub(r"\1***", str(text))
 
 
 # --------------------------------------------------------------------------- #
@@ -360,7 +370,7 @@ def fetch_upcoming_nfp_events(
         resp.raise_for_status()
         dates = [d.get("date", "") for d in resp.json().get("release_dates", [])]
     except (requests.RequestException, ValueError, KeyError) as exc:
-        log.warning("calendar: NFP release-date fetch failed - %s", exc)
+        log.warning("calendar: NFP release-date fetch failed - %s", _redact(exc))
         return []
     hour, minute = config.NFP_RELEASE_ET
     out: list[CalendarEvent] = []
