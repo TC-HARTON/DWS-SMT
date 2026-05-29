@@ -71,6 +71,21 @@ def test_load_by_year_stats_and_order(store_dir):
     assert [t["t"] for t in rec["trades"]] == [feb2, feb1, jan]
 
 
+def test_load_by_year_includes_hourly_breakdown(store_dir):
+    """Each year ships a 24-bucket JST-hour breakdown for the time-of-day
+    heatmap (16Y baseline + live merge)."""
+    server = "BrokerX"
+    h10 = int(pd.Timestamp("2026-02-10 10:30", tz="Asia/Tokyo").timestamp() * 1000)
+    h10b = int(pd.Timestamp("2026-02-11 10:05", tz="Asia/Tokyo").timestamp() * 1000)
+    ts.append_closed(server, "XAUUSD", "M15",
+                     [_rt(h10, 1, 5.0), _rt(h10b, -1, -3.0)])
+    hourly = ts.load_by_year(server, "XAUUSD", "M15")["by_year"]["2026"]["hourly"]
+    assert len(hourly) == 24
+    b10 = next(b for b in hourly if b["hour"] == 10)
+    assert (b10["n"], b10["wins"]) == (2, 1)          # 2 trades @10時JST, 1 win
+    assert sum(b["n"] for b in hourly) == 2           # no leakage to other hours
+
+
 def test_jst_year_bucketing(store_dir):
     """A 2025-12-31 23:00 UTC trigger is 2026-01-01 08:00 JST → bucket 2026."""
     server = "BrokerX"

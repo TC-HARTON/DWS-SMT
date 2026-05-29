@@ -157,6 +157,22 @@ def _period_stats(nets: list[float]) -> dict[str, Any]:
     }
 
 
+def _hourly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """24 JST-hour buckets ``[{hour, n, wins}]`` over *rows* (each ``{t, p}``).
+
+    Mirrors the 16Y baseline's ``hourly_winrate`` shape so the dashboard can sum
+    baseline + live per hour into one time-of-day win-rate heatmap. ``win`` is a
+    net-positive trade (``p > 0``); ``t`` is true-UTC ms, bucketed by JST hour."""
+    buckets = [{"hour": h, "n": 0, "wins": 0} for h in range(24)]
+    for r in rows:
+        hour = int(pd.Timestamp(r["t"], unit="ms", tz="UTC").tz_convert(_JST).hour)
+        b = buckets[hour]
+        b["n"] += 1
+        if r["p"] > 0.0:
+            b["wins"] += 1
+    return buckets
+
+
 def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
     """Read the store and bucket it into ``{by_year: {YYYY(JST): {stats,
     trades:[last 30 newest-first]}}}`` — the same shape the 16Y baseline ships,
@@ -197,7 +213,10 @@ def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
             trades = [{"t": r["t"], "d": r["d"], "p": round(r["p"], 1)}
                       for r in ordered[:_TRIGGER_LIST_CAP]]
             by_year[str(year)] = {**_period_stats([r["p"] for r in rows]),
-                                  "trades": trades}
+                                  "trades": trades,
+                                  # Per-year 24-hour breakdown so the dashboard
+                                  # merges live hours into the 16Y heatmap.
+                                  "hourly": _hourly(rows)}
         result = {"by_year": by_year}
         _by_year_cache[path] = (sig, result)
         return copy.deepcopy(result)

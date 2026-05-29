@@ -626,13 +626,15 @@ body {
 .dws-chip .tg-buy  { color: var(--buy);     font-weight: 900; }
 .dws-chip .tg-sell { color: var(--sell);    font-weight: 900; }
 .dws-chip .tg-exit { color: var(--warning); font-weight: 900; }
-/* TIME chip — cool (blue) family so "time" is visually apart from buy/sell. */
+/* TIME chip — cool (blue) family so "time" is visually apart from buy/sell.
+   Floated to the right edge of the verdict row + brightened for at-a-glance. */
 .dws-chip.cd {
-    background: rgba(95,179,255,0.14);
-    box-shadow: inset 0 0 0 1px rgba(95,179,255,0.40);
+    margin-left: auto;
+    background: rgba(95,179,255,0.22);
+    box-shadow: inset 0 0 0 1px rgba(95,179,255,0.65);
 }
 .dws-chip.cd .dws-cd {
-    color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums;
+    color: #8fc4ff; font-weight: 900; font-variant-numeric: tabular-nums;
 }
 /* BIAS ⇄ DWS divergence caveat — secondary line, de-emphasised. */
 .dws-sync {
@@ -916,6 +918,30 @@ body {
     backdrop-filter: blur(2px);
 }
 #broker-switch-overlay.err { color: var(--sell); }
+/* Recommended lot — the actionable number, so it gets an accent-tinted band
+   above the balance grid (cool accent = "what to do", distinct from the
+   green/red money figures below). */
+.acc-reco {
+    display: flex; align-items: baseline; gap: var(--space-3);
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius);
+    background: rgba(95, 179, 255, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(95, 179, 255, 0.55);
+}
+.acc-reco-label {
+    font-size: var(--text-2xs); font-weight: var(--weight-bold);
+    text-transform: uppercase; letter-spacing: var(--track-normal);
+    color: #7db4ff;
+}
+.acc-reco-val {
+    font-size: var(--text-xl); font-weight: var(--weight-bold);
+    color: #9ccbff; font-variant-numeric: tabular-nums;
+}
+.acc-reco-sub {
+    font-size: var(--text-3xs); color: var(--fg-3); white-space: nowrap;
+    margin-left: auto;          /* rule caption floats to the right, muted */
+}
 .acc-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

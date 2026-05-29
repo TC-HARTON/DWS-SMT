@@ -148,6 +148,34 @@ def test_latest_tick_returns_dataclass(mt5_stub):
     assert t.symbol == "XAUUSD"
 
 
+def test_server_offset_converts_times_to_utc(mt5_stub, mocker):
+    """MT5 stamps bar/tick times in SERVER time; the connector must subtract the
+    server→UTC offset. Simulate a broker 3h ahead of UTC (e.g. IC EEST)."""
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    c.initialize()
+    fake_now = 1_700_000_000.0
+    mocker.patch("analyzer.mt5_connector.time.time", return_value=fake_now)
+    server_t = int(fake_now) + 3 * 3600          # broker clock is UTC+3
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=server_t, time_msc=server_t * 1000 + 250,
+    )
+    # Offset detected and rounded to whole hours.
+    assert c.server_offset_sec() == 3 * 3600
+    # Tick time_msc converted back to true UTC ms.
+    t = c.latest_tick("XAUUSD")
+    assert t.time_msc == int(fake_now) * 1000 + 250
+    # Bar times shifted by -3h so the index is true UTC.
+    raw = np.array(
+        [(server_t, 100.0, 101.0, 99.0, 100.5, 10, 0, 0)],
+        dtype=[("time", "i8"), ("open", "f8"), ("high", "f8"), ("low", "f8"),
+               ("close", "f8"), ("tick_volume", "i8"), ("spread", "i4"),
+               ("real_volume", "i8")],
+    )
+    mt5_stub.copy_rates_from_pos.return_value = raw
+    df = c.copy_rates("XAUUSD", mt5_timeframe=15, count=1)
+    assert df.index[-1].value // 1_000_000_000 == int(fake_now)   # epoch secs (UTC)
+
+
 def test_account_snapshot_includes_open_positions(mt5_stub):
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()

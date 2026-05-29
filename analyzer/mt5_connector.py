@@ -141,6 +141,10 @@ class MT5Connector:
         # Resolved broker symbol names keyed by the base name from config.SYMBOLS.
         self._resolved: dict[str, str] = {}
         self._initialised = False
+        # Broker server-clock offset from UTC (whole seconds), detected lazily
+        # from a live tick and reset on every (re)connect. MT5 stamps bar/tick
+        # times in SERVER time, not UTC — see :meth:`server_offset_sec`.
+        self._server_offset_sec: int | None = None
 
     # ------------------------------------------------------------------ lock
     @property
@@ -190,6 +194,9 @@ class MT5Connector:
                 ai.login, ai.server, ai.company, ai.currency, ai.balance, ti.trade_allowed,
             )
             self._initialised = True
+            # Force re-detection of the server-clock offset for this connection
+            # (a reconnect could land on a server in a different DST phase).
+            self._server_offset_sec = None
 
         # symbol resolution happens after we release the init lock so further
         # callers see a consistent state.
@@ -362,20 +369,54 @@ class MT5Connector:
                 }
         return out
 
+    # --------------------------------------------------------------- time
+    def server_offset_sec(self) -> int:
+        """Broker server-clock offset from UTC, in whole seconds (cached).
+
+        MT5 stamps bar (``copy_rates``) and tick times in the broker's *server*
+        timezone — e.g. IC Markets runs GMT+3 in summer — NOT UTC. Subtract this
+        offset to recover true UTC so the live feed lines up with the UTC 16-year
+        baseline and the bar-close countdown / tick age are correct.
+
+        Derived from a fresh tick's server time vs the system UTC clock, rounded
+        to the nearest hour (MT5 server offsets are whole hours). Returns 0 (and
+        does NOT cache) until a tick is available, so it self-heals once data
+        flows. Reset on every (re)connect to survive DST changes.
+        """
+        cached = self._server_offset_sec
+        if cached is not None:
+            return cached
+        server_time = 0
+        with self._lock:
+            for broker in list(self._resolved.values()):
+                raw = mt5.symbol_info_tick(broker)
+                if raw is not None and getattr(raw, "time", 0):
+                    server_time = raw.time
+                    break
+        if not server_time:
+            return 0
+        off = int(round((server_time - time.time()) / 3600.0) * 3600)
+        self._server_offset_sec = off
+        log.info("MT5 server-clock offset detected: %+d h (server→UTC)", off // 3600)
+        return off
+
     # --------------------------------------------------------------- ticks
     def latest_tick(self, base: str) -> Tick | None:
-        """Return latest tick for *base* or None if MT5 refuses the call."""
+        """Return latest tick for *base* or None if MT5 refuses the call.
+
+        ``time_msc`` is converted from broker-server time to true UTC ms."""
         broker = self.broker_name(base)
         with self._lock:
             raw = mt5.symbol_info_tick(broker)
         if raw is None:
             return None
+        off_ms = self.server_offset_sec() * 1000
         return Tick(
             symbol=broker,
             bid=raw.bid,
             ask=raw.ask,
             last=raw.last,
-            time_msc=raw.time_msc,
+            time_msc=int(raw.time_msc) - off_ms,
         )
 
     def latest_ticks(self, bases: Iterable[str] | None = None) -> dict[str, Tick]:
@@ -430,10 +471,13 @@ class MT5Connector:
                   "tick_volume", "spread", "real_volume")
         available = [c for c in wanted if c in raw.dtype.names]
         df = pd.DataFrame({col: raw[col] for col in available})
-        # raw["time"] is int64 seconds-since-epoch — DatetimeIndex directly
-        # from numpy datetime64 skips pandas' string-aware parsing path.
+        # raw["time"] is int64 seconds-since-epoch in the broker's SERVER tz;
+        # subtract the server→UTC offset so the index is true UTC (matching the
+        # 16Y Dukascopy baseline and making the bar-close countdown correct).
+        off = self.server_offset_sec()
+        times = raw["time"] - off if off else raw["time"]
         df.index = pd.DatetimeIndex(
-            raw["time"].astype("datetime64[s]"), tz="UTC", name="time",
+            times.astype("datetime64[s]"), tz="UTC", name="time",
         )
         return df
 

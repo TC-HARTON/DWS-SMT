@@ -77,6 +77,7 @@ from analyzer.macro_feed import (
     RealYieldSnapshot,
 )
 from analyzer.mt5_connector import AccountSnapshot, Tick
+from analyzer.position_sizing import recommended_lot
 from analyzer.price_action import PriceActionEvent
 from analyzer.state import (
     ConnectionStatus,
@@ -217,6 +218,17 @@ def serialize_account(acc: AccountSnapshot | None) -> dict[str, Any] | None:
         "margin_free": _opt_float(acc.margin_free),
         "margin_level": _opt_float(acc.margin_level),
         "leverage": int(acc.leverage),
+        # Recommended trade size from the validated fixed-fractional lot ladder
+        # (single source of truth in analyzer.position_sizing). Sized off the
+        # settled BALANCE (not equity) so the recommendation does not wobble
+        # with open floating P/L. lot_rule carries the params so the UI can
+        # render the rule subtitle without hard-coding.
+        "recommended_lot": recommended_lot(acc.balance),
+        "lot_rule": {
+            "base": config.LOT_BASE,
+            "step": config.LOT_EQUITY_STEP,
+            "max": config.LOT_MAX,
+        },
         "positions": [
             {
                 "ticket": p.ticket,
@@ -751,6 +763,16 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
             s.base: {
                 "display_size": s.display_size,
                 "round_step": s.round_step,
+                # Pips-conversion meta (config-driven, connection-independent):
+                # oos_point = the frozen baseline's price/point; pip_price = the
+                # market pip in price units. Lets the frontend render net P/L in
+                # PIPS for BOTH the 16Y baseline and the live feed consistently.
+                **(
+                    {"oos_point": config.OOS_BASELINE_POINT[s.base],
+                     "pip_price": config.PIP_PRICE[s.base]}
+                    if s.base in config.OOS_BASELINE_POINT
+                    and s.base in config.PIP_PRICE else {}
+                ),
                 # Broker-provided numeric meta (filled in once at startup) —
                 # used by the frontend to compute pips/spread in broker units
                 # instead of guessing from price magnitude.

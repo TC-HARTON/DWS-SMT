@@ -180,6 +180,45 @@ DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
 
 
 # --------------------------------------------------------------------------- #
+# Position sizing — recommended lot (fixed-fractional "lot ladder")
+# --------------------------------------------------------------------------- #
+# Add LOT_BASE lots for every LOT_EQUITY_STEP of account equity, floored to the
+# 0.01 lot grid and capped at LOT_MAX. Validated on the 16-year XAUUSD M15
+# backtest (start 0.01 lot @ 100k JPY): grows size with the account while
+# keeping peak drawdown small (~6%). Single source of truth for the dashboard's
+# 推奨ロット readout — and for a future auto-trade EA.
+LOT_BASE: Final[float] = 0.01              # lot increment per equity step
+LOT_EQUITY_STEP: Final[float] = 100_000.0  # account-currency equity per +LOT_BASE
+LOT_MIN: Final[float] = 0.01               # broker minimum / floor
+LOT_MAX: Final[float] = 10.0               # ceiling (liquidity / risk cap)
+
+
+# --------------------------------------------------------------------------- #
+# Pips display — convert net "points" to PIPS for the trigger history / OOS
+# --------------------------------------------------------------------------- #
+# The dashboard shows P/L in PIPS, a broker-independent unit. Conversion:
+#     pips = net_pts * (source_point / PIP_PRICE)
+# where source_point is the price-per-point the data was computed with:
+#   * the frozen 16Y baseline (oos_baseline.json) used OOS_BASELINE_POINT
+#     (Dukascopy 3/5-digit convention);
+#   * the live feed uses the broker's own _Point (e.g. IC gold = 0.01).
+# PIP_PRICE is the market pip in PRICE units and MUST match pip_size_for():
+#   gold $0.10, JPY pairs 0.01, FX majors 0.0001 — regardless of broker digits.
+# This also removes the baseline(0.001)/live(0.01) 10x scale mismatch, since
+# pips is the same number for the same dollar move on either source.
+OOS_BASELINE_POINT: Final[dict[str, float]] = {
+    "XAUUSD": 0.001,
+    "USDJPY": 0.001, "EURJPY": 0.001, "GBPJPY": 0.001, "AUDJPY": 0.001,
+    "EURUSD": 0.00001, "GBPUSD": 0.00001, "AUDUSD": 0.00001,
+}
+PIP_PRICE: Final[dict[str, float]] = {
+    "XAUUSD": 0.10,                                   # $1.00 = 10 pips
+    "USDJPY": 0.01, "EURJPY": 0.01, "GBPJPY": 0.01, "AUDJPY": 0.01,
+    "EURUSD": 0.0001, "GBPUSD": 0.0001, "AUDUSD": 0.0001,
+}
+
+
+# --------------------------------------------------------------------------- #
 # Signal validation layer (precision-optimization spec, Section A)
 # --------------------------------------------------------------------------- #
 # Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread

@@ -364,6 +364,21 @@ function paintAccount(snap) {
     $bind('acc-margin').textContent  = fmtPrice(a.margin, 2);
     $bind('acc-free').textContent    = fmtPrice(a.margin_free, 2);
     $bind('acc-lev').textContent     = a.leverage ? '1:' + a.leverage : '--';
+
+    // Recommended lot (validated fixed-fractional ladder) — server-computed.
+    const recoEl = $bind('acc-reco');
+    if (recoEl) {
+        if (a.recommended_lot != null && isFinite(a.recommended_lot)) {
+            recoEl.textContent = Number(a.recommended_lot).toFixed(2);
+            const r = a.lot_rule || {};
+            const stepMan = r.step ? Math.round(r.step / 10000) : null;
+            $bind('acc-reco-sub').textContent = stepMan
+                ? `0.01 / ${stepMan}万円 ・ 上限${r.max}` : '';
+        } else {
+            recoEl.textContent = '--';
+            $bind('acc-reco-sub').textContent = '';
+        }
+    }
     $bind('acc-level').textContent   = (a.margin_level != null) ? a.margin_level.toFixed(1) + ' %' : '--';
 
     // Today P&L (from performance snapshot if available)
@@ -756,7 +771,7 @@ function buildRecentTriggers(snap, sym) {
         + `<span class="rt-rec" title="ライブトリガーを永続記録中">● 記録中</span>`
         : '';
     const head = `<div class="anlx-title">トリガー履歴 ${esc(baseTf)}`
-               + `<span class="anlx-sub">16Y + ライブ連結 (net pt, spread 込み)${brokerSub}</span></div>`;
+               + `<span class="anlx-sub">16Y + ライブ連結 (pips・spread込み)${brokerSub}</span></div>`;
 
     // CSV backtest owns the deep past through its FIXED UTC last_year; the live
     // store owns the years beyond it. The fixed boundary stops a stray JST year
@@ -786,11 +801,18 @@ function buildRecentTriggers(snap, sym) {
     // CSV + live years share ONE aggregate shape, so one reader. Realised stats
     // (n/wins/losses/cum/gw/gl) are closed-only; the open trigger is grafted
     // into its year's list with nOpen, never into the realised totals.
-    const aggStats = (c, src) => ({
-        n: c.n, wins: c.wins, losses: c.losses, cum: c.cum_pts,
-        gw: c.gross_win || 0, gl: c.gross_loss || 0, nOpen: 0,
-        trades: (c.trades || []).slice(), src,
-    });
+    // Convert each source's raw points → PIPS so 16Y baseline and live feed
+    // read in one broker-independent unit (and the 0.001/0.01 scale gap closes).
+    const csvF = pipsFactor(sym, 'csv');
+    const liveF = pipsFactor(sym, 'live');
+    const aggStats = (c, src) => {
+        const f = src === 'live' ? liveF : csvF;
+        return {
+            n: c.n, wins: c.wins, losses: c.losses, cum: (c.cum_pts || 0) * f,
+            gw: (c.gross_win || 0) * f, gl: (c.gross_loss || 0) * f, nOpen: 0,
+            trades: (c.trades || []).map(t => ({ ...t, p: t.p * f })), src,
+        };
+    };
     const yearRecord = (y) => {
         let rec = null;
         if (y > csvLastYear && liveYears[String(y)]) rec = aggStats(liveYears[String(y)], 'live');
@@ -798,7 +820,7 @@ function buildRecentTriggers(snap, sym) {
         if (openTrig && y === openYear) {
             if (!rec) rec = { n:0, wins:0, losses:0, cum:0, gw:0, gl:0, nOpen:0, trades:[], src:'live' };
             rec = { ...rec, nOpen: (rec.nOpen || 0) + 1,
-                    trades: [{ t: openTrig.t, d: openTrig.d, p: openTrig.p, o: true }, ...rec.trades] };
+                    trades: [{ t: openTrig.t, d: openTrig.d, p: openTrig.p * liveF, o: true }, ...rec.trades] };
         }
         return rec;
     };
@@ -855,7 +877,7 @@ function buildRecentTriggers(snap, sym) {
     const listRows = trades.map((t, i) => {
         const dirCls = t.d > 0 ? 'buy' : 'sell';
         const dTxt = t.d > 0 ? 'BUY' : 'SELL';
-        const pTxt = `${t.p >= 0 ? '+' : ''}${fmtPtsCompact(t.p)}`;
+        const pTxt = `${t.p >= 0 ? '+' : ''}${fmtPips(t.p)}`;
         if (t.o) {
             // Still-running trigger: floating P/L, not a settled win/loss.
             return `<div class="rt-row open newest">
@@ -883,14 +905,14 @@ function buildRecentTriggers(snap, sym) {
             勝率 <b>${wrTxt}</b>
             · <b class="pos">${wins.toLocaleString('en-US')}勝</b> <b class="neg">${losses.toLocaleString('en-US')}敗</b>
             · PF <b>${pfTxt}</b>
-            · 累積 <b class="${cumCls}">${cum >= 0 ? '+' : ''}${fmtPtsCompact(cum)}</b>${openNote}
+            · 累積 <b class="${cumCls}">${cum >= 0 ? '+' : ''}${fmtPips(cum)} pips</b>${openNote}
         </div>
         <div class="rt-table">
             <div class="rt-row rt-head">
                 <span class="rt-time">時刻 (JST) · 新しい順</span>
                 <span class="rt-dir">方向</span>
                 <span class="rt-wl">結果</span>
-                <span class="rt-pts">net pt</span>
+                <span class="rt-pts">pips</span>
             </div>
             <div class="rt-scroll">${listRows}</div>
         </div>
@@ -898,13 +920,27 @@ function buildRecentTriggers(snap, sym) {
     </div>`;
 }
 
-/** Compact points formatter — keeps the huge XAUUSD/JPY point magnitudes
- *  readable: 1,660 → "1,660", 192,670 → "193k", 6,966,271 → "6.97M".
- *  Sign is handled by the caller. */
-function fmtPtsCompact(v) {
-    const a = Math.abs(v);
-    if (a >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-    if (a >= 1e4) return Math.round(v / 1e3) + 'k';
+/** Multiplier to convert a data source's raw net-"points" to PIPS.
+ *    pips = raw_pts * (source_point / pip_price)
+ *  source_point = price units per point the data was computed with: the frozen
+ *  16Y baseline uses ``oos_point`` (Dukascopy 3/5-digit), the live feed uses the
+ *  broker's ``point``. ``pip_price`` is the market pip in price units (gold
+ *  $0.10, JPY 0.01, FX 0.0001). Returns 1 (raw points) if meta is missing, so
+ *  it degrades gracefully and never yields NaN. ``source`` is 'live' or 'csv'. */
+function pipsFactor(sym, source) {
+    const m = (latestSnap && latestSnap.symbol_meta && latestSnap.symbol_meta[sym]) || {};
+    const pip = m.pip_price || m.pip_size;
+    if (!pip || !isFinite(pip) || pip <= 0) return 1;
+    const srcPoint = source === 'live' ? m.point : m.oos_point;
+    if (!srcPoint || !isFinite(srcPoint) || srcPoint <= 0) return 1;
+    return srcPoint / pip;
+}
+
+/** Pips formatter — full magnitude, NO k/M abbreviation (user wants every
+ *  digit). Sub-100 values keep one decimal; ≥100 are whole pips with comma
+ *  grouping (e.g. 70,800). Sign handled by the caller. */
+function fmtPips(v) {
+    if (Math.abs(v) < 100) return v.toFixed(1);
     return Math.round(v).toLocaleString('en-US');
 }
 
@@ -913,10 +949,38 @@ function fmtPtsCompact(v) {
  *  are coloured red→amber→green by win rate; the current JST hour is ringed
  *  so the user sees "are we in a statistically good hour right now?". */
 function buildHourlyHeatmap(snap, sym) {
-    const base = snap.oos_baseline?.by_symbol?.[sym]?.[UI.dwsBase];
-    const hourly = base && base.hourly_winrate;
-    if (!Array.isArray(hourly) || !hourly.length) return '';
-    const popWr = base.win_rate;                  // population WR for reference
+    const baseTf = UI.dwsBase;
+    const base = snap.oos_baseline?.by_symbol?.[sym]?.[baseTf];
+    const baseHourly = base && base.hourly_winrate;
+    if (!Array.isArray(baseHourly) || !baseHourly.length) return '';
+    // Merge 16Y baseline + live (years past the CSV boundary) per JST hour, so
+    // the time-of-day win-rate is "16Y + ライブ連結" and recomputes continuously
+    // as live triggers accumulate. Live owns years > csvLastYear (same boundary
+    // as the trigger-history table); the baseline owns everything ≤ it.
+    const merged = Array.from({ length: 24 }, (_, h) => ({ hour: h, n: 0, wins: 0 }));
+    for (const h of baseHourly) {
+        const m = merged[h.hour];
+        if (m) { m.n += h.n || 0; m.wins += h.wins || 0; }
+    }
+    const th = base.trigger_history || {};
+    const csvLastYear = th.last_year
+        || (Object.keys(th.by_year || {}).length
+            ? Math.max(...Object.keys(th.by_year).map(Number)) : 0);
+    const liveYears = snap.live_history?.by_symbol?.[sym]?.[baseTf]?.by_year || {};
+    let liveN = 0;
+    for (const [y, rec] of Object.entries(liveYears)) {
+        if (Number(y) <= csvLastYear) continue;          // live owns > boundary
+        for (const hb of (rec.hourly || [])) {
+            const m = merged[hb.hour];
+            if (m) { m.n += hb.n || 0; m.wins += hb.wins || 0; liveN += hb.n || 0; }
+        }
+    }
+    // Combined population WR anchors the colour scale (honest baseline+live).
+    const totN = merged.reduce((s, m) => s + m.n, 0);
+    const totW = merged.reduce((s, m) => s + m.wins, 0);
+    const popWr = totN ? totW / totN : (base.win_rate || 0);
+    const hourly = merged.map(m => ({ hour: m.hour, n: m.n,
+        win_rate: m.n ? m.wins / m.n : null }));
     const nowJst = (() => {
         const d = new Date(Date.now() + 9 * 3600 * 1000);
         return d.getUTCHours();
@@ -950,7 +1014,7 @@ function buildHourlyHeatmap(snap, sym) {
     }).join('');
     return `<div class="anlx-block anlx-heatmap">
         <div class="anlx-title">時刻別勝率 ${esc(UI.dwsBase)}
-            <span class="anlx-sub">16Y OOS・JST時刻別 (母集団 WR ${(popWr*100).toFixed(1)}% 基準で配色、■=現在)</span>
+            <span class="anlx-sub">16Y${liveN ? ' + ライブ ' + liveN.toLocaleString('en-US') + '件' : ''}・JST時刻別 (母集団 WR ${(popWr*100).toFixed(1)}% 基準で配色、■=現在)</span>
         </div>
         <div class="hm-grid">${cells}</div>
     </div>`;
@@ -1593,7 +1657,10 @@ function updateDwsValidation(sym, snap) {
     const bootCi = base.bootstrap_ci
         ? `${(base.bootstrap_ci.ci_low * 100).toFixed(1)}–${(base.bootstrap_ci.ci_high * 100).toFixed(1)}%`
         : null;
-    const expVal = Math.round(base.expectancy);
+    // Convert the frozen-baseline points to PIPS for display (gold $1.00=10pips).
+    const pipF = pipsFactor(sym, 'csv');
+    const expPips = base.expectancy * pipF;
+    const ddPips = base.max_drawdown * pipF;
     const expCls = base.expectancy > 0 ? 'pos' : base.expectancy < 0 ? 'neg' : '';
     const breakeven = base.breakeven_wr != null
         ? `${(base.breakeven_wr * 100).toFixed(1)}%` : '--';
@@ -1650,13 +1717,13 @@ function updateDwsValidation(sym, snap) {
             + `Wilson CI と概ね一致 → 自己相関の影響は軽微と確認`,
         pf: `<b>Profit Factor</b> = 勝ちトレード総利益 ÷ 負けトレード総損失 (絶対値)。<b>> 1 で総合プラス収支</b>、`
           + `<em>> 2</em> で十分に強いエッジとされる。スプレッドコスト込みの計算`,
-        ev: `1 トレードあたりの平均純損益 (<em>points 単位、スプレッドコスト込み</em>)。<b>期待値 × 取引回数 ≈ 累積損益</b>。`
+        ev: `1 トレードあたりの平均純損益 (<em>pips 単位 ($1.00=10pips)、スプレッドコスト込み</em>)。<b>期待値 × 取引回数 ≈ 累積損益</b>。`
           + `これがプラスである限り、長期的にトレードを続ければ利益が積み上がる`,
         be: `現状の <em>(平均勝ち額 / 平均負け額)</em> 比率で損益をゼロにするのに必要な勝率。<b>実勝率がこれを上回れば長期プラス</b>。`
           + `現状実勝率 <em>${(base.win_rate*100).toFixed(2)}%</em> は Breakeven <em>${(base.breakeven_wr*100).toFixed(1)}%</em> を `
           + `<b>+${((base.win_rate-base.breakeven_wr)*100).toFixed(1)}pp 上回る</b>`,
-        dd: `16 年累積損益曲線のピークから谷までの最大下落幅 (<em>points</em>)。<b>過去最悪のドローダウン</b>。`
-          + `期待値 <em>${fmtN(Math.round(base.expectancy))} pt × ${Math.ceil(base.max_drawdown / Math.max(1, base.expectancy))} 回</em> のトレードで回復計算`,
+        dd: `16 年累積損益曲線のピークから谷までの最大下落幅 (<em>pips</em>)。<b>過去最悪のドローダウン</b>。`
+          + `期待値 <em>${fmtPips(expPips)} pips × ${Math.ceil(base.max_drawdown / Math.max(1, base.expectancy))} 回</em> のトレードで回復計算`,
     };
 
     // Quality colours so "is this edge good?" reads at a glance:
@@ -1673,10 +1740,10 @@ function updateDwsValidation(sym, snap) {
       + cell('Wilson 95%CI', esc(wilsonCi),                 '',                       DESC.wilson)
       + (bootCi ? cell('Bootstrap 95%CI', esc(bootCi),      '',                       DESC.boot) : '')
       + cell('PF',           esc(fmtPf(base.profit_factor)), pfCls,                   DESC.pf)
-      + cell('期待値',       `${expVal >= 0 ? '+' : ''}${fmtN(expVal)} pt`,
+      + cell('期待値',       `${expPips >= 0 ? '+' : ''}${fmtPips(expPips)} pips`,
              'dws-num ' + expCls,                                                     DESC.ev)
       + cell('Breakeven WR', esc(breakeven),                '',                       DESC.be)
-      + cell('MaxDD',        `${fmtN(Math.round(base.max_drawdown))} pt`,
+      + cell('MaxDD',        `${fmtPips(ddPips)} pips`,
              '',                                                                      DESC.dd)
       + `</div>`;
 
@@ -1870,6 +1937,7 @@ function drawDwsCanvas(snap, sym) {
     const rows = win.rows, N = win.c.length;
     const biasArr = win.bias || [];              // per-bar historical BIAS
     const ptMult = pointMultiplierFor(sym);      // price → MT5 points
+    const liveF = pipsFactor(sym, 'live');       // MT5 points → pips (live feed)
     const tk = snap.price && snap.price.ticks && snap.price.ticks[sym];
     const costPts = (tk && tk.ask != null && tk.bid != null)
         ? (tk.ask - tk.bid) * ptMult : 0;        // round-trip cost ≈ spread
@@ -1922,12 +1990,11 @@ function drawDwsCanvas(snap, sym) {
         // this BUY/SELL opened. EXIT triggers open no trade → no label.
         const tr = tradeByEntry[j];
         if (tr) {
-            const pts = Math.round(tr.p * ptMult - costPts);   // net of cost
-            ctx.fillStyle = pts > 0 ? '#00d09c' : pts < 0 ? '#ff5b6b' : '#8089a0';
+            const pips = (tr.p * ptMult - costPts) * liveF;     // net of cost, in pips
+            ctx.fillStyle = pips > 0 ? '#00d09c' : pips < 0 ? '#ff5b6b' : '#8089a0';
             ctx.font = '700 9px monospace';
             ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-            ctx.fillText((pts >= 0 ? '+' : '') + pts.toLocaleString('en-US'),
-                         cx, markY + 19);
+            ctx.fillText((pips >= 0 ? '+' : '') + fmtPips(pips), cx, markY + 19);
         }
     }
 
