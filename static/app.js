@@ -787,7 +787,8 @@ function paintMacro(snap) {
               + `<span class="macro-key-label">米雇用</span>`
               + `<span class="macro-key-val">NFP `
               + `<span class="macro-rynum ${nfpCls}">${esc(nfp)}k</span></span>`
-              + `<span class="macro-rynum mute">失業率 ${esc(ur)}</span></div>`;
+              + `<span class="macro-rynum mute">失業率 ${esc(ur)}</span>`
+              + `${e.stale ? ' <span class="mute" title="キャッシュ値 (取得失敗)">*</span>' : ''}</div>`;
     }
     root.innerHTML = keyBlock + rows;
 }

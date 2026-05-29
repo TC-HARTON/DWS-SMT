@@ -649,6 +649,7 @@ def _serialize_macro_employment(e: MacroEmployment | None) -> dict[str, Any] | N
         "as_of": e.as_of,
         "prev_nonfarm_change": _opt_float(e.prev_nonfarm_change),
         "source": e.source,
+        "stale": bool(getattr(e, "stale", False)),
     }
 
 

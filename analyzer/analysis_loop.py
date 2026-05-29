@@ -436,9 +436,13 @@ class AnalysisLoop:
 
     def _macro_refresh_worker(self) -> None:
         try:
-            self._state.set_macro(self._macro_engine.compute())
+            snap = self._macro_engine.compute()
+            self._state.set_macro(snap)
+            if snap.last_error:     # a source failed → retry soon, not in 6 h
+                self._reschedule_soon("macro", config.MACRO_RETRY_SEC)
         except Exception:               # noqa: BLE001 — never reach the loop
             log.exception("macro worker failed")
+            self._reschedule_soon("macro", config.MACRO_RETRY_SEC)
         finally:
             self._macro_inflight.clear()
 
@@ -457,11 +461,27 @@ class AnalysisLoop:
 
     def _realyield_refresh_worker(self) -> None:
         try:
-            self._state.set_real_yield(self._macro_engine.fetch_real_yield())
+            snap = self._macro_engine.fetch_real_yield()
+            self._state.set_real_yield(snap)
+            if snap.stale:          # fetch failed (served stale) → retry soon
+                self._reschedule_soon("realyield", config.MACRO_RETRY_SEC)
         except Exception:               # noqa: BLE001 — never reach the loop
             log.exception("realyield worker failed")
+            self._reschedule_soon("realyield", config.MACRO_RETRY_SEC)
         finally:
             self._realyield_inflight.clear()
+
+    def _reschedule_soon(self, name: str, delay: float) -> None:
+        """Pull a schedule's next run forward to ``now + delay`` so a failed
+        macro / real-yield fetch retries in minutes instead of the full 6 h / 1 h
+        interval. Only ever moves the run EARLIER, never later."""
+        target = time.time() + delay
+        for sched in self._schedules:
+            if sched.name == name and target < sched.next_run:
+                sched.next_run = target
+                log.info("%s: fetch failed — retry in %.0f s (not full interval)",
+                         name, delay)
+                return
 
     # ------------------------------------------------------------- warmup
     def _warmup(self) -> None:

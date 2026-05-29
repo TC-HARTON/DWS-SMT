@@ -239,6 +239,10 @@ VALIDATION_STARTUP_DELAY_SEC: Final[float] = 90.0
 # catches a decision same-day at negligible cost. The fetch is pure HTTP (no
 # MT5 connector lock) and runs off-thread, mirroring the calendar feed.
 MACRO_REFRESH_SEC: Final[float] = 21600.0          # 6 hours
+# On a macro / real-yield FETCH FAILURE (e.g. FRED 504/timeout), retry after
+# this short delay instead of waiting the full 6 h / 1 h interval — so the
+# panel self-heals within minutes once the upstream source recovers.
+MACRO_RETRY_SEC: Final[float] = 300.0              # 5 minutes
 MACRO_FETCH_TIMEOUT_SEC: Final[float] = 20.0
 MACRO_CACHE_FILE: Final[Path] = PROJECT_ROOT / "external" / "macro" / "macro_cache.json"
 # FRED API key — read from env / .env, never hard-coded.

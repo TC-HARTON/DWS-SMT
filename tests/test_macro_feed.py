@@ -193,3 +193,53 @@ def test_fetch_real_yield_failure_is_stale(monkeypatch, tmp_path):
     ry = eng.fetch_real_yield()
     assert ry.stale is True
     assert ry.gold_dir == 0
+
+
+# ------------------------------------------------ last-good cache / resilience
+def _emp(nfp=115.0, unrate=4.3):
+    return mf.MacroEmployment(nonfarm_change=nfp, unemployment_rate=unrate,
+                              as_of="2026-05-01", prev_nonfarm_change=100.0,
+                              source="fred")
+
+
+def test_employment_failure_serves_stale_cache(monkeypatch, tmp_path):
+    """A later employment-fetch failure re-uses the last-good reading (stale)
+    instead of blanking the row."""
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+    monkeypatch.setattr(eng, "_fetch_rate",
+                        lambda ccy: mf.MacroRate(ccy, 4.0, "2026-05-01", None, "t", False))
+    monkeypatch.setattr(eng, "_fetch_employment", lambda: _emp())
+    snap1 = eng.compute()
+    assert snap1.employment is not None and snap1.employment.stale is False
+
+    def boom():
+        raise ValueError("payems down")
+    monkeypatch.setattr(eng, "_fetch_employment", boom)
+    snap2 = eng.compute()
+    assert snap2.employment is not None                 # not blanked
+    assert snap2.employment.stale is True               # flagged stale
+    assert snap2.employment.nonfarm_change == 115.0      # last-good value
+    assert snap2.last_error is not None
+
+
+def test_cache_survives_restart(monkeypatch, tmp_path):
+    """Employment + real-yield persist to disk and are restored (stale) by a
+    fresh engine — so a restart during a FRED outage still shows them."""
+    cache = tmp_path / "macro_cache.json"
+    eng = mf.MacroEngine(cache_file=cache)
+    monkeypatch.setattr(eng, "_fetch_rate",
+                        lambda ccy: mf.MacroRate(ccy, 4.0, "2026-05-01", None, "t", False))
+    monkeypatch.setattr(eng, "_fetch_employment", lambda: _emp())
+    eng.compute()
+    obs = [{"date": f"2026-05-{d:02d}", "value": "2.10"} for d in range(1, 13)]
+    monkeypatch.setattr(eng, "_fred_get", lambda sid, limit=6: _json.dumps({"observations": obs}))
+    eng.fetch_real_yield()
+
+    # Fresh engine on the SAME cache file = simulated restart (bootstrap in __init__).
+    eng2 = mf.MacroEngine(cache_file=cache)
+    assert eng2._cached_employment is not None
+    assert eng2._cached_employment.stale is True
+    assert eng2._cached_employment.nonfarm_change == 115.0
+    assert eng2._cached_real_yield is not None
+    assert eng2._cached_real_yield.stale is True
+    assert eng2._cached_real_yield.value == pytest.approx(2.10)

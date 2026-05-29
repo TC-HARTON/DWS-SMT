@@ -22,7 +22,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -58,6 +58,7 @@ class MacroEmployment:
     as_of: str
     prev_nonfarm_change: float | None
     source: str
+    stale: bool = False          # True when re-used from cache (FRED unreachable)
 
 
 @dataclass(frozen=True)
@@ -277,6 +278,7 @@ class MacroEngine:
         self._last_fetch_ok = 0.0
         self._cached_rates: dict[str, MacroRate] = {}
         self._cached_real_yield: RealYieldSnapshot | None = None
+        self._cached_employment: MacroEmployment | None = None
         self._bootstrap_from_cache()
 
     # ----------------------------------------------------------- compute
@@ -297,9 +299,12 @@ class MacroEngine:
 
         try:
             employment = self._fetch_employment()
+            self._cached_employment = employment
         except (requests.RequestException, ValueError, KeyError) as exc:
             errors.append(f"employment: {exc}")
-            employment = None
+            # Re-use the last-good reading (stale) rather than blanking the row.
+            employment = (replace(self._cached_employment, stale=True)
+                          if self._cached_employment is not None else None)
 
         if not rates:
             # Total failure — every currency source is down. Only this counts
@@ -318,7 +323,9 @@ class MacroEngine:
 
         if rates:
             self._cached_rates = dict(rates)
-            self._store_cache(rates)
+        # Persist whatever we have (rates / employment / real-yield) so a restart
+        # during an upstream outage shows the last-good values, flagged stale.
+        self._persist_cache()
 
         by_pair = {
             s.base: pair_macro_bias(s.base, rates) for s in config.SYMBOLS
@@ -378,6 +385,7 @@ class MacroEngine:
                                  gold_dir, as_of, stale=False,
                                  generated_at=time.time())
         self._cached_real_yield = snap
+        self._persist_cache()   # survive restart / outage with the last-good value
         return snap
 
     # ------------------------------------------------------- per-source
@@ -462,7 +470,9 @@ class MacroEngine:
 
     # ------------------------------------------------------------- cache
     def _bootstrap_from_cache(self) -> None:
-        """Load the last good payload so a restart shows data immediately."""
+        """Load the last-good payload (rates + employment + real-yield) so a
+        restart — even during an upstream outage — shows data immediately,
+        flagged stale, instead of blank rows."""
         if not self._cache_file.exists():
             return
         try:
@@ -471,22 +481,53 @@ class MacroEngine:
                 self._cached_rates[ccy] = MacroRate(
                     r["currency"], r["rate"], r["as_of"],
                     r.get("prev_rate"), r["source"], stale=True)
+            emp = doc.get("employment")
+            if emp:
+                self._cached_employment = MacroEmployment(
+                    nonfarm_change=emp.get("nonfarm_change"),
+                    unemployment_rate=emp.get("unemployment_rate"),
+                    as_of=emp.get("as_of", ""),
+                    prev_nonfarm_change=emp.get("prev_nonfarm_change"),
+                    source=emp.get("source", "fred"), stale=True)
+            ry = doc.get("real_yield")
+            if ry:
+                self._cached_real_yield = RealYieldSnapshot(
+                    value=ry.get("value"), prev_value=ry.get("prev_value"),
+                    change_1d=ry.get("change_1d"), trend_5d=ry.get("trend_5d"),
+                    gold_dir=int(ry.get("gold_dir") or 0), as_of=ry.get("as_of", ""),
+                    stale=True, generated_at=time.time())
             self._last_fetch_ok = float(doc.get("fetched_at") or 0.0)
         except (OSError, ValueError, KeyError):
             log.exception("macro: cache bootstrap failed")
 
-    def _store_cache(self, rates: dict[str, MacroRate]) -> None:
-        """Persist the latest rates so a restart shows data immediately."""
+    def _persist_cache(self) -> None:
+        """Persist the last-good rates / employment / real-yield to disk so a
+        restart or an upstream (FRED) outage shows the most recent values
+        (flagged stale) rather than blanks."""
         try:
             self._cache_file.parent.mkdir(parents=True, exist_ok=True)
+            emp = self._cached_employment
+            ry = self._cached_real_yield
             payload = {
                 "fetched_at": self._last_fetch_ok,
                 "rates": {
                     ccy: {"currency": r.currency, "rate": r.rate,
                           "as_of": r.as_of, "prev_rate": r.prev_rate,
                           "source": r.source}
-                    for ccy, r in rates.items()
+                    for ccy, r in self._cached_rates.items()
                 },
+                "employment": (None if emp is None else {
+                    "nonfarm_change": emp.nonfarm_change,
+                    "unemployment_rate": emp.unemployment_rate,
+                    "as_of": emp.as_of,
+                    "prev_nonfarm_change": emp.prev_nonfarm_change,
+                    "source": emp.source,
+                }),
+                "real_yield": (None if ry is None else {
+                    "value": ry.value, "prev_value": ry.prev_value,
+                    "change_1d": ry.change_1d, "trend_5d": ry.trend_5d,
+                    "gold_dir": ry.gold_dir, "as_of": ry.as_of,
+                }),
             }
             self._cache_file.write_text(json.dumps(payload), encoding="utf-8")
         except OSError:
