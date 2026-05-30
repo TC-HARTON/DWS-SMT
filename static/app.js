@@ -359,6 +359,24 @@ function paintActiveSetups(snap) {
     }).join('');
 }
 
+// Per-currency flags as inline SVG — Windows has no emoji-flag glyphs (it shows
+// the 2-letter code), so we draw simplified-but-recognisable flags that render
+// identically everywhere and offline. XAU = a gold coin (no nation). A little
+// personality on each pair: [base flag] SYMBOL [quote flag].
+const CCY_FLAGS = {
+    USD: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#b22234"/><g fill="#fff"><rect y="1.23" width="24" height="1.23"/><rect y="3.69" width="24" height="1.23"/><rect y="6.15" width="24" height="1.23"/><rect y="8.62" width="24" height="1.23"/><rect y="11.08" width="24" height="1.23"/><rect y="13.54" width="24" height="1.23"/></g><rect width="10" height="8.62" fill="#3c3b6e"/><g fill="#fff"><circle cx="2" cy="1.7" r=".55"/><circle cx="5" cy="1.7" r=".55"/><circle cx="8" cy="1.7" r=".55"/><circle cx="3.5" cy="3.4" r=".55"/><circle cx="6.5" cy="3.4" r=".55"/><circle cx="2" cy="5.1" r=".55"/><circle cx="5" cy="5.1" r=".55"/><circle cx="8" cy="5.1" r=".55"/><circle cx="3.5" cy="6.8" r=".55"/><circle cx="6.5" cy="6.8" r=".55"/></g></svg>',
+    EUR: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#039"/><g fill="#fc0"><circle cx="12" cy="3" r=".82"/><circle cx="14.5" cy="3.67" r=".82"/><circle cx="16.33" cy="5.5" r=".82"/><circle cx="17" cy="8" r=".82"/><circle cx="16.33" cy="10.5" r=".82"/><circle cx="14.5" cy="12.33" r=".82"/><circle cx="12" cy="13" r=".82"/><circle cx="9.5" cy="12.33" r=".82"/><circle cx="7.67" cy="10.5" r=".82"/><circle cx="7" cy="8" r=".82"/><circle cx="7.67" cy="5.5" r=".82"/><circle cx="9.5" cy="3.67" r=".82"/></g></svg>',
+    GBP: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#012169"/><path d="M0,0 L24,16 M24,0 L0,16" stroke="#fff" stroke-width="3.2"/><path d="M0,0 L24,16 M24,0 L0,16" stroke="#c8102e" stroke-width="1.3"/><rect x="9.6" width="4.8" height="16" fill="#fff"/><rect y="5.6" width="24" height="4.8" fill="#fff"/><rect x="10.8" width="2.4" height="16" fill="#c8102e"/><rect y="6.8" width="24" height="2.4" fill="#c8102e"/></svg>',
+    AUD: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#012169"/><g><rect width="11" height="8" fill="#012169"/><path d="M0,0 L11,8 M11,0 L0,8" stroke="#fff" stroke-width="1.6"/><path d="M0,0 L11,8 M11,0 L0,8" stroke="#c8102e" stroke-width=".7"/><rect x="4.4" width="2.2" height="8" fill="#fff"/><rect y="2.9" width="11" height="2.2" fill="#fff"/><rect x="4.95" width="1.1" height="8" fill="#c8102e"/><rect y="3.45" width="11" height="1.1" fill="#c8102e"/></g><g fill="#fff"><circle cx="5.5" cy="12.7" r="1.1"/><circle cx="18.5" cy="3.8" r=".62"/><circle cx="20.5" cy="6.5" r=".62"/><circle cx="17.5" cy="8.8" r=".62"/><circle cx="19.6" cy="11" r=".62"/><circle cx="18.8" cy="7.3" r=".4"/></g></svg>',
+    JPY: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#fff"/><circle cx="12" cy="8" r="4.4" fill="#bc002d"/></svg>',
+    XAU: '<svg viewBox="0 0 24 16"><rect width="24" height="16" rx="2" fill="#2b2b2b"/><circle cx="12" cy="8" r="6.2" fill="#f3c344"/><circle cx="12" cy="8" r="6.2" fill="none" stroke="#b8860b" stroke-width="1"/><circle cx="9.8" cy="5.9" r="1.5" fill="#fce08a"/></svg>',
+};
+/** Inline flag for a 3-letter currency code (empty string if unknown). */
+function flagSvg(ccy) {
+    const s = CCY_FLAGS[ccy];
+    return s ? `<span class="ccy-flag" title="${ccy}">${s}</span>` : '';
+}
+
 /** Collapsible summary bar (#5): one cell per symbol with the order-relevant
  *  read — BIAS composite, 4-TF EMA alignment, and the 様子見 regime flag — so a
  *  glance at the top replaces scanning 8 dense panels. It complements the
@@ -374,10 +392,13 @@ function paintSummaryBar(snap) {
     }
     if (!changed('summary', analysis.generated_at)) return;
     root.innerHTML = SYMBOL_ORDER.map(sym => {
+        // [base flag] SYMBOL [quote flag] — all 6-char (base=0..3, quote=3..6).
+        const symHtml = `${flagSvg(sym.slice(0, 3))}`
+            + `<span class="sb-sym-txt">${sym}</span>${flagSvg(sym.slice(3))}`;
         const sa = analysis.by_symbol[sym];
         if (!sa || !sa.by_tf) {
             return `<div class="sb-cell na" data-sb-sym="${sym}">
-                <div class="sb-sym">${sym}</div>
+                <div class="sb-sym">${symHtml}</div>
                 <div class="sb-bias na">--</div>
                 <div class="sb-tfs sb-nodata">データ無</div>
             </div>`;
@@ -405,7 +426,7 @@ function paintSummaryBar(snap) {
         // BIAS number coloured by SIGN: + green, − red, 0 grey.
         const signCls = c.score > 0 ? 'pos' : c.score < 0 ? 'neg' : 'zero';
         return `<div class="sb-cell ${cellCls}" data-sb-sym="${sym}" title="${sym} · BIAS ${scoreStr} (${c.label})">
-            <div class="sb-sym">${sym}</div>
+            <div class="sb-sym">${symHtml}</div>
             <div class="sb-bias ${signCls}"><span class="sb-arrow">${c.arrow}</span>${scoreStr}</div>
             <div class="sb-tfs">${tfHtml}</div>
             ${flag}

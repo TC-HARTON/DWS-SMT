@@ -319,9 +319,20 @@ body {
     background: rgba(255,183,77,0.10);
 }
 .sb-sym {
+    display: flex; align-items: center; justify-content: center; gap:4px;
+    min-width: 0;
+}
+.sb-sym-txt {
     font-family: var(--mono); font-weight: var(--weight-bold);
     font-size: var(--text-sm); letter-spacing: 0.06em;
     color: var(--fg-2);
+}
+/* Inline currency flags flanking the pair name. */
+.ccy-flag { display: inline-flex; flex: none; line-height: 0; }
+.ccy-flag svg {
+    width: 21px; height: auto; display: block;
+    border-radius: 2px;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.4);
 }
 /* BIAS score is the hero: large, vivid direction colour, centred. The arrow
    doubles (▲▲ / ▼▼) on STRONG so strength reads without a text label. */
