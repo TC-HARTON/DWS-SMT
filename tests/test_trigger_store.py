@@ -86,6 +86,24 @@ def test_load_by_year_includes_hourly_breakdown(store_dir):
     assert sum(b["n"] for b in hourly) == 2           # no leakage to other hours
 
 
+def test_load_by_year_includes_monthly_breakdown(store_dir):
+    """Each year ships a per-month aggregate (JST) so the dashboard can render the
+    monthly-returns calendar over the COMPLETE record — not a truncated trade
+    list. Only months with trades appear; stats mirror the yearly aggregate."""
+    server = "BrokerX"
+    jan = int(pd.Timestamp("2026-01-15 10:00", tz="Asia/Tokyo").timestamp() * 1000)
+    mar1 = int(pd.Timestamp("2026-03-05 10:00", tz="Asia/Tokyo").timestamp() * 1000)
+    mar2 = int(pd.Timestamp("2026-03-20 10:00", tz="Asia/Tokyo").timestamp() * 1000)
+    ts.append_closed(server, "XAUUSD", "M15",
+                     [_rt(jan, 1, 10.0), _rt(mar1, -1, -4.0), _rt(mar2, 1, 6.0)])
+
+    months = ts.load_by_year(server, "XAUUSD", "M15")["by_year"]["2026"]["months"]
+    assert set(months) == {"1", "3"}                 # only months with trades
+    assert (months["1"]["n"], months["1"]["cum_pts"]) == (1, pytest.approx(10.0))
+    assert (months["3"]["n"], months["3"]["wins"]) == (2, 1)
+    assert months["3"]["cum_pts"] == pytest.approx(2.0)   # -4 + 6
+
+
 def test_jst_year_bucketing(store_dir):
     """A 2025-12-31 23:00 UTC trigger is 2026-01-01 08:00 JST → bucket 2026."""
     server = "BrokerX"
@@ -105,6 +123,70 @@ def test_broker_isolation_and_slug(store_dir):
 
 def test_load_empty_when_no_store(store_dir):
     assert ts.load_by_year("Nobody", "XAUUSD", "M15") == {"by_year": {}}
+
+
+def _rec(t: int, d: int, p: float) -> dict:
+    return {"t": t, "d": d, "p": p}
+
+
+def test_scan_corruption_flags_restamp_triple():
+    """The [0,+4h,+5h] offset-bug fingerprint (one trade under three offsets)
+    must be detected."""
+    base = 1_700_000_000_000
+    recs = [_rec(base, 1, 6784.0),
+            _rec(base + 4 * 3_600_000, 1, 6784.0),
+            _rec(base + 5 * 3_600_000, 1, 6784.0)]
+    flags = ts.scan_corruption(recs)
+    assert flags["tight_triples"] >= 1
+    assert flags["exact_t_dups"] == 0
+
+
+def test_scan_corruption_flags_exact_duplicate():
+    recs = [_rec(1000, 1, 5.0), _rec(1000, 1, 5.0)]
+    assert ts.scan_corruption(recs)["exact_t_dups"] == 1
+
+
+def test_scan_corruption_ignores_coincidental_distinct_trades():
+    """Two genuinely distinct trades sharing a rounded net_pts — even a whole
+    number of hours apart — are NOT corruption (deleting them would falsify the
+    record)."""
+    base = 1_700_000_000_000
+    recs = [
+        _rec(base, 1, -35.0),
+        _rec(base + 5 * 3_600_000, 1, -35.0),     # coincidental PAIR (<=6h) — only 2
+        _rec(base + 40 * 3_600_000, -1, -35.0),   # far away, different direction
+    ]
+    flags = ts.scan_corruption(recs)
+    assert flags == {"exact_t_dups": 0, "tight_triples": 0}
+
+
+def test_real_store_has_no_restamp_corruption():
+    """Invariant over the ACTUAL on-disk store: no file may carry the re-stamp
+    fingerprint. This is the continuous, human-independent proof that the offset
+    fix holds — if the store ever rots again, this test fails. Skips cleanly when
+    no store exists (e.g. CI without data)."""
+    root = ts.config.LIVE_TRIGGER_DIR
+    if not root.exists():
+        pytest.skip("no live trigger store on disk")
+    files = list(root.rglob("*.jsonl"))
+    if not files:
+        pytest.skip("live trigger store is empty")
+    dirty = []
+    for path in files:
+        recs = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+                recs.append({"t": int(r["t"]), "d": int(r["d"]), "p": float(r["p"])})
+            except (ValueError, KeyError, TypeError):
+                continue
+        flags = ts.scan_corruption(recs)
+        if flags["exact_t_dups"] or flags["tight_triples"]:
+            dirty.append((str(path.relative_to(root)), flags))
+    assert not dirty, f"re-stamp corruption present: {dirty}"
 
 
 def test_load_by_year_cache_invalidates_on_append(store_dir):

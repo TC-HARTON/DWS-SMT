@@ -101,11 +101,15 @@ body {
        correlation row stays under the main column, lining up exactly with the
        expanded panel's two halves (①②). */
     grid-template-columns: 1fr var(--side-w);
-    grid-template-rows: 56px 1fr 280px;
+    /* Row 2 (auto) is the collapsible summary bar: full width, content-height
+       (≈ a single cell row when open, just its header when collapsed). It eats
+       into main's 1fr only by what it actually occupies. */
+    grid-template-rows: 56px auto 1fr 280px;
     grid-template-areas:
-        "header header"
-        "main   side"
-        "bottom side";
+        "header  header"
+        "summary summary"
+        "main    side"
+        "bottom  side";
     gap:var(--gap);
     padding:var(--gap);
     /* Pre-JS fallback so the page is not broken if the script is slow;
@@ -150,6 +154,16 @@ body {
     border-radius: var(--radius-sm);
     background: rgba(255, 183, 77, 0.12);
 }
+/* High-conviction alert toggle (bell). Dim when off, cyan-lit when armed,
+   amber pulse while waiting for the browser notification permission. */
+.hdr-active .active-bell {
+    flex: 0 0 auto; cursor: pointer; user-select: none;
+    font-size: var(--text-md); line-height: 1; padding:2px 4px;
+    border-radius: var(--radius-sm); opacity: 0.55; transition: opacity 120ms, background-color 120ms;
+}
+.hdr-active .active-bell:hover { opacity: 1; background: rgba(255,255,255,0.06); }
+.hdr-active .active-bell.on { opacity: 1; background: rgba(95,179,255,0.18); }
+.hdr-active .active-bell.pending { opacity: 1; background: rgba(255,183,77,0.18); }
 .hdr-active .active-chips {
     display: flex; gap:10px; flex-wrap: nowrap; overflow: hidden;
     flex: 1 1 auto;
@@ -202,6 +216,18 @@ body {
 }
 .active-chip.strong-sell  .ac-side,
 .active-chip.strong-sell  .ac-sym { color: var(--sell); }
+/* #3 regime-degraded: high-conviction but the live rolling PF is ≥30% below the
+   16Y baseline → demoted to 様子見. Amber, muted, no directional colour, so it
+   reads as "stand aside", not an entry. Alert is suppressed (see fireSetupAlerts). */
+.active-chip.degraded {
+    border-color: var(--warning);
+    border-style: dashed;
+    background: rgba(255, 183, 77, 0.08);
+    opacity: 0.82;
+}
+.active-chip.degraded .ac-sym  { color: var(--fg-2); }
+.active-chip.degraded .ac-side { color: var(--warning); }
+.active-chip.degraded .ac-score { color: var(--fg-3); }
 .brand-mark {
     font-size: var(--text-xl);
     font-weight: var(--weight-bold);
@@ -229,10 +255,77 @@ body {
    ============================================================ */
 
 /* Body-level grid placement (areas defined on <body>). */
-.hdr    { grid-area: header; }
-.grid   { grid-area: main; }
-.side   { grid-area: side; }
-.bottom { grid-area: bottom; }
+.hdr         { grid-area: header; }
+.summary-bar { grid-area: summary; }
+.grid        { grid-area: main; }
+.side        { grid-area: side; }
+.bottom      { grid-area: bottom; }
+
+/* ============================================================
+   Summary bar (#5) — collapsible, full-width decision strip above the grid.
+   One cell per symbol: BIAS composite + 4-TF EMA alignment + 様子見 flag, so
+   the order-relevant facts are legible at the top without scanning 8 panels.
+   Complements the header's ACTIVE SETUPS (which is high-conviction-only).
+   ============================================================ */
+.summary-bar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-width: 0; overflow: hidden;
+}
+.sb-head {
+    display: flex; align-items: baseline; gap:var(--space-4);
+    padding:4px var(--space-5);
+    cursor: pointer; user-select: none;
+    list-style: none;                 /* Firefox default marker */
+}
+.sb-head::-webkit-details-marker { display: none; }   /* Chrome/Safari marker */
+.sb-head::before {
+    content: '▾'; color: var(--fg-3); font-size: var(--text-xs);
+}
+.summary-bar:not([open]) .sb-head::before { content: '▸'; }
+.sb-title {
+    font-family: var(--mono); font-weight: var(--weight-bold);
+    letter-spacing: var(--track-loose); text-transform: uppercase;
+    font-size: var(--text-sm); color: var(--fg);
+}
+.sb-sub { color: var(--fg-3); font-size: var(--text-2xs); }
+.sb-cells {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap:var(--space-2);
+    padding:0 var(--space-3) var(--space-3);
+}
+.sb-cell {
+    display: flex; flex-direction: column; gap:2px;
+    padding:4px 7px; min-width: 0;
+    background: var(--panel-2);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--fg-3);
+    cursor: pointer;
+}
+.sb-cell:hover { background: var(--panel); }
+.sb-cell.buy, .sb-cell.strong-buy   { border-left-color: var(--buy); }
+.sb-cell.sell, .sb-cell.strong-sell { border-left-color: var(--sell); }
+.sb-cell.degraded { border-left-color: var(--warning); border-left-style: dashed; }
+.sb-row1 {
+    display: flex; align-items: baseline; justify-content: space-between; gap:4px;
+}
+.sb-sym {
+    font-family: var(--mono); font-weight: var(--weight-bold);
+    font-size: var(--text-xs); color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis;
+}
+.sb-flag { font-size: var(--text-3xs); color: var(--warning); font-weight: 700; white-space: nowrap; }
+.sb-bias { font-family: var(--mono); font-weight: 800; font-size: var(--text-md); }
+.sb-bias.buy, .sb-bias.strong-buy   { color: var(--buy); }
+.sb-bias.sell, .sb-bias.strong-sell { color: var(--sell); }
+.sb-bias.neutral, .sb-bias.na       { color: var(--fg-2); }
+.sb-tfs { display: flex; gap:5px; font-family: var(--mono); font-size: var(--text-3xs); }
+.sb-tf  { color: var(--fg-3); white-space: nowrap; }
+.sb-tf .up { color: var(--buy); }
+.sb-tf .dn { color: var(--sell); }
+.sb-empty { padding:4px var(--space-5) 8px; color: var(--fg-3); font-size: var(--text-2xs); }
 
 .grid {
     display: grid;
@@ -390,20 +483,23 @@ body {
    Composite bias badge — the headline answer per symbol.
    ============================================================ */
 
+/* BIAS now lives INSIDE .signals as that block's header (#5 consolidation:
+   the headline direction and the per-TF matrix are one card, not two stacked
+   blocks). So it drops its own panel chrome (bg/radius) and instead separates
+   from the matrix below with a divider. The 2nd column is minmax(0,auto) and
+   comp-text ellipsises, so even the large expanded fonts can never overflow. */
 .composite {
     display: grid;
-    grid-template-columns: auto auto 1fr auto;
+    grid-template-columns: auto minmax(0,auto) 1fr auto;
     align-items: center;
     column-gap:var(--space-5);
     font-family: var(--mono);
     font-size: var(--text-sm);
-    padding:5px 10px;
-    background: var(--panel-2);
-    border-radius: var(--radius);
-    /* Normalised to 3px left accent so the composite sits flush with the
-       border-bar discipline used everywhere else (was 4px, caused 1px
-       wobble vs .card and .pos-row siblings). */
+    padding:2px 4px 6px;
+    /* 3px left accent kept — paintSignals colours it by direction. */
     border-left: 3px solid var(--fg-3);
+    border-bottom: 1px solid var(--border);
+    margin-bottom:3px;
 }
 .composite .comp-label {
     font-size: var(--text-3xs); letter-spacing: var(--track-loose);
@@ -412,9 +508,11 @@ body {
 }
 .composite .comp-main {
     display: flex; align-items: center; gap:var(--space-4);
+    min-width: 0;
 }
 .composite .comp-arrow { font-weight: var(--weight-heavy); font-size: var(--text-lg); line-height: 1; }
-.composite .comp-text  { font-weight: var(--weight-bold); letter-spacing: var(--track-tight); }
+.composite .comp-text  { font-weight: var(--weight-bold); letter-spacing: var(--track-tight);
+                         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .composite .comp-score { color: var(--fg); font-weight: var(--weight-bold);
                          font-size: var(--text-sm); justify-self: end; }
 
@@ -443,15 +541,6 @@ body {
 .comp-gauge-fill.buy  { background: var(--buy); }
 .comp-gauge-fill.sell { background: var(--sell); }
 .comp-gauge-fill.strong { box-shadow: inset 0 0 4px rgba(255,255,255,0.4); }
-/* Gauge axis micro-labels — promoted from 8px (sub-scale) to --text-3xs (9px)
-   so the scale stays consistent. Same physical size after browser hinting,
-   but now part of the canonical type ladder. */
-.comp-gauge-axis {
-    display: flex; justify-content: space-between;
-    font-size: var(--text-3xs); color: var(--fg-3);
-    letter-spacing: var(--track-tight); font-weight: var(--weight-medium);
-    padding:0 1px;
-}
 
 /* ============================================================
    ANALYTICS — Trade Plan + Conviction Breakdown + Risk Warnings.
@@ -477,17 +566,11 @@ body {
     flex: 0 0 auto;
 }
 /* In the expanded panel the analytics column is as tall as the right-hand
-   OOS / histogram column. Let the trigger-history block absorb that slack and
-   reveal MORE history rows (value) while the heatmap stays content-height
-   below it — instead of leaving a dead void under the short blocks. */
-.panel.expanded .anlx-triggers { flex: 1 1 auto; min-height: 0; }
-.panel.expanded .anlx-triggers .rt-table { flex: 1 1 auto; min-height: 0; }
-.panel.expanded .anlx-triggers .rt-scroll {
-    /* Flex to fill the column and scroll internally. (A fixed min-height here
-       fought the flex allocation and pushed the source-note up over the rows.)
-       With the trade controls now in the header, this column has room again. */
-    flex: 1 1 auto; min-height: 0; max-height: none;
-}
+   OOS / histogram column. The trigger-CALENDAR block is content-height (a
+   compact date-picker), so it no longer flex-grows; the month trade list
+   scrolls internally (.tcal-scroll) and the heatmap stays below it. */
+.panel.expanded .anlx-triggers { flex: 0 0 auto; min-height: 0; }
+.panel.expanded .anlx-triggers .tcal-scroll { max-height: 240px; }
 .anlx-title {
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
     color: var(--fg); text-transform: uppercase;
@@ -500,19 +583,6 @@ body {
     color: var(--fg-3); text-transform: none;
     margin-left:var(--space-4);
 }
-/* Connected broker the live trigger record belongs to + a "recording" badge so
-   it's obvious which broker's history this is and that it's being persisted. */
-.anlx-title .rt-broker {
-    font-family: var(--mono); font-size: var(--text-2xs); font-weight: var(--weight-bold);
-    color: var(--accent); text-transform: none; letter-spacing: 0;
-    margin-left:var(--space-4);
-}
-.anlx-title .rt-rec {
-    font-size: var(--text-3xs); font-weight: var(--weight-bold); letter-spacing: 0.04em;
-    color: var(--buy); text-transform: none;
-    margin-left:var(--space-3);
-}
-
 /* ============================================================
    DWS-SMT panel — 3-TF trend histogram (port of DWS_SMT.mq5).
    Lives in the expanded panel's right column, spanning the
@@ -599,7 +669,10 @@ body {
 .dws-num.neg { color: var(--sell); }
 .dws-num.warn { color: var(--warning); }
 .dws-canvas-wrap {
-    flex: 1 1 auto; min-height: 200px; position: relative;
+    /* #5: floor lowered 200→168 so the histogram compresses vertically when the
+       expanded panel is short, rather than forcing the panel taller. It still
+       flex-fills the available height, so a tall panel is unaffected. */
+    flex: 1 1 auto; min-height: 168px; position: relative;
 }
 .dws-canvas-wrap canvas { display: block; }
 .dws-legend {
@@ -741,23 +814,22 @@ body {
     display: grid;
     grid-template-areas:
         "head       head"
-        "composite  composite"
         "signals    dws"
         "analytics  dws";
     grid-template-columns: 1fr 1fr;
-    /* head / composite size to content; the signals row is min-content (just
-       the TF table) so no dead gap opens beneath it, and the analytics row
-       takes the remaining height (1fr) to sit flush under the table and fill
-       down beside the DWS panel. The trade controls live INSIDE the head row
-       (right of the price), so they add no row and don't squeeze the history. */
-    grid-template-rows: auto auto min-content 1fr;
+    /* #5 consolidation: BIAS no longer has its own full-width band — it is the
+       header INSIDE the signals block now, so the grid drops a row. The signals
+       row is min-content (BIAS header + TF table) so no dead gap opens beneath
+       it; the analytics row takes the remaining height (1fr) to sit flush under
+       the table and fill down beside the DWS panel. The trade controls live
+       INSIDE the head row (right of the price), so they add no row. */
+    grid-template-rows: auto min-content 1fr;
     column-gap:var(--space-6);
     row-gap:var(--space-5);
     overflow-y: auto;
 }
 .panel.expanded:hover { transform: none; }
 .panel.expanded .panel-head { grid-area: head; position: relative; }
-.panel.expanded .composite  { grid-area: composite; }
 .panel.expanded .signals    { grid-area: signals;   align-self: start; }
 .panel.expanded .dws        { grid-area: dws;       display: flex; }
 /* Analytics stretches to fill the row height (matches DWS panel) so the
@@ -769,11 +841,14 @@ body {
 
 .panel.expanded .panel-sym  { font-size: 36px; }
 .panel.expanded .quote      { font-size: 26px; gap:14px; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
-.panel.expanded .composite  { font-size: 30px; padding:18px var(--space-7); gap:14px; }
-.panel.expanded .composite .comp-label { font-size: var(--text-md); }
-.panel.expanded .composite .comp-arrow { font-size: 42px; }
-.panel.expanded .composite .comp-text  { font-size: 38px; letter-spacing: 0.08em; }
-.panel.expanded .composite .comp-score { font-size: 24px; }
+/* BIAS as the trend-table header in the (half-width) left column — sized to
+   read as a strong headline without the old full-width-band scale that would
+   overflow a half-width column. comp-text ellipsises as a final safety net. */
+.panel.expanded .composite  { font-size: var(--text-lg); padding:var(--space-2) var(--space-3) var(--space-4); column-gap:var(--space-5); }
+.panel.expanded .composite .comp-label { font-size: var(--text-sm); }
+.panel.expanded .composite .comp-arrow { font-size: 26px; }
+.panel.expanded .composite .comp-text  { font-size: 22px; letter-spacing: 0.04em; }
+.panel.expanded .composite .comp-score { font-size: var(--text-lg); }
 .panel.expanded .sig-row {
     font-size: var(--text-lg); padding:var(--space-3) var(--space-4);
     /* The signals box sits in the left column only — same width as the
@@ -1058,19 +1133,23 @@ body {
    each scrolling internally so neither is clipped when the sidebar is short. */
 .calendar-card { flex: 1 1 0; min-height: 0; }
 .macro-card    { flex: 1 1 0; min-height: 0; }
-/* Calendar + Macro lists share one identical scroll treatment so the two
-   sidebar panels match (and match the trigger-history .rt-scroll). */
+.journal-card  { flex: 1 1 0; min-height: 0; }
+/* Calendar + Macro + Journal lists share one identical scroll treatment so the
+   sidebar panels match (and match the trigger-calendar list scroll). */
 .cal-list,
-.macro-list {
+.macro-list,
+.journal-list {
     display: flex; flex-direction: column; gap:var(--space-1);
     overflow-y: auto; min-height: 0; flex: 1;
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.22) transparent;
 }
 .cal-list::-webkit-scrollbar,
-.macro-list::-webkit-scrollbar { width: 7px; }
+.macro-list::-webkit-scrollbar,
+.journal-list::-webkit-scrollbar { width: 7px; }
 .cal-list::-webkit-scrollbar-thumb,
-.macro-list::-webkit-scrollbar-thumb {
+.macro-list::-webkit-scrollbar-thumb,
+.journal-list::-webkit-scrollbar-thumb {
     background: rgba(255,255,255,0.20); border-radius: 4px;
 }
 .cal-row {
@@ -1243,6 +1322,15 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
 }
+/* Window size beyond the bars currently loaded — not selectable until enough
+   history accumulates. Greyed + not-allowed so the unavailable option reads as
+   "temporarily out of range", not broken. */
+.pill-disabled {
+    opacity: 0.4; cursor: not-allowed;
+    background: var(--panel-2); color: var(--fg-3);
+    border-color: var(--border); box-shadow: none;
+}
+.pill-disabled:hover { background: var(--panel-2); border-color: var(--border); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 7px; height: 7px; }
@@ -1271,6 +1359,26 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-validation.trusted      { border-left-color: #2da27c; }
 .dws-validation.caution      { border-left-color: #c08a2a; }
 .dws-validation.insufficient { border-left-color: #6a7180; }
+/* Regime banner — shown ABOVE the panel when the live rolling PF has drifted far
+   from the 16Y baseline. Loud amber when worse (don't trust the long-run during a
+   drawdown); quiet green when materially better. */
+.dws-regime {
+    font-size: var(--text-sm); line-height: 1.35;
+    padding:6px var(--space-4); border-radius: var(--radius-sm);
+    margin-bottom:9px;
+}
+.dws-regime b { font-weight: 800; }
+.dws-regime em { font-style: normal; color: var(--fg-2); }
+.dws-regime .neg { color: var(--sell); font-weight: 800; }
+.dws-regime .pos { color: var(--buy); font-weight: 800; }
+.dws-regime.warn {
+    color: #ffe2b3; background: rgba(255,91,107,0.14);
+    border:1px solid rgba(255,91,107,0.45);
+}
+.dws-regime.good {
+    color: var(--fg-2); background: rgba(0,208,156,0.10);
+    border:1px solid rgba(0,208,156,0.30);
+}
 .dws-vhead {
     display: flex; align-items: center; gap:var(--space-4);
     margin-bottom:9px;
@@ -1605,80 +1713,53 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 
 
 /* ============================================================
+   Trade journal (discretionary) — sidebar panel. One row per placed order
+   with a compact 3TF EMA-side context strip, so a trade reads against the
+   alignment it was taken on. Class prefix jr-* is unique (no collision).
+   ============================================================ */
+.jr-row {
+    padding:var(--space-3) var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--fg);
+}
+.jr-row + .jr-row { border-top: 1px solid var(--border); }
+.jr-head {
+    display: flex; align-items: baseline; gap:var(--space-2);
+    flex-wrap: wrap;
+}
+.jr-side {
+    font-weight: var(--weight-bold); font-size: var(--text-2xs);
+    letter-spacing: var(--track-tight);
+    padding:1px 5px; border-radius: var(--radius-sm);
+}
+.jr-side.buy  { color: var(--buy);  background: rgba(64, 200, 120, 0.14); }
+.jr-side.sell { color: var(--sell); background: rgba(240, 90, 90, 0.14); }
+.jr-sym  { font-weight: var(--weight-bold); }
+.jr-lots { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.jr-px   { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.jr-time { margin-left: auto; font-size: var(--text-2xs); white-space: nowrap; }
+/* 3TF context chips — EMA side drives ↑/↓ + colour, ADX rides along small. */
+.jr-ctx {
+    display: flex; gap:var(--space-1); flex-wrap: wrap;
+    margin-top:var(--space-1);
+}
+.jr-tf {
+    font-family: var(--mono); font-size: var(--text-2xs);
+    padding:1px 5px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+}
+.jr-tf.up { color: var(--buy);  border-color: rgba(64, 200, 120, 0.40); }
+.jr-tf.dn { color: var(--sell); border-color: rgba(240, 90, 90, 0.40); }
+.jr-tf i  { font-style: normal; color: var(--fg-3); margin-left: 2px; }
+.jr-sub { margin-top:2px; font-size: var(--text-2xs); font-family: var(--mono); }
+
+
+/* ============================================================
    Analytics: (A) recent trigger history + (B) hourly win-rate heatmap.
    Both empirical — A is the live DWS-SMT feedback loop, B is the 16Y OOS
    per-hour win rate. Live in the expanded panel's left column.
    ============================================================ */
-
-/* (A) Recent trigger table */
-.rt-table {
-    display: flex;
-    flex-direction: column;
-    gap:1px;
-    font-family: var(--mono);
-    font-size: var(--text-sm);
-}
-/* Trade rows live in a fixed-height scroll box so a long period (30 rows)
-   never pushes the hourly heatmap off-screen — the panel height stays
-   bounded and the list scrolls internally. ~7 rows visible at a glance. */
-.rt-scroll {
-    max-height: 196px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap:1px;
-    /* thin scrollbar so it doesn't dominate the narrow column */
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.22) transparent;
-}
-.rt-scroll::-webkit-scrollbar { width: 7px; }
-.rt-scroll::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.20);
-    border-radius: 4px;
-}
-.rt-row {
-    display: grid;
-    grid-template-columns: minmax(0,1.6fr) 56px 40px minmax(0,1fr);
-    gap:var(--space-4);
-    align-items: center;
-    padding:3px var(--space-3);
-    border-left: 3px solid transparent;
-    border-radius: 3px;
-}
-.rt-row.rt-head {
-    color: var(--fg-2);
-    font-size: var(--text-2xs);
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    border-bottom: 1px solid var(--border);
-    padding-bottom:var(--space-2);
-}
-.rt-row.win  { border-left-color: rgba(56,161,105,0.55); background: rgba(56,161,105,0.05); }
-.rt-row.loss { border-left-color: rgba(229,62,62,0.55);  background: rgba(229,62,62,0.05); }
-.rt-time { color: var(--fg-2); white-space: nowrap; }
-.rt-dir  { font-weight: 800; letter-spacing: 0.04em; }
-.rt-dir.buy  { color: var(--buy); }
-.rt-dir.sell { color: var(--sell); }
-.rt-wl   { text-align: center; font-weight: 800; }
-.rt-wl.win  { color: var(--buy); }
-.rt-wl.loss { color: var(--sell); }
-.rt-pts  { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-.rt-pts.pos { color: var(--buy); }
-.rt-pts.neg { color: var(--sell); }
-.rt-head .rt-wl, .rt-head .rt-pts, .rt-head .rt-dir { color: var(--fg-2); }
-.rt-summary {
-    margin-top:var(--space-4);
-    padding-top:var(--space-3);
-    border-top: 1px dashed rgba(255,255,255,0.10);
-    font-size: var(--text-sm);
-    color: var(--fg-3);          /* labels muted… */
-    font-family: var(--mono);
-}
-.rt-summary b { font-weight: 800; color: var(--fg); }   /* …figures bright */
-.rt-summary b.pos { color: var(--buy); }
-.rt-summary b.neg { color: var(--sell); }
-.rt-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
 
 /* (B) Session-grouped time-of-day win-rate heatmap: アジア / ロンドン / NY
    rows, each a label + that session's JST-hour boxes (DST-aware boundaries). */
@@ -1727,88 +1808,97 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-weight: 800;
     color: var(--fg);
 }
-
-/* Rolling-window period selector (30日/90日/1年/全). */
-.rt-periods {
-    display: flex;
-    gap:3px;
-    margin:var(--space-1) 0 var(--space-4) 0;
+/* Low-sample cell (N < HM_MIN_N): dashed border + muted WR so it reads as a
+   reference value, not a coloured edge. Background is already neutral grey. */
+.hm-cell.hm-lown {
+    border-style: dashed;
+    border-color: rgba(255,255,255,0.14);
 }
-.rt-period-pill {
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    color: var(--fg-dim);
-    background: transparent;
+.hm-cell.hm-lown .hm-wr { color: var(--fg-3); font-weight: 700; }
+
+
+/* ============================================================
+   Trigger-history CALENDAR — a date-picker the user selects a
+   period from: a ◀ year ▶ navigator (the year opens a year
+   grid), a 12-month grid, and the selected period's aggregate.
+   tcal-/cal- classes here are scoped to .anlx-triggers and do
+   NOT collide with the economic .cal-row / .cal-list panel.
+   ============================================================ */
+.cal-broker {
+    font-family: var(--mono); font-size: var(--text-2xs); font-weight: 700;
+    color: var(--accent); text-transform: none; letter-spacing: 0; margin-left:var(--space-4);
+}
+.cal-rec {
+    font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.04em;
+    color: var(--buy); text-transform: none; margin-left:var(--space-3);
+}
+.cal-nav { display:flex; align-items:center; gap:var(--space-3); margin:var(--space-1) 0 var(--space-3) 0; }
+.cal-arrow {
+    font-size: var(--text-sm); color: var(--fg-2); cursor:pointer; user-select:none;
+    padding:0 var(--space-3); border-radius: var(--radius-sm);
     border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 3px;
-    padding:1px var(--space-4);
-    cursor: pointer;
-    transition: background-color 90ms, border-color 90ms, color 90ms;
 }
-.rt-period-pill:hover {
-    color: var(--fg);
-    border-color: rgba(255,255,255,0.38);
-    background: rgba(255,255,255,0.04);
+.cal-arrow:hover { color: var(--fg); border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.05); }
+.cal-arrow.off { opacity:0.25; pointer-events:none; }
+.cal-ytitle {
+    font-family: var(--mono); font-weight: 800; color: var(--fg); cursor:pointer;
+    letter-spacing:0.02em; min-width: 88px; text-align:center;
 }
-.rt-period-pill.on {
-    color: var(--fg);
-    border-color: rgba(95,179,255,0.85);
-    background: rgba(95,179,255,0.18);
-    box-shadow: 0 0 0 1px rgba(95,179,255,0.35);
+.cal-ytitle i { font-style:normal; font-size: var(--text-xs); color: var(--fg-dim); }
+.cal-ytitle.is-live { color: #5fb3ff; }
+.cal-ytitle:hover { color: #fff; }
+.cal-src { margin-left:auto; font-size: var(--text-2xs); font-weight:700; color: var(--fg-dim); font-family: var(--mono); }
+.cal-src.is-live { color: #5fb3ff; }
+.cal-chip {
+    margin-left:auto; font-size: var(--text-2xs); font-weight:700; cursor:pointer;
+    color: var(--fg-2); border:1px solid rgba(95,179,255,0.4); border-radius: var(--radius-sm);
+    padding:0 var(--space-3);
 }
-/* Live-broker years tinted cyan in the text so they read distinctly from the
-   16Y-backtest (grey) years even when not selected. */
-.rt-period-pill.is-live:not(.on) { color: #5fb3ff; border-color: rgba(95,179,255,0.35); }
-.rt-summary-top {
-    margin-top:0;
-    margin-bottom:var(--space-4);
-    padding-top:0;
-    border-top: none;
-    border-bottom: 1px dashed rgba(255,255,255,0.10);
-    padding-bottom:var(--space-3);
+.cal-chip:hover { color:#fff; background: rgba(95,179,255,0.18); }
+.cal-months, .cal-years { display:grid; grid-template-columns: repeat(4, 1fr); gap:3px; margin-bottom:var(--space-3); }
+.cal-mcell, .cal-ycell {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+    font-family: var(--mono); font-size: var(--text-2xs); font-weight:700; color:#eef2f8;
+    padding:6px 2px; border-radius: var(--radius-sm); cursor:pointer; min-width:0;
+    white-space:nowrap; background: rgba(255,255,255,0.04); transition: filter 90ms;
 }
-.rt-summary-top b { font-weight: 800; }
-.rt-listnote {
-    margin-top:var(--space-3);
-    font-size: var(--text-2xs);
-    color: var(--fg-dim);
-    font-family: var(--mono);
-    text-align: right;
+.cal-mcell i, .cal-ycell i { font-style:normal; font-size: var(--text-3xs); font-weight:700; opacity:0.95; }
+.cal-mcell:hover, .cal-ycell:hover { filter: brightness(1.2); }
+.cal-mcell.empty { color: var(--fg-dim); background: rgba(255,255,255,0.03); }
+.cal-mcell.empty i { opacity:0.45; }
+.cal-mcell.on, .cal-ycell.on { box-shadow: inset 0 0 0 2px rgba(95,179,255,0.95); color:#fff; }
+.cal-ycell.is-live { outline:1px solid rgba(95,179,255,0.30); }
+.cal-summary {
+    font-size: var(--text-sm); color: var(--fg-2);
+    border-top: 1px dashed rgba(255,255,255,0.10); padding-top:var(--space-3); margin-bottom:var(--space-2);
 }
+.cal-summary b { font-weight: 800; color: var(--fg); }
+.cal-summary b.pos { color: var(--buy); }
+.cal-summary b.neg { color: var(--sell); }
+.cal-open { color:#d69e2e; }
+.cal-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
+.tcal-scroll {
+    display:flex; flex-direction:column; gap:2px; max-height: 220px; overflow-y:auto;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent;
+}
+.cal-trow {
+    display:grid; grid-template-columns: 1fr auto auto auto; gap:var(--space-3); align-items:center;
+    font-size: var(--text-xs); font-family: var(--mono); padding:2px var(--space-3);
+    border-left:2px solid transparent; border-radius:2px;
+}
+.cal-trow.win  { border-left-color: rgba(0,208,156,0.55); background: rgba(0,208,156,0.05); }
+.cal-trow.loss { border-left-color: rgba(255,91,107,0.55); background: rgba(255,91,107,0.05); }
+.cal-trow.open { box-shadow: inset 0 0 0 1px rgba(95,179,255,0.45); }
+.cal-tt { color: var(--fg-2); white-space:nowrap; }
+.cal-tt i { font-style:normal; color:#d69e2e; font-weight:700; margin-right:var(--space-2); }
+.cal-td { font-weight:800; }
+.cal-td.buy { color: var(--buy); }
+.cal-td.sell { color: var(--sell); }
+.cal-tw { text-align:center; font-weight:800; }
+.cal-tw.win { color: var(--buy); }
+.cal-tw.loss { color: var(--sell); }
+.cal-tp { text-align:right; font-weight:700; font-variant-numeric: tabular-nums; }
+.cal-tp.pos { color: var(--buy); }
+.cal-tp.neg { color: var(--sell); }
+.cal-tp.muted { color: var(--fg-dim); }
 
-/* Newest row marker — the first (latest) trigger gets a subtle ring + a
-   小さな "最新" tag so it's unmistakable without a duplicate featured card. */
-.rt-row.newest {
-    box-shadow: inset 0 0 0 1px rgba(95,179,255,0.45);
-}
-.rt-newest-tag {
-    display: inline-block;
-    font-size: var(--text-3xs); font-weight: 800; letter-spacing: 0.04em;
-    color: var(--accent);
-    background: rgba(95,179,255,0.15);
-    border-radius: 2px;
-    padding:0 3px;
-    margin-right:var(--space-2);
-}
-/* Open (still-running) trigger — shown in the トリガー履歴 list the moment it
-   fires, but visually distinct: amber rail, no win/loss colour, floating P/L
-   muted. It is excluded from the realised win-rate / PF / cumulative stats. */
-.rt-row.open {
-    border-left-color: rgba(214,158,46,0.75);
-    background: rgba(214,158,46,0.08);
-    box-shadow: inset 0 0 0 1px rgba(214,158,46,0.40);
-}
-.rt-open-tag {
-    display: inline-block;
-    font-size: var(--text-3xs); font-weight: 800; letter-spacing: 0.04em;
-    color: #d69e2e;
-    background: rgba(214,158,46,0.18);
-    border-radius: 2px;
-    padding:0 3px;
-    margin-right:var(--space-2);
-}
-.rt-wl.open { color: #d69e2e; font-weight: 800; }
-.rt-pts.muted { color: var(--fg-dim); font-weight: 700; }
-.rt-open-count { color: #d69e2e; }

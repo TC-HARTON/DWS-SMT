@@ -14,6 +14,8 @@
   </div>
   <div class="hdr-active" data-bind="active-setups">
     <span class="active-label">ACTIVE SETUPS</span>
+    <span class="active-bell" data-bind="alert-toggle" role="button" tabindex="0"
+          title="高確信アラート">🔕</span>
     <span class="active-chips" data-bind="active-chips"><span class="active-empty">no high-conviction signals</span></span>
   </div>
   <div class="hdr-stats">
@@ -23,6 +25,14 @@
     <div class="stat"><div class="stat-label">VER</div><div class="stat-val" data-bind="version">0</div></div>
   </div>
 </header>
+
+<details class="summary-bar" data-bind="summary" open>
+  <summary class="sb-head">
+    <span class="sb-title">サマリー</span>
+    <span class="sb-sub">全8銘柄 · BIAS総合 · 4TF一致 · 直近劣化</span>
+  </summary>
+  <div class="sb-cells" data-bind="summary-cells"></div>
+</details>
 
 <main class="grid">
   <section class="symbols" data-bind="symbols-grid"></section>
@@ -66,6 +76,11 @@
     <div class="card macro-card">
       <div class="card-title"><span class="title-accent">Macro Rates</span><span data-bind="macro-status" class="mute">--</span></div>
       <div class="macro-list" data-bind="macro"><div class="empty mute">読み込み中…</div></div>
+    </div>
+
+    <div class="card journal-card">
+      <div class="card-title"><span class="title-accent">トレード日誌</span><span data-bind="journal-status" class="mute">--</span></div>
+      <div class="journal-list" data-bind="journal"><div class="empty mute">発注すると、その時の3TF状況つきで自動記録されます</div></div>
     </div>
   </aside>
 

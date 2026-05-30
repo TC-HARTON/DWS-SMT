@@ -392,6 +392,7 @@ def serialize_correlation(s: CorrelationSnapshot | None) -> dict[str, Any] | Non
         "timeframe": s.timeframe,
         "default_window": config.CORRELATION_DEFAULT_BARS,
         "windows": list(config.CORRELATION_WINDOWS_BARS),
+        "bars_available": int(s.bars_available),
         "by_window": {
             str(bars): serialize_correlation_matrix(m)
             for bars, m in s.by_window.items()

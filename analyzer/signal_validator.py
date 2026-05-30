@@ -278,8 +278,11 @@ def evaluate_trades(
     Args:
         trades: every trade of the window (open trades are ignored — only
             realised P/L is validated).
-        spread_pts: per-bar broker spread in points, aligned to the window
-            (index == trade ``entry_idx``).
+        spread_pts: per-trade cost in broker points, aligned to the window
+            (index == trade ``entry_idx``). The live path fills this with a
+            uniform cost (``config.LIVE_SPREAD_COST_PIPS``) because the MT5
+            per-bar spread field is unreliable; the offline 16Y baseline scripts
+            pass the real Dukascopy bid/ask spread per bar.
         adx: per-bar ADX of the base timeframe, aligned to the window.
         point: broker ``point`` size, to convert price moves to points.
 
@@ -437,9 +440,20 @@ class SignalValidator:
             }
             if not frames:
                 continue
-            point = float(broker_meta.get(base, {}).get("point", 1.0) or 1.0)
+            # No broker meta/point for this symbol → SKIP. Computing with a
+            # point=1.0 fallback records net_pts ~100x too large, and the
+            # entry_ms-keyed store would persist that error PERMANENTLY (same
+            # "wrong-scale persisted" class as the old offset bug). Skip until the
+            # meta arrives rather than poison the store.
+            sym_meta = broker_meta.get(base)
+            if not sym_meta or not sym_meta.get("point"):
+                log.warning("signal validation: no broker meta/point for %s — "
+                            "skipping to avoid corrupt net_pts", base)
+                continue
+            point = float(sym_meta["point"])
+            pip_size = float(sym_meta.get("pip_size", point) or point)
             try:
-                per_tf = self._validate_symbol(base, frames, point)
+                per_tf = self._validate_symbol(base, frames, point, pip_size)
             except (ValueError, KeyError, IndexError):
                 log.exception("signal validation failed for %s", base)
                 continue
@@ -458,39 +472,40 @@ class SignalValidator:
         base: str,
         frames: dict[str, pd.DataFrame],
         point: float,
+        pip_size: float,
     ) -> dict[str, ValidationStats]:
         """Validate every DWS base timeframe for one symbol."""
         result = dws_smt.compute_symbol(frames, out_bars=self._history_bars)
         if result is None:
             return {}
+        # Uniform round-trip cost in broker points (spread + commission). The
+        # per-bar spread field is unreliable, so every trade pays the same
+        # realistic cost — see config.LIVE_SPREAD_COST_PIPS.
+        p = point if point > 0.0 else 1.0
+        cost_pts = config.LIVE_SPREAD_COST_PIPS * pip_size / p
         out: dict[str, ValidationStats] = {}
         for base_tf, window in result.by_base.items():
             base_df = frames.get(base_tf)
             if base_df is None or base_df.empty:
                 continue
-            core = self._evaluate_window(window, base_df, point)
+            core = self._evaluate_window(window, base_df, point, cost_pts)
             out[base_tf] = ValidationStats(
                 symbol=base, base_tf=base_tf, raw=core, macro_filtered=core,
             )
         return out
 
     @staticmethod
-    def _evaluate_window(window, base_df: pd.DataFrame, point: float
-                         ) -> ValidationCore:
+    def _evaluate_window(window, base_df: pd.DataFrame, point: float,
+                         cost_pts: float) -> ValidationCore:
         """Build a :class:`ValidationCore` from one DWS window.
 
-        Slices the base frame's spread column and a freshly computed ADX
-        series with the same ``start`` offset ``_build_window`` used, so the
-        trade ``entry_idx`` lines up with both arrays.
+        Computes ADX with the same ``start`` offset ``_build_window`` used so the
+        trade ``entry_idx`` lines up, and deducts the uniform ``cost_pts`` from
+        every trade (the per-bar spread field is not trustworthy).
         """
         n_bars = len(base_df)
         emitted = window.times_ms.size
         start = max(0, n_bars - emitted)
-
-        if "spread" in base_df.columns:
-            spread_pts = base_df["spread"].to_numpy(dtype=np.float64)[start:]
-        else:
-            spread_pts = np.zeros(emitted, dtype=np.float64)
 
         high = base_df["high"].to_numpy(dtype=np.float64)[None, :]
         low = base_df["low"].to_numpy(dtype=np.float64)[None, :]
@@ -498,13 +513,17 @@ class SignalValidator:
         adx_2d, _, _ = indicators.adx(high, low, close, config.ADX_PERIOD)
         adx = np.nan_to_num(adx_2d[0][start:], nan=0.0)
 
-        core = evaluate_trades(window.trades, spread_pts=spread_pts,
+        # Uniform per-trade cost array (the MT5 per-bar spread field is unreliable,
+        # so every trade pays the same realistic spread+commission figure).
+        cost_arr = np.full(emitted, cost_pts, dtype=np.float64)
+
+        core = evaluate_trades(window.trades, spread_pts=cost_arr,
                                adx=adx, point=point)
         # Attach the most-recent closed triggers (newest first) so the
         # dashboard history table is fed by the LIVE broker deep fetch. The
         # entry timestamp comes from the window's per-bar epoch-ms array.
         recent = _recent_triggers_from_window(
-            window, spread_pts=spread_pts, point=point,
+            window, spread_pts=cost_arr, point=point,
             limit=config.VALIDATION_RECENT_TRIGGERS,
         )
         return replace(core, recent_triggers=recent)
@@ -515,12 +534,14 @@ def _recent_triggers_from_window(
 ) -> tuple[RecentTrigger, ...]:
     """Extract the last *limit* triggers (newest first) from a window.
 
-    Net P/L mirrors ``evaluate_trades``: ``points/point − bar_spread``. Entry
-    time is the window's epoch-ms at the trade's entry bar. The panel is a
-    トリガー履歴 ("trigger history"), so every trigger is logged the moment it
-    fires — the still-running position is included with ``is_open=True`` (its
-    ``net_pts`` is the floating P/L marked to the latest close). The dashboard
-    keeps it out of the realised win-rate / PF / cumulative tallies."""
+    Net P/L mirrors ``evaluate_trades``: ``points/point − cost`` where ``cost``
+    is the per-trade cost in points from *spread_pts* (the live path fills it
+    with the uniform ``config.LIVE_SPREAD_COST_PIPS``). Entry time is the
+    window's epoch-ms at the trade's entry bar. The panel is a トリガー履歴
+    ("trigger history"), so every trigger is logged the moment it fires — the
+    still-running position is included with ``is_open=True`` (its ``net_pts`` is
+    the floating P/L marked to the latest close). The dashboard keeps it out of
+    the realised win-rate / PF / cumulative tallies."""
     p = point if point > 0.0 else 1.0
     times_ms = window.times_ms
     out: list[RecentTrigger] = []

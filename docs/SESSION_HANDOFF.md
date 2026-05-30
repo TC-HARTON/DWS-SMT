@@ -1,0 +1,202 @@
+# セッション申し送り (Session Handoff)
+
+> 最終更新: 2026-05-30 (3回目) / 直近コミット: `9070ae5` (origin/main)
+> **未コミットの変更あり**(§9 トリガー履歴重複バグ修正 + §10 提言5件バッチ)。ユーザ指示でコミット/プッシュ。
+> 新しいセッションを開始したら**まずこれを読む**こと。
+
+---
+
+## 1. このアプリは何か
+
+MT5 (MetaTrader 5) のトレーディング・ダッシュボード。
+- バックエンド: Python — Flask + flask-sock WebSocket。`MetaTrader5` パッケージで MT5 端末に接続し、解析スナップショットを `/ws` で配信。
+- フロント: **素の JS / CSS（フレームワーク無し）**。`static/app.js` が WS を受けて DOM をその場パッチ。`static/app.css` はデザイントークン駆動。
+- 主要機能: DWS-SMT 3TF EMA一致トリガー、16年OOS検証(統計)、通貨強弱、相関、経済カレンダー、マクロ金利、裁量注文パネル。
+
+---
+
+## 2. 環境（重要・ハマりどころ）
+
+- **Python 実体**: `C:\Users\ohuch\AppData\Local\Python\pythoncore-3.14-64\python.exe`
+  - 素の `python` は**壊れた Windows Store スタブ**。必ずフルパスを使う。
+- **Windows コンソールは cp932**: 使い捨てスクリプトで `✓` や em-dash 等の非ASCIIを print すると `UnicodeEncodeError` で落ちる。**ASCII のみ**。
+- OS: Windows 11 / シェルは PowerShell（`$null`、`$env:VAR`、バッククォート継続）。Bash ツールも利用可。
+- 追加作業ディレクトリ: `...MQL5\Indicators`（MQL5側、通常は触らない）。
+
+---
+
+## 3. リポジトリ / Git
+
+- origin = `github.com/TC-HARTON/DWS-SMT.git`
+- 作業ブランチ = **main**（このプロジェクトは main に直接コミット/プッシュする運用。ユーザが「プッシュ」と言ったら origin main へ push）。
+- **コミット/プッシュはユーザが指示した時のみ**。フック skip / 署名バイパス / git config 変更は禁止。
+- コミット末尾に `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。
+- 未追跡で**意図的に放置中**: `docs/DISTRIBUTION_PLAN.md`（本バッチと無関係）。
+
+---
+
+## 4. 動かし方・検証
+
+```
+# サーバ起動（Webを先にバインド→MT5は背景で再接続）
+"C:/Users/ohuch/AppData/Local/Python/pythoncore-3.14-64/python.exe" main.py
+# → http://127.0.0.1:8050
+
+# テスト（全件）
+"C:/Users/ohuch/AppData/Local/Python/pythoncore-3.14-64/python.exe" -m pytest -q   # 現在 295 passed
+
+# JS構文
+node --check static/app.js
+```
+
+- **統合検証は必須**: ユニットテストだけで完了報告しない。サーバを実際に動かし、ブラウザで描画/応答/コンソールエラーを**実際に目視**する（Claude_in_Chrome / preview ツール）。
+- frontend のみの変更はブラウザ再読込で反映（`Cache-Control: no-cache`）。**backend 変更はサーバ再起動が必要**。
+- 現在のブローカー: **Exness demo**（login 41269839 / Exness-MT5Trial3 / JPY、`trade_allowed=True`）。`.env` の `MT5_TERMINAL_PATH` で切替（ダッシュボードのブローカー切替ドロップダウンが .bat 再起動を行う）。
+
+---
+
+## 5. 壊してはいけない設計（非自明・要注意）
+
+- **WS は軽量/重量の2系統**: 価格・口座は ~2Hz の light（`snapshot_light` / `state.light_snapshot`）、重い解析は変化時のみ full（`snapshot_to_json`）。**解析ブロックを 2Hz で再配信しない**。
+- **oos_baseline（約2MB・静的）は接続初回の full にのみ載せる**。以降の full は `include_baseline=False`。クライアント(app.js)が `OOS_BASELINE` にキャッシュし後続 full へ再付与。**毎スナップに戻すと帯域/CPUが爆発する（過去の不具合）**。
+- **時刻は全て JST(UTC+9)表示**。MT5 はサーバ時刻でバー/ティックを刻むので UTC へ変換（`server_offset_sec`）。Dukascopy CSV は Europe/Bucharest(EET/EEST, DST有)。JS側の時刻ラベルは `getUTC*`+9h で算出（`getHours` のローカルtzは使わない）。
+- **ブローカー時刻→UTC は DST 対応必須(§9 で導入)**。ICMarkets サーバは **Europe/Bucharest(EET冬+2/EEST夏+3)**。`config.BROKER_TZ_BY_SERVER` に載るサーバは `copy_rates`→`_bar_index_utc` が**バー毎に IANA tz でローカライズ**(単一オフセットだと季節跨ぎの深い履歴が1hズレ、トリガーストアが重複する)。載らないサーバ(Exness=固定オフセット)は従来の flat offset。`server_offset_sec` も DST ブローカーは**tz から決定論的に算出**(stale tick 誤検出を根絶)。**この設計を単一オフセットに戻さない**。
+- **Pips換算**: gold pip = $0.10。baseline は 3桁(point 0.001)→pts/100、live gold は 2桁(point 0.01)→pts/10。`pips = net_pts × (source_point / pip_price)` で baseline/live を一致させる。スプレッドは1回だけ控除。
+- **スプレッド/コストの扱い(2026-05-30 改訂・重要)**:
+  - **ヒストグラム = タイミング表示の目安。スプレッド控除しない=gross pips**(`app.js drawDwsCanvas`、`pips = tr.p*ptMult*liveF`)。
+  - **トリガー履歴(ライブ) = 一律 `config.LIVE_SPREAD_COST_PIPS=2.0` pips を控除**(スプレッド≈1pip+手数料)。MT5 の `copy_rates` バー spread フィールドは**信頼できない**(0率: M15 18.6% / H1 48.6% / H4 83.7%。live録画分のみ埋まる)ため、バー spread は使わず**一律コスト**。`signal_validator._evaluate_window` が `cost_pts = 2.0×pip_size/point` の定数配列を `evaluate_trades`/`_recent_triggers_from_window` に渡す。→ 履歴 pips = gross − 2.0(常にヒストより 2.0 小さい)。
+  - **16Yベースラインは別**: Dukascopy の**実BID/ASK**スプレッドを使う(`evaluate_trades(spread_pts=...)` は配列のまま、バックテスト群 `scripts/_backtest_*`・`_oos_xauusd_16y.py` が実スプレッドを渡す)。**`evaluate_trades` のシグネチャを壊さない**。
+  - IC は直近~2週しか tick(実BID/ASK)を保持せず、2026 全期間の実 bid/ask は取得不能(=一律2.0採用の理由)。
+- **トリガー履歴 = 日付ピッカー型カレンダー(2026-05-30 全面作替え)**: 旧「年pill+30件リスト」「年×月リターン表」を**痕跡なく削除**し、よくある**カレンダー型セレクタ**(`app.js buildTriggerCalendar`)に作り直した。`◀ 年 ▶` ナビ + 年タイトルクリックで**年ピッカー(全期間2010-2026グリッド)** + **12ヶ月グリッド**(各月=純pipsヒートセル) + 選択期間の集計。コンパクト(一年表示)で**下の時間別勝率に被らない**。
+  - 月次データ: ライブは `trigger_store.load_by_year`→`months`(JST月別`_period_stats`)。**16Yバックテストも月次対応**: `scripts/_oos_xauusd_16y.py _trigger_history` に `months` を追加し、**frozen `oos_baseline.json` に月次のみ注入**(年次統計・CI は不変=既存と完全一致を検証済。CI ドリフトは採用せず)。→ baseline(≤last_year) + live(>last_year) を frontend がマージし **2010-2026 全期間**を月次表示。
+  - クラス名は `cal-*`/`tcal-*`(`.anlx-triggers` スコープ)。**経済カレンダー(ForexFactory)も `.cal-row`/`.cal-list` を使うので衝突注意** — 旧実装は `.cal-row{display:flex}` で経済カレンダーを上書きしていた(修正済)。状態は `UI.calYear/calMonth/calView`、データ駆動・ハードコード無し。
+- **推奨ロットは BALANCE 基準**（equity ではない）: `clamp(0.01 × floor(balance/100000), 0.01, 10)`。
+- **トリガー検出は確定足のみ**（forming bar でトリガーしない / look-ahead 厳禁）。`_pair_trades` は stop-and-reverse + EXIT。
+- **裁量注文の鉄則**: コードは私が書くが**実発注はユーザがクリック**（私は実注文しない）。`/api/order`・`/api/close` は same-origin ガード + `TRADING_ENABLED` + `trade_allowed`/端末Algo 許可ゲート。open/close 両方にガードあり。最小ロット未満は拒否（黙って引き上げない）。
+- **UIレイアウトは超慎重に**: ヘッダーは `XAUUSD(左) | BID/ASK(中央, 絶対配置) | SELL/LOT/BUY+✕(右)`。LOT入力枠はボタンと下端揃え(`align-items:flex-end`)。**勝手にレイアウトを変えない**。変更前に確認し、実測(getBoundingClientRect)で検証する。
+
+---
+
+## 6. 直近の作業（2026-05-30 / コミット 9070ae5）
+
+「手抜きゼロの高精度監査(5領域並列)→全件修正→統合検証→push」を実施。
+- 資金安全: close権限ガード、最小ロット拒否、刻み精度動的化、SL/TP `is not None`、テスト+7。
+- 性能: oos_baseline 初回限定配信(≈25MB/分削減)、2Hz deepcopy 除去、未ゲート再描画抑制。
+- フロント: 相関ペア/OOS verdict の XSS 修正、部分決済後のstale修正、Escモーダル競合修正、JST固定、null/NaNガード。
+- 統計: Welch を厳密 Student-t 化(scipyと1e-13一致)、Wilson z 厳密化。
+- 死蔵除去: `paintBias`/`JP_BIAS`、死CSS8群、死config7件+2dataclass、`serialize_symbol_structures`/`jsonable`/pair_biases、未使用import6件。
+- 検証: pytest 295 passed / node OK / ライブ再起動でコンソールエラー0・全パネル正常描画。
+
+---
+
+## 7. 未着手 / 保留（TODO）
+
+1. **structures パイプライン撤去（やるべき・別タスク化済の chip あり）**
+   フロントは `structures`(levels/price_action/confluence) を**一切消費していない**のに、`snapshot_to_json` が毎 full で配信し、`analysis_loop._publish_structures` が毎サイクル `detect_all` を実行(CPU浪費)。**バックエンドに他消費者がいないか検証**のうえ、シリアライズ+計算を撤去。検出器モジュール本体とそのテストは残す。
+2. **Bonferroni 族 k=3（症状毎=3TF）→ 据え置き**。パネル単位の主張として妥当で UI に明示済み。k=24 への変更は別の問いへの過保守化で「より正しい」訳ではない（変更しない）。
+3. **oos_baseline 再生成 → 今は不要**。Welch/Wilson 厳密化の差は表示精度以下。次回データ追加で正規再生成時に自動反映。
+4. （軽微）性能 HIGH-2: 2Hz light に静的な口座identityを毎回載せている。トリミングはクライアントのマージをフィールド単位にしてから（さもないと identity が消える）。
+5. （軽微）統計 L-2: DWSキャンバス上の建玉P/Lマーカーが現在スプレッドを使用。トリガー履歴表(バー時点スプレッド)と微差。バー時点スプレッドを serialize して使うと整合。
+
+---
+
+## 8. ユーザの仕事の流儀（厳守）
+
+- **手抜き・簡素化禁止**。常に目的最適・SPEC通り完全実装。最適化でアプリを劣化させない。
+- **指示は加算的**に解釈（新制約は既存に追加）。
+- bare except 禁止 / 型ヒント+docstring 必須 / `FRED_API_KEY` は env のみ / `.env` は gitignore。
+- 完了報告は**統合検証(実サーバ+目視)後**にのみ。「できた」は実証してから。
+- 強い UI/UX センスを要求。**画面を実際に見て**判断する。
+
+---
+
+## 9. トリガー履歴 重複バグ修正（2026-05-30・未コミット）
+
+**症状**: XAUUSD トリガー履歴が全TFで「同じ取引が不自然に反復」(ユーザ報告)。
+
+**根本原因**: `server_offset_sec()` が**単一 tick から**サーバ→UTC オフセットを時間丸めで算出。
+市場クローズ/再接続直後の **stale tick** を拾うと丸め値が時間単位でズレ(真+3hに対し −1/−2/0h と誤検出)、
+`copy_rates` のバー時刻 `server−offset` がズレ→トレードの `entry_ms` が変わり、
+`trigger_store` は entry_ms 重複除去なので**同一確定足を別時刻で再追記**。整数時間シフト重複が全8シンボルで
+18k+ 行(M15 で 1960→663 等)。+ ICMarkets は **Europe/Bucharest(DST有)** で夏冬跨ぎも単一オフセットでは1hズレ。
+
+**修正(コード)**:
+- `mt5_connector.server_offset_sec`: stale tick 棄却(生 `server−now` が整数時間から離れるサンプルは拒否)、
+  broker毎 last-good 永続(再接続で維持)、変更は1サイクル確認。**DST ブローカー(`config.BROKER_TZ_BY_SERVER`)は
+  tz から決定論的に算出**(tick 非依存)。
+- `mt5_connector._bar_index_utc`(新): DST ブローカーはバー epoch を IANA tz でローカライズ→UTC(季節別オフセット)。
+  他ブローカーは従来 flat offset。`config.BROKER_TZ_BY_SERVER = {"ICMarketsSC-MT5-3": "Europe/Bucharest"}`。
+- テスト+5(`tests/test_mt5_connector.py`): stale 棄却 / last-good / 変更確認 / DST copy_rates / DST offset。**計300 passed**。
+
+**修正(データ)**: `scripts/_regen_trigger_store.py` — 接続中ブローカーの全シンボル×TFを現行バーから
+**DST正規 UTC で再生成**(`--dry-run` 有)。原本は `<name>.jsonl.bak` で保全。窓が全履歴をカバーするので損失なし。
+重複は完全消滅(M15/H1/H4 で重複timestamp=0、バグsignature `[0,4,5]` 消滅)。**ブローカー切替後は各ブローカーで再実行**。
+
+**恒久ガード(人の目に依存しない再発検知)**:
+- `trigger_store.scan_corruption(recs)` — 再stamp署名(同一timestamp重複 / `(dir,net_pts)` の≤6h整数時間「三つ組」)を検出。
+  **偶然 net_pts 一致の別トレードは検出しない**(実トレードを消して metric をゼロにするのは逆の偽装)。
+- `load_by_year` が読込毎に検査し、腐敗があれば `log.error` で**大声で暴く**(隠さない)。
+- 回帰テスト `test_real_store_has_no_restamp_corruption` が**実ストア全48ファイルを走査**し腐敗0を assert(再汚染で自動失敗)。
+- ops: `scripts/_scan_trigger_store.py`(全ファイル走査、腐敗あれば exit 1)。
+
+**全48ファイル網羅スキャン結果**: 23,380行 / 同一timestamp重複=0 / 三つ組=0 / **VERDICT CLEAN**(両ブローカー)。
+残る「同一(dir,pips)値の別行」は別時刻の実トレード(=正当、削除しない)。
+
+**検証**: pytest 304 passed / 実サーバ再起動→検証パス後もストア件数不変(再汚染なし) / ブラウザでトリガー履歴(2026/2024)
+が全て別時刻・別結果で反復ゼロを目視確認 / コンソールエラー0 / ops スキャン CLEAN。
+
+**残課題(軽微・別タスク)**: `latest_tick` のティック時刻変換は依然 flat offset 系。DST ブローカーでは
+`server_offset_sec` が tz 算出になったので実害は小さいが、ティック経路も tz 統一すると完全。Exness は固定オフセット
+前提(DST非対応)— もし Exness が将来 DST を観測するなら `BROKER_TZ_BY_SERVER` に追記が必要。
+
+---
+
+## 10. 提言5件バッチ(2026-05-30・未コミット) — ユーザ承認順に逐次実装
+
+「ロット/SL幅は裁量(手出し無用)。それ以外の提言を順次」指示。**#2は「両方」**(バナー+直近を上)。**実発注は私はしない**(裁量クリック)。
+
+1. **高確信セットアップ・アラート** — ヘッダーの ACTIVE SETUPS に通知ベル(`🔕/🔔`)を追加。`app.js` の `ALERT`(enabled/prev/seeded/ctx) + `fireSetupAlerts(scored)` が **STRONG-BUY/SELL** の新規出現を `sym|cls` で重複排除し、初回シードは黙らせ、Notification API + WebAudio ビープで通知。状態は localStorage。`paintAlertBell()`。
+2. **見出し数値を「直近ライブ優先」** — (a) `_buildRegimeBanner` が現行PF vs 16Y baseline のドリフトを計算(≤−20%で警告/≥+20%で良好バナー)。(b) パネル組立順を `バナー+直近(secondary) → ヘッダ → 統計 → スパーク` に変更し、**地合い悪化時に16Y側へ逃げない**ようライブ直近を上に出す。
+3. **broker_meta 欠落ガード** — `signal_validator.compute` で `sym_meta`/`point` 欠落時は `log.warning`+`continue`(以前は KeyError/誤値の恐れ)。
+4. **タグ付きトレード日誌**(新規) — 発注成功時にその時の**3TF市況(TF別 EMA上下/ADX/DI/RSI)**を添えて記録。
+   - backend: `analyzer/journal_store.py`(ブローカー別 append-only JSONL、`data/journal/<slug>/orders.jsonl`、newest-first、破損行スキップ)。`lite_server`: 発注成功フックで `_journal_order`(`_tf_context` を防御的に読む)、`GET /api/journal?limit=`。
+   - frontend: side に「トレード日誌」カード。`fetchJournal`/`paintJournal`/`renderJournalEntry`(BUY/SELL/lot/価格/時刻 + TF別 ↑↓+ADX チップ、RSI/DI は title)。起動時 + 発注成功後 + **ブローカー切替時**(`maybeRefreshJournal`)に更新。
+   - test: `tests/test_journal_store.py` +6(append/順序/limit/破損行/None server/Unicode往復)。
+5. **冗長パネル整理(方向情報3重)** — BIASゲージ / TFトレンド表 / DWS が方向を重複表示。**ユーザ「続行」で盲目変更を承認**し、保留分も実施。
+   - **構造統合(両モード)**: BIAS(`.composite`)を **`.signals` の最初の子=トレンド表のヘッダー**に DOM移動。`paintSignals` は data-bind id 参照なので**改修不要**(`sig-body` は別 div なので再描画で消えない)。`.composite` は自前の bg/角丸を捨て、下罫線で表と区切る 1枚のカードに。**オーバーフロー安全**: 2列目を `minmax(0,auto)` + `comp-text` を ellipsis 化(フォント拡大でも溢れない)。
+   - **展開グリッド**: `grid-template-areas` から全幅 `composite` 帯を削除(4行→3行 `auto min-content 1fr`)。展開時 BIAS フォントは全幅band用の 30-42px → 半幅カラム用に縮小(arrow26/text22/score lg)=**縮小方向のみ**(溢れ得ない)。帯1行削減で**パネル自体も縦に短く**=縦圧縮。
+   - **±10軸ラベル削除**(「強売-10/0/+10強買」。`comp-text`の語 + `comp-score`の x/10 + 中央線で十分)。
+   - **DWS縦圧縮**: `.dws-canvas-wrap` の `min-height` 200→168(床のみ低下、flex-fill のため高パネルは不変=安全)。
+   - **セッション折りたたみは見送り(私の判断)**: 時刻別ヒートマップを `<details>` 化しても、**展開パネルは「内部クリックで畳む」**実装(`onPanelClick`)のため summary クリックがパネル畳みと競合。innerHTML 注入後に stopPropagation を後付け配線する必要があり脆弱・最低価値のため見送り。要望あれば別途。
+
+**検証**: `pytest -q` **313 passed** / `node --check static/app.js` OK / **Flask test client で実 `lite_server` を叩く統合チェック**全パス: `/` 200・journalパネル在、`app.js` で **composite が signals 内(ヘッダー→matrix の順)**・軸除去、`app.css` で**全幅band削除・3行グリッド・軸CSS除去・DWS 168・journal/overflow安全 CSS 在**、`/api/journal` が `{server,entries[]}`。**#5 は構造変更のため見た目の最終確認はユーザ環境で**(`grid-template-areas` 由来の半幅カラム内 BIAS フォント感や行間)。盲目変更ゆえ違和感あれば微調整します。
+
+---
+
+## 11. 実機レビュー対応(2026-05-30・未コミット) — ユーザが実DOM/ネットワークで観測した指摘の裏取り+修正
+
+ユーザ報告6件をコードで裏取り。**2件は実バグ(修正済)、2件は前提がコードと不一致(誠実に指摘)、2件は要判断(保留・要指示)**。
+
+- **[実バグ修正] #1 トレード日誌 `/api/journal` 404 + 二重発火**:
+  - 404 の真因 = **エンドポイントは実装済**(`build_app` 内に無条件登録、test client で 200 確認)。ユーザの稼働サーバが**ルート追加前に起動した古いプロセス**(backend 追加はサーバ再起動が必要=§4)。→ **再起動で解消**。※「Dashコールバック重複バインド」説は**本アプリは Dash 非使用**(`main.py`→`lite_server.build_app`, flask-sock)のため不該当。
+  - 二重発火は実在(私のJS2箇所)。**`DOMContentLoaded` の seed fetch を撤去**し、`maybeRefreshJournal`(初回 account.server 到達時=ブローカー確定の正タイミング)に一本化。発注成功後の fetch は残置。
+- **[実バグ修正] #2 相関「waiting for data…」固着(H1×500)**: 真因 = `correlation.py` が**バー数<窓サイズの窓を無言スキップ**し、利用可能バー数を公開していない→フロントが loading と恒久不足を区別できず固着。
+  - backend: `CorrelationSnapshot.bars_available`(=usable returns 行数)追加、両 return パスで設定。`serialize_correlation` に `bars_available` 公開。
+  - frontend: `_paintCorrWindowAvail` が**バー数に満たない窓ピルを無効化**(`.pill-disabled`、蓄積で自動再有効)。選択窓が無いとき **`データ不足: H1 N本必要・取得 M本`** と件数明示(loading とは別文言)。
+  - test: `test_correlation.py` +1(`bars_available` と窓計算の整合)。
+- **[実バグ対応外/UI改善] #4 ヒートマップ小標本セル**: `N<HM_MIN_N(30)` のセルを**赤緑で着色しない**(中立グレー+破線+WR淡色、tooltip「標本不足: 参考値」、凡例「灰=標本不足 N<30」)。偶然の高WRをエッジと誤認させない。
+- **[前提不一致・誠実指摘] #6 「ブローカー切替」ボタン**: コード上 `broker-toggle` は**ブローカー切替専用**(`/api/broker` GET/POST)。8ペア俯瞰グリッドは**既定のメイン表示**(`symbols-grid`)で別物。「グリッド表示を兼ねる」前提はコードと不一致のため改名見送り(要望あれば即対応)。
+- **[実装済] #3 直近劣化を執行制御へ反映(劣化ゲート)**: ユーザ承認(「#3 劣化ゲート実装」)で実装。
+  - `_regimeDrift(sym, snap)` = `(rolling.raw.profit_factor − oos_baseline.profit_factor)/baseline`(UI.dwsBase、バナーと同一値を共有)。`REGIME_GATE_DRIFT = -0.30`。
+  - **2層構成**: 警告バナーは従来通り **-20%**、ゲート(降格+アラート抑制)は **-30%**(より深い別Tier)。
+  - `paintActiveSetups`: drift≤-30% の高確信セットアップを**「様子見」に降格**(破線/アンバー/方向色なし、末尾へソート、tooltip に 16Y比%)。`fireSetupAlerts`: **degraded は alert 集合から除外**(回復したら再 alert=「地合い回復」シグナル)。
+  - **ロット/SL/実発注は一切不変**(逓減案は不採用、表示降格+通知抑制のみ)。`.active-chip.degraded` CSS 追加。
+  - 検証: gate 算術の境界(`<=-0.30` 包含 / null安全 / 改善側は降格しない、ユーザ例 1.90→1.11=-41.6%→様子見)を node で確認、app.js に定数/ヘルパ/降格/alert除外が配信されることを test client で確認。
+- **[実装済] #5(レビュー) サマリーバー**: ユーザ承認(設計案提示→「折りたたみ可能(既定開)」選択)で実装。
+  - `index.html`: ヘッダー直下に `<details class="summary-bar" open>`(ネイティブ折りたたみ=堅牢)。body グリッドに full幅 `summary` 行(`auto`)を追加(`56px auto 1fr 280px`、`.grid`/`.symbols` 不変)。
+  - `paintSummaryBar(snap)`: 全8銘柄を1セル/銘柄で集約 — **BIAS総合**(`compositeSignal`)+**4TF EMA一致**(D1/H4/H1/M15 の `last_close≷ema`)+**様子見フラグ**(`_regimeDrift≤-0.30`、#3と共有)。analysis 更新時のみ再描画。セルクリックで `focusPanel(sym)` が該当パネル展開。
+  - ヘッダーの ACTIVE SETUPS(高確信のみ)と役割分離: サマリーは**全銘柄俯瞰**。開閉状態は localStorage `mt5-summary` で永続。
+  - CSS: `sb-*`/`.summary-bar`(衝突なし、`cal-summary` とは別)。`.sb-cell.degraded` は #3 と同じアンバー破線。
+  - **見た目の最終確認はユーザ環境**(常設1行ぶんの縦圧迫・8セルの可読性)。盲目実装ゆえ違和感あれば微調整。
+
+**検証**: `pytest -q` **314 passed**(+1) / `node --check` OK / 統合チェック: `serialize_correlation` が `bars_available` を出力、`/api/journal` 200、`app.js` に相関可用性UI在・load時二重fetch除去。**相関の見た目とトレード日誌の実発注記録はユーザ環境(実MT5/再起動後)で最終確認**。

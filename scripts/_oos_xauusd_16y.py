@@ -260,7 +260,16 @@ def _trigger_history(rows: list[TradeRow]) -> dict:
         ordered = sorted(yr, key=lambda r: r.entry_ms, reverse=True)
         trades = [{"t": r.entry_ms, "d": r.direction, "p": round(r.net_pts, 1)}
                   for r in ordered[:TRIGGER_LIST_CAP]]
-        by_year[str(year)] = {**_period_stats(yr), "trades": trades}
+        # Per-JST-month aggregate so the dashboard's monthly-returns calendar
+        # spans the WHOLE backtest (2010+) — same shape as the live store's
+        # ``months`` so baseline + live months merge through one reader.
+        months_rows: dict[int, list[TradeRow]] = {}
+        for r in yr:
+            mm = int(pd.Timestamp(r.entry_ms, unit="ms", tz="UTC")
+                     .tz_convert("Asia/Tokyo").month)
+            months_rows.setdefault(mm, []).append(r)
+        months = {str(m): _period_stats(months_rows[m]) for m in sorted(months_rows)}
+        by_year[str(year)] = {**_period_stats(yr), "trades": trades, "months": months}
     # Last backtest year in UTC. ``entry_year`` is JST, so a 2025-12-31 UTC
     # boundary trade can spill into a stray JST-2026 bucket; the front-end
     # uses this UTC last-year as the fixed CSV↔live boundary so a stray year

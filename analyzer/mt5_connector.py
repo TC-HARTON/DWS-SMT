@@ -34,6 +34,17 @@ import config
 
 log = logging.getLogger(__name__)
 
+# Server-clock offset detection guards (see :meth:`MT5Connector.server_offset_sec`).
+# A LIVE tick is ~0 s old, so a true (whole-hour) broker offset shows up as a
+# ``server_time - now`` that lands within seconds of a whole hour. A STALE tick
+# (market closed / fresh reconnect) is arbitrarily old, so its remainder from the
+# nearest whole hour is large — that is the signature we reject, because rounding
+# it would invent a wrong whole-hour offset and re-stamp every bar (the live
+# trigger-history duplication bug).
+_OFFSET_FRESH_TOL_SEC: int = 180          # max remainder from a whole hour for a "fresh" sample
+_OFFSET_MIN_SEC: int = -12 * 3600         # sane broker-offset range (whole hours)
+_OFFSET_MAX_SEC: int = 14 * 3600
+
 
 # --------------------------------------------------------------------------- #
 # Dataclasses returned to higher layers
@@ -143,10 +154,23 @@ class MT5Connector:
         # Resolved broker symbol names keyed by the base name from config.SYMBOLS.
         self._resolved: dict[str, str] = {}
         self._initialised = False
-        # Broker server-clock offset from UTC (whole seconds), detected lazily
-        # from a live tick and reset on every (re)connect. MT5 stamps bar/tick
-        # times in SERVER time, not UTC — see :meth:`server_offset_sec`.
+        # Broker server-clock offset from UTC (whole seconds). MT5 stamps
+        # bar/tick times in SERVER time, not UTC — see :meth:`server_offset_sec`.
+        #   _server_offset_sec  : validated value cached for THIS connection
+        #                         (reset on every reconnect for a possible DST flip).
+        #   _last_good_offset_sec: last validated value; SURVIVES reconnects so a
+        #                         reconnect that lands on a stale tick keeps using
+        #                         the known-good offset instead of mis-detecting.
+        #   _pending_offset_sec : a fresh value that disagrees with the known-good
+        #                         one, held until it repeats (one-cycle confirmation)
+        #                         so a lone hour-aligned fluke can't flip a good offset.
         self._server_offset_sec: int | None = None
+        self._last_good_offset_sec: int | None = None
+        self._pending_offset_sec: int | None = None
+        # Actual MT5 server name from the live account (e.g. "ICMarketsSC-MT5-3").
+        # Used to pick a DST-aware IANA zone for bar timestamps when the server
+        # observes DST — see :data:`config.BROKER_TZ_BY_SERVER` and ``copy_rates``.
+        self._connected_server: str | None = None
 
     # ------------------------------------------------------------------ lock
     @property
@@ -196,8 +220,11 @@ class MT5Connector:
                 ai.login, ai.server, ai.company, ai.currency, ai.balance, ti.trade_allowed,
             )
             self._initialised = True
-            # Force re-detection of the server-clock offset for this connection
-            # (a reconnect could land on a server in a different DST phase).
+            self._connected_server = getattr(ai, "server", None) or None
+            # Force re-validation of the server-clock offset for this connection
+            # (a reconnect could land on a server in a different DST phase). We
+            # deliberately keep ``_last_good_offset_sec`` so a reconnect onto a
+            # stale tick falls back to the known-good value instead of mis-detecting.
             self._server_offset_sec = None
 
         # symbol resolution happens after we release the init lock so further
@@ -380,27 +407,67 @@ class MT5Connector:
         offset to recover true UTC so the live feed lines up with the UTC 16-year
         baseline and the bar-close countdown / tick age are correct.
 
-        Derived from a fresh tick's server time vs the system UTC clock, rounded
-        to the nearest hour (MT5 server offsets are whole hours). Returns 0 (and
-        does NOT cache) until a tick is available, so it self-heals once data
-        flows. Reset on every (re)connect to survive DST changes.
+        Derived from the FRESHEST tick's server time vs the system UTC clock,
+        rounded to the nearest hour (MT5 server offsets are whole hours). The
+        sample is accepted only when it is demonstrably fresh — its raw
+        ``server_time - now`` sits within :data:`_OFFSET_FRESH_TOL_SEC` of a whole
+        hour — and within a sane range. A stale tick (market closed / fresh
+        reconnect) is rejected so a wrong whole-hour offset is never cached; when
+        no fresh sample is available the last-known-good offset is returned (0 if
+        none yet), so the value self-heals once live data flows. A fresh value
+        that disagrees with the known-good one must repeat once before it is
+        adopted (so a lone hour-aligned fluke cannot flip a good offset, while a
+        real DST change still takes effect on the next cycle).
+
+        This guards the live trigger-history store: bar timestamps are
+        ``server_time - offset``, so a mis-detected offset re-stamps every bar
+        and the entry-time-keyed store records the SAME trade again under a
+        whole-hour-shifted timestamp.
+
+        For a server with a known IANA zone (``config.BROKER_TZ_BY_SERVER``) the
+        offset is computed DIRECTLY from that zone at the current instant — exact,
+        DST-correct, and immune to stale-tick mis-detection (a tick stale by a
+        whole number of hours could otherwise pass the freshness check). Bars for
+        such servers are localized per-zone anyway; this keeps the tick age and
+        bar-close countdown consistent with them.
         """
+        tz = config.BROKER_TZ_BY_SERVER.get(self._connected_server or "")
+        if tz:
+            now_utc = pd.Timestamp(time.time(), unit="s", tz="UTC")
+            return int(now_utc.tz_convert(tz).utcoffset().total_seconds())
+
         cached = self._server_offset_sec
         if cached is not None:
             return cached
+        # The freshest available tick (largest server time) across resolved
+        # symbols — an illiquid symbol may carry a stale tick while a liquid one
+        # is current, so prefer the most recent.
         server_time = 0
         with self._lock:
             for broker in list(self._resolved.values()):
                 raw = mt5.symbol_info_tick(broker)
-                if raw is not None and getattr(raw, "time", 0):
-                    server_time = raw.time
-                    break
+                t = int(getattr(raw, "time", 0) or 0) if raw is not None else 0
+                if t > server_time:
+                    server_time = t
         if not server_time:
-            return 0
-        off = int(round((server_time - time.time()) / 3600.0) * 3600)
-        self._server_offset_sec = off
-        log.info("MT5 server-clock offset detected: %+d h (server→UTC)", off // 3600)
-        return off
+            return self._last_good_offset_sec or 0       # no data yet — keep prior, do not cache
+        raw_delta = server_time - time.time()
+        rounded = int(round(raw_delta / 3600.0) * 3600)
+        if abs(raw_delta - rounded) > _OFFSET_FRESH_TOL_SEC:
+            return self._last_good_offset_sec or 0       # stale tick — keep prior, do not cache
+        if not (_OFFSET_MIN_SEC <= rounded <= _OFFSET_MAX_SEC):
+            return self._last_good_offset_sec or 0       # implausible — ignore
+        prior = self._last_good_offset_sec
+        if prior is not None and rounded != prior and self._pending_offset_sec != rounded:
+            # First sighting of a changed offset — hold the known-good value and
+            # wait for the next cycle to confirm it is real (DST) not a fluke.
+            self._pending_offset_sec = rounded
+            return prior
+        self._pending_offset_sec = None
+        self._server_offset_sec = rounded
+        self._last_good_offset_sec = rounded
+        log.info("MT5 server-clock offset detected: %+d h (server→UTC)", rounded // 3600)
+        return rounded
 
     # --------------------------------------------------------------- ticks
     def latest_tick(self, base: str) -> Tick | None:
@@ -473,15 +540,32 @@ class MT5Connector:
                   "tick_volume", "spread", "real_volume")
         available = [c for c in wanted if c in raw.dtype.names]
         df = pd.DataFrame({col: raw[col] for col in available})
-        # raw["time"] is int64 seconds-since-epoch in the broker's SERVER tz;
-        # subtract the server→UTC offset so the index is true UTC (matching the
-        # 16Y Dukascopy baseline and making the bar-close countdown correct).
-        off = self.server_offset_sec()
-        times = raw["time"] - off if off else raw["time"]
-        df.index = pd.DatetimeIndex(
-            times.astype("datetime64[s]"), tz="UTC", name="time",
-        )
+        # raw["time"] is int64 seconds-since-epoch in the broker's SERVER wall
+        # clock. Convert to true UTC so the index matches the 16Y Dukascopy
+        # baseline and the bar-close countdown is correct.
+        df.index = self._bar_index_utc(raw["time"])
         return df
+
+    def _bar_index_utc(self, server_secs: np.ndarray) -> pd.DatetimeIndex:
+        """Convert MT5 server-time bar epochs (seconds) to a true-UTC index.
+
+        DST-observing servers (``config.BROKER_TZ_BY_SERVER``) are localized in
+        their IANA zone so EACH bar gets the correct seasonal offset — a single
+        flat offset would mis-stamp off-season bars in the deep-history fetch and
+        the entry-time-keyed trigger store would then duplicate trades across a
+        DST boundary. DST changeovers fall on a closed-market Sunday, so no bar
+        lands in the ambiguous / nonexistent hour; ``ambiguous``/``nonexistent``
+        are set defensively so a stray boundary bar still resolves deterministically.
+        Other servers keep the flat detected-offset path (correct for a fixed
+        broker offset, e.g. Exness)."""
+        tz = config.BROKER_TZ_BY_SERVER.get(self._connected_server or "")
+        if tz:
+            naive = pd.DatetimeIndex(server_secs.astype("datetime64[s]"))
+            return (naive.tz_localize(tz, ambiguous=True, nonexistent="shift_forward")
+                    .tz_convert("UTC").rename("time"))
+        off = self.server_offset_sec()
+        times = server_secs - off if off else server_secs
+        return pd.DatetimeIndex(times.astype("datetime64[s]"), tz="UTC", name="time")
 
     def fetch_rates_parallel(
         self,

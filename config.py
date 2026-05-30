@@ -257,6 +257,16 @@ VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ
 # backtest doesn't cover (the front-end merges them), so a few hundred is
 # plenty — the broker's resident window yields at most ~400 (M15) triggers.
 VALIDATION_RECENT_TRIGGERS: Final[int] = 1000
+# Uniform round-trip cost (pips) charged to every LIVE/real trade's P/L. MT5's
+# per-bar ``spread`` field is unreliable (0 for ~18-84 % of historical bars, by
+# timeframe — it is only filled for bars the terminal recorded live), so instead
+# of a bogus per-bar spread we deduct one realistic, consistent cost: the IC
+# XAUUSD spread runs ~1 pip and a real fill also pays commission, so 2.0 pips
+# covers spread + commission. The small per-trade error is accepted by design.
+# Applied as ``cost_points = LIVE_SPREAD_COST_PIPS * pip_size / point`` so the
+# front end (which multiplies stored net-points by ``point / pip``) shows exactly
+# ``gross_pips - 2.0``. The frozen 16Y baseline keeps its own cost model.
+LIVE_SPREAD_COST_PIPS: Final[float] = 2.0
 # Persistent live trigger-history store. The live broker feed is only a sliding
 # window (M15 ≈ 7 months), so to keep a COMPLETE live record (survives restarts
 # and window slides, selectable years-end and beyond) every closed live trigger
@@ -264,6 +274,19 @@ VALIDATION_RECENT_TRIGGERS: Final[int] = 1000
 # are price-derived so the broker is the boundary; the account/login does not
 # matter. Different brokers get separate sub-dirs so spreads never mix.
 LIVE_TRIGGER_DIR: Final[Path] = PROJECT_ROOT / "data" / "live_triggers"
+# Broker server clocks that observe DST. MT5 stamps bars in the broker's SERVER
+# wall-clock; a DST-observing server (e.g. IC Markets = Europe/Bucharest, EET in
+# winter / EEST in summer) shifts by an hour across the year. A single detected
+# whole-hour offset is correct only for the CURRENT season, so the deep-history
+# fetch would stamp off-season bars an hour wrong — and the entry-time-keyed
+# trigger store would then record the same trade twice across a DST boundary.
+# For these servers we localize the raw server time in the named IANA zone
+# (DST-correct per bar) instead of subtracting one flat offset. Servers NOT
+# listed here (e.g. Exness, which runs a fixed offset) keep the flat-offset path.
+# Key by the MT5 server name as reported by ``account_info().server``.
+BROKER_TZ_BY_SERVER: Final[dict[str, str]] = {
+    "ICMarketsSC-MT5-3": "Europe/Bucharest",
+}
 # Wilson score interval z for a 95 % two-sided CI — the exact 0.975 normal
 # quantile (not the 1.96 rounding), so the displayed bounds are exact.
 VALIDATION_CI_Z: Final[float] = 1.959963984540054

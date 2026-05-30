@@ -91,6 +91,23 @@ def test_no_data_returns_empty_snapshot():
     conn = _stub_connector({})
     snap = CorrelationEngine(conn).compute()
     assert snap.by_window == {}
+    assert snap.bars_available == 0
+
+
+def test_bars_available_reports_usable_rows():
+    # 50 bars → 49 usable returns (pct_change drops one). The UI uses this to
+    # explain "data insufficient (N/500)" instead of hanging on a skipped window.
+    n = 50
+    rng = np.random.default_rng(0)
+    closes = 100 + np.cumsum(rng.normal(0, 0.01, n))
+    rates = {s.base: _make_df(closes) for s in config.SYMBOLS}
+    conn = _stub_connector(rates)
+    snap = CorrelationEngine(conn).compute()
+    assert snap.bars_available == 49
+    # The reported availability is consistent with which windows computed:
+    # every window ≤ bars_available is present, every window above it is absent.
+    for win in config.CORRELATION_WINDOWS_BARS:
+        assert (win in snap.by_window) == (win <= snap.bars_available)
 
 
 def test_matrix_diagonal_is_exactly_one():

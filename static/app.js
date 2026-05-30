@@ -17,6 +17,13 @@ const SYMBOL_ORDER = ["XAUUSD", "EURUSD", "GBPUSD", "AUDUSD",
 const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD"];
 const STRENGTH_WINDOWS = ["H1", "H4", "D1", "W1"];
 const CORR_WINDOWS = [20, 100, 500];
+// Min samples for an hourly-heatmap cell to be treated as signal (not noise).
+const HM_MIN_N = 30;
+// #3 regime gate: when the live rolling PF is this far BELOW the 16Y baseline,
+// a high-conviction setup is DEMOTED to 様子見 and its high-conviction alert is
+// suppressed. Deeper than the -0.20 warn banner so "warn" and "demote" are two
+// distinct tiers. Execution (lot/SL) stays the user's discretion — untouched.
+const REGIME_GATE_DRIFT = -0.30;
 
 // Per-domain version stamp cache so callbacks can skip no-op renders.
 const STAMPS = {};
@@ -32,7 +39,9 @@ const UI = {
     strengthWindow: 'H4',
     corrWindow:     100,
     dwsBase:        'H4',   // DWS-SMT base timeframe (x-axis): H4 / H1 / M15
-    trigYear:       'all',  // trigger-history period: 'all' or a JST year string
+    calYear:        null,   // trigger-calendar selected year (null → newest in data)
+    calMonth:       null,   // trigger-calendar selected month 1-12 (JST), or null = whole year
+    calView:        'months', // calendar body: 'months' grid or 'years' picker
 };
 
 // ------------------------------------------------------------
@@ -156,24 +165,21 @@ function buildPanel(sym) {
             </div>
             <button class="panel-close" type="button" title="閉じる (Esc)">✕</button>
         </div>
-        <div class="composite" data-bind="composite-${sym}">
-            <span class="comp-label" title="複合 BIAS スコア (-10=STRONG SELL ⇆ +10=STRONG BUY)">BIAS</span>
-            <span class="comp-main">
-                <span class="comp-arrow" data-bind="comp-arrow-${sym}">·</span>
-                <span class="comp-text" data-bind="comp-text-${sym}">--</span>
-            </span>
-            <div class="comp-gauge">
-                <div class="comp-gauge-track">
-                    <div class="comp-gauge-mid"></div>
-                    <div class="comp-gauge-fill" data-bind="comp-fill-${sym}"></div>
-                </div>
-                <div class="comp-gauge-axis">
-                    <span>強売 -10</span><span>0</span><span>+10 強買</span>
-                </div>
-            </div>
-            <span class="comp-score" data-bind="comp-score-${sym}" title="複合スコア = TF別シグナル × TF加重 / 正規化">--</span>
-        </div>
         <div class="signals" data-bind="signals-${sym}">
+            <div class="composite" data-bind="composite-${sym}">
+                <span class="comp-label" title="複合 BIAS スコア (-10=STRONG SELL ⇆ +10=STRONG BUY)">BIAS</span>
+                <span class="comp-main">
+                    <span class="comp-arrow" data-bind="comp-arrow-${sym}">·</span>
+                    <span class="comp-text" data-bind="comp-text-${sym}">--</span>
+                </span>
+                <div class="comp-gauge">
+                    <div class="comp-gauge-track">
+                        <div class="comp-gauge-mid"></div>
+                        <div class="comp-gauge-fill" data-bind="comp-fill-${sym}"></div>
+                    </div>
+                </div>
+                <span class="comp-score" data-bind="comp-score-${sym}" title="複合スコア = TF別シグナル × TF加重 / 正規化">--</span>
+            </div>
             <div class="sig-body" data-bind="sig-body-${sym}"></div>
         </div>
         <div class="analytics" data-bind="analytics-${sym}"></div>
@@ -318,15 +324,33 @@ function paintActiveSetups(snap) {
         const c = compositeSignal(sa.by_tf);
         if (c.cls === 'na' || c.cls === 'neutral') continue;
         if (Math.abs(c.score) < 5) continue;  // only high-conviction
-        scored.push({ sym, c });
+        // #3 regime gate: a high-conviction setup whose live rolling PF has
+        // fallen ≥30% below its 16Y baseline is DEMOTED to 様子見 (still shown,
+        // de-emphasised, sorted last) and excluded from alerts.
+        const drift = _regimeDrift(sym, snap);
+        const degraded = drift != null && drift <= REGIME_GATE_DRIFT;
+        scored.push({ sym, c, degraded, drift });
     }
+    // Non-degraded high-conviction first; 様子見 sink to the end. Strongest
+    // |score| first within each group.
+    scored.sort((a, b) => (a.degraded - b.degraded)
+        || (Math.abs(b.c.score) - Math.abs(a.c.score)));
+    fireSetupAlerts(scored);                  // notify the moment a NEW setup appears
     if (scored.length === 0) {
         root.innerHTML = '<span class="active-empty">no high-conviction signals</span>';
         return;
     }
-    scored.sort((a, b) => Math.abs(b.c.score) - Math.abs(a.c.score));
-    root.innerHTML = scored.slice(0, 8).map(({ sym, c }) => {
+    root.innerHTML = scored.slice(0, 8).map(({ sym, c, degraded, drift }) => {
         const scoreStr = (c.score > 0 ? '+' : '') + c.score.toFixed(1);
+        if (degraded) {
+            const pct = Math.round(drift * 100);
+            return `<span class="active-chip degraded"
+                title="直近地合い悪化: 16Y比 ${pct}% → 降格(様子見)。執行・ロット・SL は裁量。">
+                <span class="ac-sym">${sym}</span>
+                <span class="ac-side">${c.arrow} 様子見</span>
+                <span class="ac-score">${scoreStr}</span>
+            </span>`;
+        }
         return `<span class="active-chip ${c.cls}">
             <span class="ac-sym">${sym}</span>
             <span class="ac-side">${c.arrow} ${c.label}</span>
@@ -334,6 +358,168 @@ function paintActiveSetups(snap) {
         </span>`;
     }).join('');
 }
+
+/** Collapsible summary bar (#5): one cell per symbol with the order-relevant
+ *  read — BIAS composite, 4-TF EMA alignment, and the 様子見 regime flag — so a
+ *  glance at the top replaces scanning 8 dense panels. It complements the
+ *  header's ACTIVE SETUPS (high-conviction only) by covering ALL symbols.
+ *  Repaints only when the analysis advances; a cell click focuses that panel. */
+function paintSummaryBar(snap) {
+    const root = $bind('summary-cells');
+    if (!root) return;
+    const analysis = snap.analysis;
+    if (!analysis || !analysis.by_symbol) {
+        if (!root.innerHTML) root.innerHTML = '<div class="sb-empty">分析待ち…</div>';
+        return;
+    }
+    if (!changed('summary', analysis.generated_at)) return;
+    root.innerHTML = SYMBOL_ORDER.map(sym => {
+        const sa = analysis.by_symbol[sym];
+        if (!sa || !sa.by_tf) {
+            return `<div class="sb-cell na" data-sb-sym="${sym}">
+                <div class="sb-row1"><span class="sb-sym">${sym}</span></div>
+                <div class="sb-bias na">--</div>
+                <div class="sb-tfs">データ無</div>
+            </div>`;
+        }
+        const c = compositeSignal(sa.by_tf);
+        const drift = _regimeDrift(sym, snap);
+        const degraded = drift != null && drift <= REGIME_GATE_DRIFT;
+        const scoreStr = c.cls === 'na' ? '--'
+            : (c.score > 0 ? '+' : '') + c.score.toFixed(1);
+        // 4-TF EMA side (high→low TF) — the "一致状態" at a glance.
+        const tfHtml = TF_LABELS.map(lab => {
+            const tf = sa.by_tf[lab];
+            if (!tf || tf.last_close == null || tf.ema == null) {
+                return `<span class="sb-tf">${lab}·</span>`;
+            }
+            const up = tf.last_close >= tf.ema;
+            return `<span class="sb-tf">${lab}<span class="${up ? 'up' : 'dn'}">${up ? '▲' : '▼'}</span></span>`;
+        }).join('');
+        const flag = degraded
+            ? `<span class="sb-flag" title="直近地合い悪化 16Y比 ${Math.round(drift * 100)}% → 様子見">様子見</span>`
+            : '';
+        const cellCls = degraded ? 'degraded' : c.cls;
+        const biasCls = degraded ? 'neutral' : c.cls;   // mute direction colour when gated
+        return `<div class="sb-cell ${cellCls}" data-sb-sym="${sym}" title="${sym} BIAS ${scoreStr}">
+            <div class="sb-row1"><span class="sb-sym">${sym}</span>${flag}</div>
+            <div class="sb-bias ${biasCls}">${c.arrow} ${scoreStr}</div>
+            <div class="sb-tfs">${tfHtml}</div>
+        </div>`;
+    }).join('');
+}
+
+/** Focus a symbol's panel (expand it) — used by the summary-bar cells. */
+function focusPanel(sym) {
+    const grid = document.querySelector('.symbols');
+    const panel = document.getElementById('panel-' + sym);
+    if (!grid || !panel) return;
+    grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
+    panel.classList.add('expanded');
+    grid.classList.add('has-expanded');
+    if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+}
+
+// Summary-bar cell → focus that symbol's panel. Cells live in the <details>
+// BODY (not <summary>), so this never toggles the bar's open/closed state.
+document.addEventListener('click', (ev) => {
+    const cell = ev.target.closest('.sb-cell');
+    if (!cell || !cell.dataset.sbSym) return;
+    focusPanel(cell.dataset.sbSym);
+});
+
+/* ============================================================
+   High-conviction setup ALERTS. Browser-notify the moment a NEW
+   high-conviction setup (|score|≥5) appears so a discretionary
+   trader never misses the entry — NOTIFY ONLY; lot/SL/execution
+   stay the user's call. The bell toggle persists in localStorage;
+   firing needs the browser Notification permission. Keyed by
+   sym|cls so a re-fire only happens on a genuinely new setup or a
+   direction flip, never on every repaint.
+   ============================================================ */
+const ALERT = { enabled: false, prev: new Set(), seeded: false, ctx: null };
+try { ALERT.enabled = localStorage.getItem('mt5-alert') === '1'; } catch (e) { /* private mode */ }
+
+function alertBeep() {
+    try {
+        ALERT.ctx = ALERT.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = ALERT.ctx, t = ctx.currentTime;
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(880, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+        o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.26);
+    } catch (e) { /* audio blocked until a user gesture — fine */ }
+}
+
+function paintAlertBell() {
+    const b = $bind('alert-toggle');
+    if (!b) return;
+    const supported = 'Notification' in window;
+    const granted = supported && Notification.permission === 'granted';
+    const on = ALERT.enabled && granted;
+    b.classList.toggle('on', on);
+    b.classList.toggle('pending', ALERT.enabled && supported && !granted);
+    b.textContent = on ? '🔔' : '🔕';
+    b.title = !supported ? 'この環境はブラウザ通知に非対応'
+        : Notification.permission === 'denied' ? '高確信アラート: ブラウザがブロック中（サイト設定で許可）'
+        : on ? '高確信アラート: ON（クリックでOFF）'
+        : ALERT.enabled ? '高確信アラート: 通知の許可待ち（クリックで再要求）'
+        : '高確信アラート: OFF（クリックでON）';
+}
+
+/** Detect newly-appeared high-conviction setups and notify (deduped by sym|cls).
+ *  Regime-degraded (様子見) setups are excluded — they were demoted, so they must
+ *  not fire an alert. A setup that later recovers re-enters `active` and alerts
+ *  again, which is the desired "regime healed" signal. */
+function fireSetupAlerts(scored) {
+    const active = scored.filter(s => !s.degraded);
+    const cur = new Set(active.map(s => s.sym + '|' + s.c.cls));
+    // First pass after load (or after enabling) seeds the baseline WITHOUT firing,
+    // so the existing setups don't all alert at once on open.
+    if (ALERT.enabled && ALERT.seeded
+        && 'Notification' in window && Notification.permission === 'granted') {
+        const fresh = active.filter(s => !ALERT.prev.has(s.sym + '|' + s.c.cls));
+        if (fresh.length) {
+            const top = fresh.slice(0, 3);
+            const body = top.map(s =>
+                `${s.sym} ${s.c.arrow} ${s.c.label} (${s.c.score > 0 ? '+' : ''}${s.c.score.toFixed(1)})`
+            ).join('\n') + (fresh.length > 3 ? `\n他 ${fresh.length - 3} 件` : '');
+            try {
+                const n = new Notification('🎯 高確信シグナル', {
+                    body, tag: 'mt5-setup', renotify: true,
+                });
+                n.onclick = () => { window.focus(); n.close(); };
+                setTimeout(() => n.close(), 12000);
+            } catch (e) { /* notification failed — ignore */ }
+            alertBeep();
+        }
+    }
+    ALERT.prev = cur;
+    ALERT.seeded = true;
+}
+
+// Bell toggle — request permission on enable, persist intent, reflect state.
+document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-bind="alert-toggle"]');
+    if (!b) return;
+    ev.stopPropagation();
+    if (!('Notification' in window)) { paintAlertBell(); return; }
+    if (!ALERT.enabled) {
+        ALERT.enabled = true;
+        ALERT.seeded = false;                 // re-seed so the current set doesn't all fire
+        try { localStorage.setItem('mt5-alert', '1'); } catch (e) {}
+        if (Notification.permission === 'default') {
+            Notification.requestPermission().then(paintAlertBell);
+        }
+        alertBeep();                          // a short confirm beep (also unlocks audio)
+    } else {
+        ALERT.enabled = false;
+        try { localStorage.setItem('mt5-alert', '0'); } catch (e) {}
+    }
+    paintAlertBell();
+}, true);
 
 function paintPrices(snap) {
     const ticks = (snap.price && snap.price.ticks) || {};
@@ -541,6 +727,7 @@ function submitOrder(o, goBtn) {
             el.className = 'oc-result ok';
             el.textContent = `約定 #${j.order} @ ${j.price} (${j.volume} lot)`;
             goBtn.textContent = '完了';
+            fetchJournal();   // pull the freshly-logged entry (with its 3TF context)
             setTimeout(() => { document.getElementById('order-confirm').hidden = true; }, 1500);
         } else {
             el.className = 'oc-result err';
@@ -839,6 +1026,87 @@ function paintMacro(snap) {
 }
 
 // ------------------------------------------------------------
+// Trade journal (discretionary) — REST-fed, broker-scoped.
+// Each order placed through the dashboard is logged server-side together with
+// the 3TF market context captured at entry. The panel reviews a trade against
+// the setup it was actually taken on ("which alignment did I enter on?").
+// ------------------------------------------------------------
+const JR_TF_ORDER = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+let _journalServer = null;   // broker the panel currently reflects
+
+/** Pull the recent journal from the backend and repaint the side panel. */
+function fetchJournal() {
+    fetch('/api/journal?limit=40')
+        .then(r => (r.ok ? r.json() : null))
+        .then(j => { if (j) paintJournal(j); })
+        .catch(() => {});   // panel is best-effort; never surface fetch noise
+}
+
+/** Refetch the journal when the active broker changes (per-broker store). */
+function maybeRefreshJournal(snap) {
+    const srv = (snap && snap.account && snap.account.server) || null;
+    if (srv && srv !== _journalServer) { _journalServer = srv; fetchJournal(); }
+}
+
+function paintJournal(data) {
+    const root = $bind('journal');
+    if (!root) return;
+    const status = $bind('journal-status');
+    const entries = (data && data.entries) || [];
+    _journalServer = (data && data.server) || _journalServer;
+    if (status) status.textContent = entries.length ? `${entries.length}件` : '記録なし';
+    if (!entries.length) {
+        root.innerHTML = '<div class="empty mute">発注すると、その時の3TF状況つきで自動記録されます</div>';
+        return;
+    }
+    root.innerHTML = entries.map(renderJournalEntry).join('');
+}
+
+function renderJournalEntry(e) {
+    const side = (e.side || '').toUpperCase();
+    const sideCls = side === 'BUY' ? 'buy' : 'sell';
+    const tsSec = (e.ts || 0) / 1000;
+    const px = e.price != null ? fmtPrice(e.price, priceDigits(e.price, e.symbol)) : '--';
+    const lots = e.lots != null ? Number(e.lots).toFixed(2) : '--';
+    // SL/TP/ticket sub-line — only the parts that exist (SL/TP are discretionary
+    // and frequently blank, so we never render empty placeholders).
+    const sub = [];
+    if (e.sl != null) sub.push('SL ' + fmtPrice(e.sl, priceDigits(e.sl, e.symbol)));
+    if (e.tp != null) sub.push('TP ' + fmtPrice(e.tp, priceDigits(e.tp, e.symbol)));
+    if (e.ticket != null) sub.push('#' + e.ticket);
+    const subHtml = sub.length
+        ? `<div class="jr-sub mute">${esc(sub.join(' ・ '))}</div>` : '';
+    // 3TF context chips, ordered low→high TF. EMA side drives the ↑/↓ + colour;
+    // ADX rides along as a strength read, with RSI / DI in the hover tooltip.
+    const ctx = e.ctx || {};
+    const tfs = Object.keys(ctx).sort((a, b) => {
+        const ia = JR_TF_ORDER.indexOf(a), ib = JR_TF_ORDER.indexOf(b);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    const chips = tfs.map(tf => {
+        const c = ctx[tf] || {};
+        const up = !!c.ae;
+        const adx = c.adx != null ? ` <i>ADX${Math.round(c.adx)}</i>` : '';
+        const tip = `EMA ${up ? '上' : '下'}`
+            + (c.rsi != null ? ` / RSI ${c.rsi}` : '')
+            + (c.dip != null && c.dim != null ? ` / +DI ${c.dip} -DI ${c.dim}` : '');
+        return `<span class="jr-tf ${up ? 'up' : 'dn'}" title="${esc(tip)}">`
+            + `${esc(tf)} ${up ? '↑' : '↓'}${adx}</span>`;
+    }).join('');
+    return `<div class="jr-row">
+        <div class="jr-head">
+            <span class="jr-side ${sideCls}">${esc(side)}</span>
+            <span class="jr-sym">${esc(e.symbol || '')}</span>
+            <span class="jr-lots mono">${esc(lots)}</span>
+            <span class="jr-px mono">@${esc(px)}</span>
+            <span class="jr-time mute">${esc(fmtJSTdate(tsSec))} ${esc(fmtJSTclockNoSec(tsSec))}</span>
+        </div>
+        ${chips ? `<div class="jr-ctx">${chips}</div>` : ''}
+        ${subHtml}
+    </div>`;
+}
+
+// ------------------------------------------------------------
 // Per-symbol TF signal matrix + composite bias.
 // This is the analytical core: ADX/RSI/EMA → "what should I do?".
 // ------------------------------------------------------------
@@ -907,15 +1175,29 @@ function pctEmaDist(close, ema) {
     return ((close - ema) / ema) * 100;
 }
 
-// Trigger-history year selector (全 + the years actually present in the live
-// broker history). Global state (one panel expanded at a time). Capture-phase
-// + stopPropagation so the parent .panel collapse listener never fires.
+// Trigger-CALENDAR controls (date-picker style). One capture-phase handler for
+// every action: ◀/▶ year step (data-cal-go), open/close the year picker
+// (data-cal-toggle-years), pick a year from it (data-cal-pick-year), select a
+// month (data-cal-month, click again to clear), back to year-total
+// (data-cal-allmonths). stopPropagation so the parent .panel collapse never fires.
 document.addEventListener('click', (ev) => {
-    const pill = ev.target.closest('[data-trig-year]');
-    if (!pill) return;
+    const el = ev.target.closest(
+        '[data-cal-go],[data-cal-month],[data-cal-pick-year],[data-cal-toggle-years],[data-cal-allmonths]');
+    if (!el) return;
     ev.stopPropagation();
     ev.preventDefault();
-    UI.trigYear = pill.dataset.trigYear;
+    if (el.hasAttribute('data-cal-go')) {
+        UI.calYear = Number(el.dataset.calGo); UI.calMonth = null; UI.calView = 'months';
+    } else if (el.hasAttribute('data-cal-pick-year')) {
+        UI.calYear = Number(el.dataset.calPickYear); UI.calMonth = null; UI.calView = 'months';
+    } else if (el.hasAttribute('data-cal-toggle-years')) {
+        UI.calView = UI.calView === 'years' ? 'months' : 'years';
+    } else if (el.hasAttribute('data-cal-month')) {
+        const m = Number(el.dataset.calMonth);
+        UI.calMonth = (UI.calMonth === m) ? null : m;
+    } else if (el.hasAttribute('data-cal-allmonths')) {
+        UI.calMonth = null;
+    }
     delete STAMPS['sig'];
     if (latestSnap) paintSignals(latestSnap);
 }, true);
@@ -925,182 +1207,162 @@ function jstYear(ms) {
     return new Date(ms + 9 * 3600 * 1000).getUTCFullYear();
 }
 
+/** JST calendar month (1-12) of an epoch-ms timestamp (UTC+9). */
+function jstMonth(ms) {
+    return new Date(ms + 9 * 3600 * 1000).getUTCMonth() + 1;
+}
+
+/** Trigger-history CALENDAR — a familiar date-picker the user selects a period
+ *  from. A year navigator (◀ year ▶, the year clickable to open a year grid) over
+ *  the WHOLE record (16Y backtest ≤ last_year + live beyond it, data-driven — no
+ *  fixed year/month list), a 12-month grid for the selected year (each month a
+ *  net-pips heat cell), and the selected period's aggregate (+ that month's live
+ *  trades). Compact: one year shown at a time. The 16Y backtest and live feed
+ *  merge through one reader; backtest reads grey, live cyan. */
+function buildTriggerCalendar(snap, sym) {
+    const tf = UI.dwsBase;
+    const brokerServer = snap.live_history?.server || null;
+    const brokerSub = brokerServer
+        ? `<span class="cal-broker" title="記録中ブローカー">${esc(brokerServer)}</span>`
+        + `<span class="cal-rec" title="ライブを永続記録中">● 記録中</span>` : '';
+    const head = `<div class="anlx-title">トリガー履歴 ${esc(tf)}`
+        + `<span class="anlx-sub">16Y + ライブ連結 · pips（往復コスト控除 / ライブ2.0pip）${brokerSub}</span></div>`;
+
+    // Backtest owns years ≤ last_year, live owns years beyond it (data-driven).
+    const th = snap.oos_baseline?.by_symbol?.[sym]?.[tf]?.trigger_history || {};
+    const csvBy = th.by_year || {};
+    const csvLastYear = th.last_year
+        || (Object.keys(csvBy).length ? Math.max(...Object.keys(csvBy).map(Number)) : 0);
+    const liveBy = snap.live_history?.by_symbol?.[sym]?.[tf]?.by_year || {};
+    const csvF = pipsFactor(sym, 'csv'), liveF = pipsFactor(sym, 'live');
+    const ym = {};                                   // year -> {rec, f, isLive}
+    for (const [y, r] of Object.entries(csvBy)) if (+y <= csvLastYear) ym[y] = { rec: r, f: csvF, isLive: false };
+    for (const [y, r] of Object.entries(liveBy)) if (+y > csvLastYear) ym[y] = { rec: r, f: liveF, isLive: true };
+
+    const openTrig = (snap.validation?.by_symbol?.[sym]?.[tf]?.raw?.recent_triggers || []).find(t => t.o) || null;
+    const openYear = openTrig ? jstYear(openTrig.t) : null;
+    const openMonth = openTrig ? jstMonth(openTrig.t) : null;
+
+    const years = [...new Set([...Object.keys(ym).map(Number),
+        ...(openYear && openYear > csvLastYear ? [openYear] : [])])].sort((a, b) => b - a);
+    if (!years.length) {
+        const msg = brokerServer ? 'このブローカーの記録は蓄積開始（確定トリガー待ち）'
+                                 : '履歴データ取得待ち（ライブ検証は起動後 ~90 秒）';
+        return `<div class="anlx-block anlx-triggers">${head}<div class="cal-empty">${esc(msg)}</div></div>`;
+    }
+
+    // --- selection state ---
+    let calYear = Number(UI.calYear);
+    if (!years.includes(calYear)) calYear = years[0];
+    const calMonth = (UI.calMonth >= 1 && UI.calMonth <= 12) ? UI.calMonth : null;
+    const yearsView = UI.calView === 'years';
+
+    // --- colour scale anchored on the data's own |max| month (whole record) ---
+    let maxAbs = 0;
+    for (const k of Object.keys(ym)) {
+        const ms = ym[k].rec.months || {};
+        for (const m of Object.values(ms)) maxAbs = Math.max(maxAbs, Math.abs((m.cum_pts || 0) * ym[k].f));
+    }
+    const heat = (pips) => {
+        const t = maxAbs > 0 ? Math.max(-1, Math.min(1, pips / maxAbs)) : 0;
+        const a = (0.14 + 0.56 * Math.abs(t)).toFixed(3);
+        return pips >= 0 ? `background:rgba(0,208,156,${a})` : `background:rgba(255,91,107,${a})`;
+    };
+    const yearPips = (y) => { const mm = ym[String(y)]; return mm ? (mm.rec.cum_pts || 0) * mm.f : 0; };
+
+    // --- selected-period aggregate ---
+    const meta = ym[String(calYear)];
+    const f = meta ? meta.f : liveF;
+    const yearRec = meta ? meta.rec : null;
+    const isLive = meta ? meta.isLive : (calYear > csvLastYear);
+    const toStat = (s) => ({ n: s ? s.n : 0, wins: s ? s.wins : 0, losses: s ? s.losses : 0,
+        cum: s ? (s.cum_pts || 0) * f : 0, gw: s ? (s.gross_win || 0) * f : 0, gl: s ? (s.gross_loss || 0) * f : 0 });
+    let stat, periodLabel, trades = [];
+    if (calMonth) {
+        stat = toStat((yearRec && yearRec.months || {})[String(calMonth)]);
+        periodLabel = `${calYear}年 ${calMonth}月`;
+        trades = ((yearRec && yearRec.trades) || []).filter(t => jstMonth(t.t) === calMonth).map(t => ({ ...t, p: t.p * f }));
+    } else {
+        stat = toStat(yearRec);
+        periodLabel = `${calYear}年`;
+        trades = ((yearRec && yearRec.trades) || []).map(t => ({ ...t, p: t.p * f }));
+    }
+    let nOpen = 0;
+    if (openTrig && openYear === calYear && (!calMonth || openMonth === calMonth)) {
+        nOpen = 1;
+        trades = [{ t: openTrig.t, d: openTrig.d, p: openTrig.p * liveF, o: true }, ...trades];
+    }
+    const pf = stat.gl > 0 ? stat.gw / stat.gl : (stat.gw > 0 ? Infinity : 0);
+    const wrTxt = stat.n ? (stat.wins / stat.n * 100).toFixed(1) + '%' : '--';
+    const cumCls = stat.cum > 0 ? 'pos' : stat.cum < 0 ? 'neg' : '';
+
+    // --- nav row (◀ older / year / ▶ newer ; year opens the year grid) ---
+    const idx = years.indexOf(calYear);
+    const newer = idx > 0 ? years[idx - 1] : null;      // years desc → idx-1 is more recent
+    const older = idx < years.length - 1 ? years[idx + 1] : null;
+    const yLiveCls = isLive ? ' is-live' : '';
+    const nav = `<div class="cal-nav">`
+        + `<span class="cal-arrow${older == null ? ' off' : ''}"${older != null ? ` data-cal-go="${older}"` : ''} title="前年">◀</span>`
+        + `<span class="cal-ytitle${yLiveCls}" data-cal-toggle-years title="年を選ぶ">${calYear}年 <i>${yearsView ? '▴' : '▾'}</i></span>`
+        + `<span class="cal-arrow${newer == null ? ' off' : ''}"${newer != null ? ` data-cal-go="${newer}"` : ''} title="翌年">▶</span>`
+        + (calMonth ? `<span class="cal-chip" data-cal-allmonths title="年計に戻す">年計へ</span>`
+                    : `<span class="cal-src${yLiveCls}">${isLive ? 'ライブ' : '16Y'}</span>`)
+        + `</div>`;
+
+    // --- calendar body: year-picker grid OR the 12-month grid ---
+    let body;
+    if (yearsView) {
+        // Newest year first (top-left) — `years` is already sorted descending.
+        body = `<div class="cal-years">` + years.map(y => {
+            const p = yearPips(y), on = y === calYear ? ' on' : '';
+            const live = ym[String(y)] && ym[String(y)].isLive ? ' is-live' : '';
+            return `<span class="cal-ycell${on}${live}" style="${heat(p)}" data-cal-pick-year="${y}" `
+                 + `title="${y}年 ${p >= 0 ? '+' : ''}${fmtPips(p)}pips">${y}<i>${p >= 0 ? '+' : ''}${fmtPips(p)}</i></span>`;
+        }).join('') + `</div>`;
+    } else {
+        const months = (yearRec && yearRec.months) || {};
+        body = `<div class="cal-months">` + Array.from({ length: 12 }, (_, i) => {
+            const m = i + 1, s = months[String(m)], on = calMonth === m ? ' on' : '';
+            if (!s) return `<span class="cal-mcell empty${on}" data-cal-month="${m}">${m}月<i>·</i></span>`;
+            const p = (s.cum_pts || 0) * f;
+            const wr = s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '--';
+            const pfm = s.profit_factor != null ? s.profit_factor.toFixed(2) : '∞';
+            return `<span class="cal-mcell${on}" style="${heat(p)}" data-cal-month="${m}" `
+                 + `title="${calYear}/${m}月 · ${s.n}件 · 勝率${wr} · PF ${pfm}">`
+                 + `${m}月<i>${p >= 0 ? '+' : ''}${fmtPips(p)}</i></span>`;
+        }).join('') + `</div>`;
+    }
+
+    // --- summary + (live month only) trade list ---
+    const openNote = nOpen ? ` · <b class="cal-open">保有中 ${nOpen}</b>` : '';
+    const summary = `<div class="cal-summary">`
+        + `<b>${esc(periodLabel)} 確定 ${stat.n.toLocaleString('en-US')} 件</b> · 勝率 <b>${wrTxt}</b>`
+        + ` · <b class="pos">${stat.wins.toLocaleString('en-US')}勝</b> <b class="neg">${stat.losses.toLocaleString('en-US')}敗</b>`
+        + ` · PF <b>${pf === Infinity ? '∞' : pf.toFixed(2)}</b>`
+        + ` · 累積 <b class="${cumCls}">${stat.cum >= 0 ? '+' : ''}${fmtPips(stat.cum)} pips</b>${openNote}</div>`;
+
+    let listHtml = '';
+    if (calMonth && isLive) {
+        const rows = trades.map(t => {
+            const dir = t.d > 0 ? 'buy' : 'sell', dt = t.d > 0 ? 'BUY' : 'SELL';
+            const pt = `${t.p >= 0 ? '+' : ''}${fmtPips(t.p)}`;
+            if (t.o) return `<div class="cal-trow open"><span class="cal-tt"><i>保有</i>${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span><span class="cal-td ${dir}">${dt}</span><span class="cal-tp muted">${pt}</span></div>`;
+            const w = t.p > 0;
+            return `<div class="cal-trow ${w ? 'win' : 'loss'}"><span class="cal-tt">${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span><span class="cal-td ${dir}">${dt}</span><span class="cal-tw ${w ? 'win' : 'loss'}">${w ? '✓' : '✗'}</span><span class="cal-tp ${w ? 'pos' : 'neg'}">${pt}</span></div>`;
+        }).join('') || `<div class="cal-empty">${esc(periodLabel)}内のトリガーなし</div>`;
+        listHtml = `<div class="tcal-list"><div class="tcal-scroll">${rows}</div></div>`;
+    }
+
+    return `<div class="anlx-block anlx-triggers">${head}${nav}${body}${summary}${listHtml}</div>`;
+}
+
 /** Analytics section = (A) live DWS-SMT trigger history (from the connected
  *  MT5 broker, any broker; rolling period filter) + (B) 16-year hourly
  *  win-rate heatmap. Both empirical. */
 function buildAnalytics(snap, sym) {
     const sa = snap.analysis && snap.analysis.by_symbol && snap.analysis.by_symbol[sym];
     if (!sa) return '';
-    return buildRecentTriggers(snap, sym) + buildHourlyHeatmap(snap, sym);
-}
-
-/** (A) DWS-SMT trigger history for the connected MT5 broker (any broker).
- *  Three layers, concatenated by year:
- *   - ≤ backtest last_year (2025): the frozen 16Y OOS baseline (oos_baseline).
- *   - > last_year (2026+): the PERSISTENT per-broker live store
- *     (snap.live_history.by_symbol) — a COMPLETE year-bucketed record kept on
- *     disk, so a year stays full at year-end and survives restarts and the
- *     broker's sliding window. Same shape as the baseline → one reader.
- *   - the single still-open trigger (snap.validation recent_triggers, o:true):
- *     shown live at the top of its year, excluded from realised stats.
- *  The store is broker-scoped (triggers are price-derived, so the broker — not
- *  the account — is the boundary); the connected broker is named in the head. */
-function buildRecentTriggers(snap, sym) {
-    const baseTf = UI.dwsBase;
-    const liveHist = snap.live_history?.by_symbol?.[sym]?.[baseTf]?.by_year || {};
-    const brokerServer = snap.live_history?.server || null;
-    const brokerSub = brokerServer
-        ? `<span class="rt-broker" title="記録中ブローカー">${esc(brokerServer)}</span>`
-        + `<span class="rt-rec" title="ライブトリガーを永続記録中">● 記録中</span>`
-        : '';
-    const head = `<div class="anlx-title">トリガー履歴 ${esc(baseTf)}`
-               + `<span class="anlx-sub">16Y + ライブ連結 (pips・spread込み)${brokerSub}</span></div>`;
-
-    // CSV backtest owns the deep past through its FIXED UTC last_year; the live
-    // store owns the years beyond it. The fixed boundary stops a stray JST year
-    // from letting the backtest silently suppress the live feed.
-    const th = snap.oos_baseline?.by_symbol?.[sym]?.[baseTf]?.trigger_history || {};
-    const csvYearsRaw = th.by_year || {};
-    const csvLastYear = th.last_year
-        || (Object.keys(csvYearsRaw).length ? Math.max(...Object.keys(csvYearsRaw).map(Number)) : 0);
-
-    const csvYears = {};
-    for (const [y, rec] of Object.entries(csvYearsRaw)) {
-        if (Number(y) <= csvLastYear) csvYears[y] = rec;
-    }
-    const liveYears = {};
-    for (const [y, rec] of Object.entries(liveHist)) {
-        if (Number(y) > csvLastYear) liveYears[y] = rec;   // live owns > boundary
-    }
-    const csvYearNums = Object.keys(csvYears).map(Number);
-    const liveYearNums = Object.keys(liveYears).map(Number);
-
-    // The single still-running trigger (if any) — shown, never counted.
-    const openTrig = (snap.validation?.by_symbol?.[sym]?.[baseTf]?.raw?.recent_triggers || [])
-        .find(t => t.o) || null;
-    const openYear = openTrig ? jstYear(openTrig.t) : null;
-    const isLiveYear = (y) => !!liveYears[String(y)] || y === openYear;
-
-    // CSV + live years share ONE aggregate shape, so one reader. Realised stats
-    // (n/wins/losses/cum/gw/gl) are closed-only; the open trigger is grafted
-    // into its year's list with nOpen, never into the realised totals.
-    // Convert each source's raw points → PIPS so 16Y baseline and live feed
-    // read in one broker-independent unit (and the 0.001/0.01 scale gap closes).
-    const csvF = pipsFactor(sym, 'csv');
-    const liveF = pipsFactor(sym, 'live');
-    const aggStats = (c, src) => {
-        const f = src === 'live' ? liveF : csvF;
-        return {
-            n: c.n, wins: c.wins, losses: c.losses, cum: (c.cum_pts || 0) * f,
-            gw: (c.gross_win || 0) * f, gl: (c.gross_loss || 0) * f, nOpen: 0,
-            trades: (c.trades || []).map(t => ({ ...t, p: t.p * f })), src,
-        };
-    };
-    const yearRecord = (y) => {
-        let rec = null;
-        if (y > csvLastYear && liveYears[String(y)]) rec = aggStats(liveYears[String(y)], 'live');
-        else if (csvYears[String(y)])                rec = aggStats(csvYears[String(y)], '16Y');
-        if (openTrig && y === openYear) {
-            if (!rec) rec = { n:0, wins:0, losses:0, cum:0, gw:0, gl:0, nOpen:0, trades:[], src:'live' };
-            rec = { ...rec, nOpen: (rec.nOpen || 0) + 1,
-                    trades: [{ t: openTrig.t, d: openTrig.d, p: openTrig.p * liveF, o: true }, ...rec.trades] };
-        }
-        return rec;
-    };
-
-    const allYears = [...new Set([
-        ...csvYearNums, ...liveYearNums,
-        ...((openYear && openYear > csvLastYear) ? [openYear] : []),
-    ])].sort((a, b) => b - a);
-
-    if (!allYears.length) {
-        const msg = brokerServer
-            ? 'このブローカーの記録は蓄積開始 (確定トリガー待ち)'
-            : '履歴データ取得待ち (ライブ検証は起動後 ~90 秒)';
-        return `<div class="anlx-block anlx-triggers">${head}
-            <div class="rt-empty">${esc(msg)}</div>
-        </div>`;
-    }
-
-    let year = UI.trigYear || 'all';
-    if (year !== 'all' && !allYears.includes(Number(year))) year = 'all';
-
-    const yearPill = (val, label, extra) =>
-        `<span class="rt-period-pill${String(year) === String(val) ? ' on' : ''}${extra || ''}" `
-      + `data-trig-year="${val}">${esc(label)}</span>`;
-    const pills = yearPill('all', '全')
-        + allYears.map(y => yearPill(y, String(y), isLiveYear(y) ? ' is-live' : '')).join('');
-
-    // Resolve the displayed summary + list for the selected period.
-    let n, wins, losses, cum, gw, gl, nOpen, trades, srcLabel;
-    if (year === 'all') {
-        n = wins = losses = cum = gw = gl = nOpen = 0;
-        for (const y of allYears) {
-            const r = yearRecord(y); if (!r) continue;
-            n += r.n; wins += r.wins; losses += r.losses; cum += r.cum;
-            gw += r.gw; gl += r.gl; nOpen += r.nOpen || 0;
-        }
-        // List for 全 = newest year's trades (carries the open trigger).
-        const newestRec = yearRecord(allYears[0]) || { trades: [] };
-        trades = newestRec.trades;
-        srcLabel = `2010–${allYears[0]} 連結`;
-    } else {
-        const r = yearRecord(Number(year)) || { n:0,wins:0,losses:0,cum:0,gw:0,gl:0,nOpen:0,trades:[] };
-        ({ n, wins, losses, cum, gw, gl, nOpen, trades } = r);
-        srcLabel = isLiveYear(Number(year)) ? `${year} (ライブ)` : `${year} (16Y)`;
-    }
-    const winLabel = year === 'all' ? '全' : `${year}年`;
-    const pf = gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0);
-    const wrTxt = n ? (wins / n * 100).toFixed(1) + '%' : '--';
-    const pfTxt = pf === Infinity ? '∞' : pf.toFixed(2);
-    const cumCls = cum > 0 ? 'pos' : cum < 0 ? 'neg' : '';
-    // 保有中 (open) triggers are shown but kept out of the realised tally.
-    const openNote = nOpen ? ` · <b class="rt-open-count">保有中 ${nOpen.toLocaleString('en-US')}</b>` : '';
-
-    const listRows = trades.map((t, i) => {
-        const dirCls = t.d > 0 ? 'buy' : 'sell';
-        const dTxt = t.d > 0 ? 'BUY' : 'SELL';
-        const pTxt = `${t.p >= 0 ? '+' : ''}${fmtPips(t.p)}`;
-        if (t.o) {
-            // Still-running trigger: floating P/L, not a settled win/loss.
-            return `<div class="rt-row open newest">
-                <span class="rt-time"><span class="rt-open-tag">保有中</span>${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span>
-                <span class="rt-dir ${dirCls}">${dTxt}</span>
-                <span class="rt-wl open">保有</span>
-                <span class="rt-pts muted" title="含み損益 (未確定)">${pTxt}</span>
-            </div>`;
-        }
-        const w = t.p > 0;
-        const newest = i === 0 ? ' newest' : '';
-        const tag = i === 0 ? '<span class="rt-newest-tag">最新</span>' : '';
-        return `<div class="rt-row ${w ? 'win' : 'loss'}${newest}">
-            <span class="rt-time">${tag}${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span>
-            <span class="rt-dir ${dirCls}">${dTxt}</span>
-            <span class="rt-wl ${w ? 'win' : 'loss'}">${w ? '✓' : '✗'}</span>
-            <span class="rt-pts ${w ? 'pos' : 'neg'}">${pTxt}</span>
-        </div>`;
-    }).join('') || `<div class="rt-empty">${esc(winLabel)}内のトリガーなし</div>`;
-
-    return `<div class="anlx-block anlx-triggers">${head}
-        <div class="rt-periods">${pills}</div>
-        <div class="rt-summary rt-summary-top">
-            <b>${esc(winLabel)} 確定 ${n.toLocaleString('en-US')} 件</b>:
-            勝率 <b>${wrTxt}</b>
-            · <b class="pos">${wins.toLocaleString('en-US')}勝</b> <b class="neg">${losses.toLocaleString('en-US')}敗</b>
-            · PF <b>${pfTxt}</b>
-            · 累積 <b class="${cumCls}">${cum >= 0 ? '+' : ''}${fmtPips(cum)} pips</b>${openNote}
-        </div>
-        <div class="rt-table">
-            <div class="rt-row rt-head">
-                <span class="rt-time">時刻 (JST) · 新しい順</span>
-                <span class="rt-dir">方向</span>
-                <span class="rt-wl">結果</span>
-                <span class="rt-pts">pips</span>
-            </div>
-            <div class="rt-scroll">${listRows}</div>
-        </div>
-        <div class="rt-listnote">${esc(srcLabel)} · 青年=ライブ / 灰年=16Yバックテスト</div>
-    </div>`;
+    return buildTriggerCalendar(snap, sym) + buildHourlyHeatmap(snap, sym);
 }
 
 /** Multiplier to convert a data source's raw net-"points" to PIPS.
@@ -1225,12 +1487,19 @@ function buildHourlyHeatmap(snap, sym) {
         const h = byHour[hr] || { hour: hr, n: 0, win_rate: null };
         const wr = h.win_rate;
         const isNow = hr === nowJst;
+        // Below ~30 samples a cell's win rate is noise (wide CI), so it must NOT
+        // be coloured as an edge. Render it neutral grey with the WR muted; the
+        // tooltip says it's a reference value, not a signal.
+        const lowN = wr != null && h.n < HM_MIN_N;
         const wrTxt = wr == null ? '--' : Math.round(wr * 100);
         const title = wr == null
             ? `${hr}時 JST — データなし`
-            : `${hr}時 JST — WR ${(wr*100).toFixed(1)}% (N=${h.n}、母集団比 ${((wr-popWr)*100>=0?'+':'')}${((wr-popWr)*100).toFixed(1)}pp)`;
-        return `<div class="hm-cell${isNow ? ' is-now' : ''}"
-                     style="background:${cellColor(wr)}" title="${esc(title)}">
+            : `${hr}時 JST — WR ${(wr*100).toFixed(1)}% (N=${h.n}` + (lowN
+                ? `・標本不足 N<${HM_MIN_N}: 参考値)`
+                : `、母集団比 ${((wr-popWr)*100>=0?'+':'')}${((wr-popWr)*100).toFixed(1)}pp)`);
+        const bg = lowN ? 'rgba(255,255,255,0.05)' : cellColor(wr);
+        return `<div class="hm-cell${isNow ? ' is-now' : ''}${lowN ? ' hm-lown' : ''}"
+                     style="background:${bg}" title="${esc(title)}">
             <span class="hm-hour">${String(hr).padStart(2,'0')}</span>
             <span class="hm-wr">${wrTxt}</span>
         </div>`;
@@ -1248,7 +1517,7 @@ function buildHourlyHeatmap(snap, sym) {
     const dstTag = (isDstEU(nowMs) || isDstUS(nowMs)) ? '夏時間' : '冬時間';
     return `<div class="anlx-block anlx-heatmap">
         <div class="anlx-title">時刻別勝率 ${esc(UI.dwsBase)}
-            <span class="anlx-sub">16Y${liveN ? ' + ライブ ' + liveN.toLocaleString('en-US') + '件' : ''}・セッション別 (${dstTag}・母集団 WR ${(popWr*100).toFixed(1)}%基準、■=現在)</span>
+            <span class="anlx-sub">16Y${liveN ? ' + ライブ ' + liveN.toLocaleString('en-US') + '件' : ''}・セッション別 (${dstTag}・母集団 WR ${(popWr*100).toFixed(1)}%基準、■=現在、灰=標本不足 N&lt;${HM_MIN_N})</span>
         </div>
         <div class="hm-sessions">${rowsHtml}</div>
     </div>`;
@@ -1469,14 +1738,49 @@ function paintConcentration(snap) {
     el.innerHTML = head + rows;
 }
 
+/** Enable/disable the window pills by how many bars are actually loaded: a
+ *  window of N bars needs ≥ N return rows. Without this, a window beyond the
+ *  loaded history (e.g. 500 on a fresh terminal) is silently skipped by the
+ *  backend and the list hangs on "waiting for data..." forever. Pills re-enable
+ *  on their own as bars accumulate (this runs on every correlation update). */
+function _paintCorrWindowAvail(corr) {
+    const avail = Number((corr && corr.bars_available) || 0);
+    const wins = $bind('corr-windows');
+    if (!wins) return;
+    const tf = (corr && corr.timeframe) || 'H1';
+    wins.querySelectorAll('.pill').forEach(p => {
+        const win = Number(p.dataset.win);
+        const ok = avail >= win;
+        p.classList.toggle('pill-disabled', !ok);
+        p.disabled = !ok;          // a disabled <button> can't be clicked
+        p.title = ok ? '' : `${tf} ${win}本ぶんの履歴が必要 (現在 ${avail}本)`;
+    });
+}
+
 function paintCorrelationList(corr, force) {
     if (!corr) return;
     if (!force && !changed('corr-list', corr.generated_at + ':' + UI.corrWindow)) return;
     const root = $bind('corr-list');
     if (!root) return;
+    _paintCorrWindowAvail(corr);
     const w = (corr.by_window || {})[String(UI.corrWindow)];
     if (!w || !w.matrix || !w.symbols || w.symbols.length === 0) {
-        root.innerHTML = '<div class="empty mute">waiting for data...</div>';
+        // Distinguish "not enough history for THIS window" (a permanent state
+        // until more bars load) from a genuine pre-first-data wait, so the panel
+        // never sits on an unexplained "waiting…".
+        const avail = Number(corr.bars_available || 0);
+        const need = Number(UI.corrWindow) || 0;
+        const tf = esc(corr.timeframe || 'H1');
+        if (avail > 0 && need > avail) {
+            const usable = CORR_WINDOWS.filter(x => x <= avail);
+            const hint = usable.length
+                ? `より短い窓 (${usable.join(' / ')}本) を選択してください`
+                : `データ蓄積をお待ちください`;
+            root.innerHTML = `<div class="empty mute">データ不足: ${tf} ${need}本必要 ・ `
+                + `取得 ${avail}本<br>${hint}</div>`;
+        } else {
+            root.innerHTML = '<div class="empty mute">データ取得中…</div>';
+        }
         return;
     }
     const syms = w.symbols;
@@ -1992,7 +2296,11 @@ function updateDwsValidation(sym, snap) {
         ? `<canvas class="dws-vspark" data-bind="dws-vspark-${sym}" width="160" height="22"></canvas>`
         : '';
 
-    el.innerHTML = headerHtml + statsHtml + secondaryHtml + sparkHtml;
+    // Recent regime FIRST (a drawdown banner + the rolling line), THEN the 16Y
+    // deep-eval — so the eye anchors on the CURRENT regime, not the favourable
+    // long-run when conditions have deteriorated.
+    el.innerHTML = _buildRegimeBanner(sym, snap, base)
+                 + secondaryHtml + headerHtml + statsHtml + sparkHtml;
 
     // Re-apply the persisted "説明" disclosure state for this symbol.
     if (DWS_DESC_OPEN.has(sym)) {
@@ -2033,6 +2341,53 @@ function _buildPeriodVerdict(ps) {
     return `<span class="dws-vverdict ${cls}" `
          + `title="2010-2017 vs 2018-2025: drift ${driftTxt}, p=${ps.p_wr_raw.toExponential(2)}, Bonferroni ${ps.p_wr_bonferroni_significant ? '有意' : '非有意'}">`
          + `${esc(label)}${esc(dir)} · ${esc(driftTxt)}</span>`;
+}
+
+/** Live rolling PF vs the 16Y baseline PF for the active base TF (UI.dwsBase),
+ *  as a signed fraction (-0.30 = 30% below baseline), or null when either side
+ *  is missing/degenerate. Shared by the regime banner and the #3 regime gate so
+ *  the warning the trader sees and the gating that demotes a setup use the SAME
+ *  number. Pure read — never throws on partial snapshots. */
+function _regimeDrift(sym, snap) {
+    const base = snap.oos_baseline && snap.oos_baseline.by_symbol
+              && snap.oos_baseline.by_symbol[sym]
+              && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
+    const stats = snap.validation && snap.validation.by_symbol
+               && snap.validation.by_symbol[sym]
+               && snap.validation.by_symbol[sym][UI.dwsBase];
+    const c = stats && stats.raw;
+    if (!base || !base.profit_factor || base.profit_factor <= 0) return null;
+    if (!c || c.profit_factor == null || c.profit_factor === Infinity) return null;
+    return (c.profit_factor - base.profit_factor) / base.profit_factor;
+}
+
+/** Regime banner shown ABOVE everything: when the live rolling PF has drifted
+ *  materially BELOW the 16Y baseline (< -20%), warn loudly so the trader doesn't
+ *  anchor on the favourable long-run during a deteriorating regime. A materially
+ *  BETTER regime (> +20%) gets a quiet positive note; in-line with 16Y → nothing
+ *  (the rolling line already carries the detail). */
+function _buildRegimeBanner(sym, snap, base) {
+    const stats = snap.validation && snap.validation.by_symbol
+                  && snap.validation.by_symbol[sym]
+                  && snap.validation.by_symbol[sym][UI.dwsBase];
+    const c = stats && stats.raw;
+    if (!c || !base || !base.profit_factor || base.profit_factor <= 0
+        || c.profit_factor == null || c.profit_factor === Infinity) return '';
+    const drift = (c.profit_factor - base.profit_factor) / base.profit_factor;
+    const pct = Math.round(drift * 100);
+    const wr = c.win_rate == null ? '--' : Math.round(c.win_rate * 100) + '%';
+    if (drift <= -0.20) {
+        return `<div class="dws-regime warn">⚠ <b>直近地合い悪化</b>`
+             + ` · 直近PF <b>${c.profit_factor.toFixed(2)}</b> <span class="neg">(16Y比 ${pct}%)</span>`
+             + ` · 勝率 ${esc(wr)} · N=${c.n_trades}`
+             + ` <em>— 16Y統計を過信せず、直近の劣化を前提に判断を</em></div>`;
+    }
+    if (drift >= 0.20) {
+        return `<div class="dws-regime good">直近地合い良好`
+             + ` · 直近PF <b>${c.profit_factor.toFixed(2)}</b> <span class="pos">(16Y比 +${pct}%)</span>`
+             + ` · 勝率 ${esc(wr)} · N=${c.n_trades}</div>`;
+    }
+    return '';
 }
 
 /** Build the secondary "直近 ローリング ~7M" line — N, WR, PF drift vs 16Y. */
@@ -2180,9 +2535,6 @@ function drawDwsCanvas(snap, sym) {
     const biasArr = win.bias || [];              // per-bar historical BIAS
     const ptMult = pointMultiplierFor(sym);      // price → MT5 points
     const liveF = pipsFactor(sym, 'live');       // MT5 points → pips (live feed)
-    const tk = snap.price && snap.price.ticks && snap.price.ticks[sym];
-    const costPts = (tk && tk.ask != null && tk.bid != null)
-        ? (tk.ask - tk.bid) * ptMult : 0;        // round-trip cost ≈ spread
     const tradeByEntry = {};                     // entry bar idx → trade record
     (win.trades || []).forEach(t => { tradeByEntry[t.i] = t; });
     const gutter = 30, axisH = 14, markH = 32;   // markH fits marker + P/L label
@@ -2232,7 +2584,11 @@ function drawDwsCanvas(snap, sym) {
         // this BUY/SELL opened. EXIT triggers open no trade → no label.
         const tr = tradeByEntry[j];
         if (tr) {
-            const pips = (tr.p * ptMult - costPts) * liveF;     // net of cost, in pips
+            // The histogram is a TIMING guide, not a P/L ledger: show the GROSS
+            // move in pips with NO spread deduction. The 履歴 table is the
+            // spread-accurate record (each trade net of its own bar's spread),
+            // so it reads slightly smaller than this gross figure — never larger.
+            const pips = tr.p * ptMult * liveF;                 // gross, in pips
             ctx.fillStyle = pips > 0 ? '#00d09c' : pips < 0 ? '#ff5b6b' : '#8089a0';
             ctx.font = '700 9px monospace';
             ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -2300,6 +2656,7 @@ function paintAll() {
     pendingFrame = null;
     if (!latestSnap) return;
     paintHeader(latestSnap);
+    paintSummaryBar(latestSnap);
     paintPrices(latestSnap);
     paintSignals(latestSnap);
     paintAccount(latestSnap);
@@ -2309,6 +2666,7 @@ function paintAll() {
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
     paintDws(latestSnap);
+    maybeRefreshJournal(latestSnap);
 }
 
 // 1-second clock + countdown tick (independent of WS)
@@ -2432,7 +2790,20 @@ document.addEventListener('DOMContentLoaded', () => {
     startTickers();
     setupBrokerSwitcher();
     setupOrderModal();
+    paintAlertBell();                 // reflect the saved high-conviction-alert state
+    // Summary bar: restore + persist its open/closed state (default open).
+    const sb = document.querySelector('.summary-bar');
+    if (sb) {
+        try { if (localStorage.getItem('mt5-summary') === '0') sb.open = false; } catch (e) {}
+        sb.addEventListener('toggle', () => {
+            try { localStorage.setItem('mt5-summary', sb.open ? '1' : '0'); } catch (e) {}
+        });
+    }
     connect();
+    // NB: the journal is seeded by maybeRefreshJournal() on the first snapshot
+    // that carries account.server (the broker-scoped store key) — NOT here. A
+    // load-time fetch would fire a second, broker-unknown request (the observed
+    // double GET /api/journal).
 });
 
 window.addEventListener('resize', () => {

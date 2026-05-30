@@ -135,6 +135,50 @@ def append_closed(
         return len(fresh)
 
 
+# --- Corruption invariant ------------------------------------------------- #
+# A mis-detected server-clock offset used to re-stamp the SAME bar under several
+# whole-hour offsets, so the entry-time-keyed store recorded one trade many times
+# (the [0,+4h,+5h] fingerprint). The offset is now DST-correct and deterministic
+# (mt5_connector), so a bar's entry_ms is stable and the entry_ms dedup below
+# prevents recurrence. This invariant is the *tripwire*: it flags the re-stamp
+# fingerprint loudly so a regression can never rot the store unnoticed. It does
+# NOT flag two genuinely distinct trades that merely share a rounded net_pts —
+# deleting real trades to make a metric look clean is itself appearance-faking.
+_HOUR_MS = 3_600_000
+_RESTAMP_WINDOW_MS = 6 * _HOUR_MS          # observed offset errors were <= 5 h
+
+
+def scan_corruption(recs: list[dict[str, Any]]) -> dict[str, int]:
+    """Detect server-offset re-stamp corruption in store records.
+
+    Returns ``{"exact_t_dups": n, "tight_triples": n}``:
+    * ``exact_t_dups`` — the SAME entry_ms recorded more than once (a bar stamped
+      twice; should be impossible given the entry_ms dedup).
+    * ``tight_triples`` — a ``(direction, round(net_pts, 1))`` group with 3+
+      members inside a 6 h window, all whole-hour-aligned: the offset-bug
+      fingerprint. Coincidental same-value pairs are intentionally NOT counted.
+    Both zero ⇒ no re-stamp corruption.
+    """
+    ts_all = [int(r["t"]) for r in recs]
+    exact = len(ts_all) - len(set(ts_all))
+    groups: dict[tuple[int, float], list[int]] = {}
+    for r in recs:
+        groups.setdefault((int(r["d"]), round(float(r["p"]), 1)), []).append(int(r["t"]))
+    triples = 0
+    for members in groups.values():
+        uniq = sorted(set(members))
+        if len(uniq) < 3:
+            continue
+        for anchor in uniq:
+            cluster = [t for t in uniq
+                       if 0 <= t - anchor <= _RESTAMP_WINDOW_MS
+                       and (t - anchor) % _HOUR_MS == 0]
+            if len(cluster) >= 3:
+                triples += 1
+                break
+    return {"exact_t_dups": exact, "tight_triples": triples}
+
+
 def _period_stats(nets: list[float]) -> dict[str, Any]:
     """Summary stats over a year's net-point list. Mirrors the 16Y baseline so
     the front-end aggregates live + backtest years with one code path. Gross
@@ -173,6 +217,19 @@ def _hourly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return buckets
 
 
+def _by_month(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per-JST-month aggregate ``{"1".."12": stats}`` for one year's rows.
+
+    Only months that actually have trades appear (the front end fills the rest of
+    the 12-column calendar as empty). Each month carries the same summary shape as
+    a year so the monthly-returns calendar and its drill-down read one code path."""
+    buckets: dict[int, list[float]] = {}
+    for r in rows:
+        month = int(pd.Timestamp(r["t"], unit="ms", tz="UTC").tz_convert(_JST).month)
+        buckets.setdefault(month, []).append(r["p"])
+    return {str(m): _period_stats(nets) for m, nets in sorted(buckets.items())}
+
+
 def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
     """Read the store and bucket it into ``{by_year: {YYYY(JST): {stats,
     trades:[last 30 newest-first]}}}`` — the same shape the 16Y baseline ships,
@@ -200,6 +257,15 @@ def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
                 except (ValueError, KeyError, TypeError):
                     continue
 
+        # Tripwire: surface re-stamp corruption LOUDLY rather than let it rot the
+        # store silently. (It must stay zero now the offset is DST-deterministic.)
+        flags = scan_corruption(recs)
+        if flags["exact_t_dups"] or flags["tight_triples"]:
+            log.error(
+                "trigger store CORRUPTION in %s: %s — run scripts/_regen_trigger_store.py",
+                path, flags,
+            )
+
         by_year_rows: dict[int, list[dict[str, Any]]] = {}
         for rec in recs:
             # JST-year bucketing — matches the front-end and the CSV baseline.
@@ -216,7 +282,10 @@ def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
                                   "trades": trades,
                                   # Per-year 24-hour breakdown so the dashboard
                                   # merges live hours into the 16Y heatmap.
-                                  "hourly": _hourly(rows)}
+                                  "hourly": _hourly(rows),
+                                  # Per-month aggregate so the dashboard renders a
+                                  # monthly-returns calendar over the full record.
+                                  "months": _by_month(rows)}
         result = {"by_year": by_year}
         _by_year_cache[path] = (sig, result)
         return copy.deepcopy(result)

@@ -46,6 +46,7 @@ class CorrelationSnapshot:
     compute_ms: float
     timeframe: str                     # e.g. "H1"
     by_window: dict[int, CorrelationMatrix]
+    bars_available: int = 0            # usable return rows (shared across symbols)
 
 
 class CorrelationEngine:
@@ -95,7 +96,7 @@ class CorrelationEngine:
             return CorrelationSnapshot(
                 generated_at=time.time(),
                 compute_ms=(time.perf_counter() - t0) * 1000.0,
-                timeframe=self._tf.label, by_window={},
+                timeframe=self._tf.label, by_window={}, bars_available=0,
             )
 
         closes = pd.DataFrame(series_by_sym).dropna(how="all")
@@ -141,4 +142,5 @@ class CorrelationEngine:
             generated_at=time.time(),
             compute_ms=(time.perf_counter() - t0) * 1000.0,
             timeframe=self._tf.label, by_window=by_window,
+            bars_available=int(len(returns)),
         )

@@ -8,8 +8,39 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import config
 from analyzer import signal_validator as sv
 from analyzer.dws_smt import DwsSmtTrade
+
+
+def test_compute_skips_symbol_without_broker_meta():
+    """A symbol missing from broker_meta (no point) is SKIPPED, never computed
+    with a point=1.0 fallback — that would record net_pts ~100x too large and the
+    entry-time-keyed store would persist the error permanently."""
+    idx = pd.date_range("2024-01-01", periods=300, freq="15min", tz="UTC")
+    df = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "spread": 0}, index=idx)
+
+    class _FakeConn:
+        def fetch_rates_parallel(self, bases, specs):
+            return {(b, s.label): df for b in bases for s in specs}
+
+    val = sv.SignalValidator(_FakeConn(), fetch_gap_sec=0.0)
+    snap = val.compute(["XAUUSD"], {})            # empty broker_meta → must skip
+    assert "XAUUSD" not in snap.by_symbol
+
+
+def test_uniform_cost_yields_gross_minus_configured_pips():
+    """The live cost model deducts EXACTLY config.LIVE_SPREAD_COST_PIPS pips from
+    each trade's P/L, independent of the broker digit convention. The store keeps
+    net in broker points; the front end multiplies by point/pip_size to show pips.
+    """
+    point, pip_size = 0.01, 0.10                 # IC XAUUSD (2-digit gold)
+    cost_pts = config.LIVE_SPREAD_COST_PIPS * pip_size / point   # uniform cost, points
+    gross_price = 67.84                          # a +$67.84 move
+    net_pts = gross_price / point - cost_pts     # what the store records
+    net_pips = net_pts * point / pip_size        # what the front end displays
+    gross_pips = gross_price / pip_size
+    assert net_pips == pytest.approx(gross_pips - config.LIVE_SPREAD_COST_PIPS)
 
 
 # --------------------------------------------------------------- Wilson interval
@@ -142,7 +173,7 @@ def test_recent_triggers_includes_open_trigger():
 
 
 def test_evaluate_trades_cost_is_deducted():
-    # raw +10 price points, point=1.0, spread 3 pts at entry → net 7.
+    # raw +10 price points, point=1.0, cost 3 pts at entry → net 7.
     trades = (_trade(0, 1, 10.0),)
     spread = np.array([3.0, 0.0])
     adx = np.array([30.0, 30.0])

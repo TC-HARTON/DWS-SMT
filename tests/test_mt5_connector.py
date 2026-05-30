@@ -176,6 +176,125 @@ def test_server_offset_converts_times_to_utc(mt5_stub, mocker):
     assert df.index[-1].value // 1_000_000_000 == int(fake_now)   # epoch secs (UTC)
 
 
+def test_server_offset_rejects_stale_tick(mt5_stub, mocker):
+    """A STALE tick (market closed / just reconnected) is hours old, so its
+    ``server_time - now`` sits far from any whole hour. Rounding it would invent
+    a wrong whole-hour offset that re-stamps every bar (the trigger-dup bug), so
+    the connector must REJECT such a sample (no cache) and self-heal once a fresh
+    tick flows."""
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    c.initialize()
+    fake_now = 1_700_000_000.0
+    mocker.patch("analyzer.mt5_connector.time.time", return_value=fake_now)
+    # Tick is ~3h+20min "ahead": the 20-min remainder marks it as NOT a fresh,
+    # whole-hour-aligned offset sample (a live tick would be within seconds).
+    stale_t = int(fake_now) + 3 * 3600 + 1200
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=stale_t, time_msc=stale_t * 1000,
+    )
+    assert c.server_offset_sec() == 0          # rejected, no prior -> 0
+    # Not cached: a subsequent FRESH tick self-heals to the true offset.
+    fresh_t = int(fake_now) + 3 * 3600
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=fresh_t, time_msc=fresh_t * 1000,
+    )
+    assert c.server_offset_sec() == 3 * 3600
+
+
+def test_server_offset_keeps_last_good_across_reconnect_when_stale(mt5_stub, mocker):
+    """Once a good offset is known it must survive a reconnect that lands on a
+    stale tick — returning the last-known-good value rather than 0 or a corrupt
+    re-detection."""
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    c.initialize()
+    fake_now = 1_700_000_000.0
+    mocker.patch("analyzer.mt5_connector.time.time", return_value=fake_now)
+    fresh_t = int(fake_now) + 3 * 3600
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=fresh_t, time_msc=fresh_t * 1000,
+    )
+    assert c.server_offset_sec() == 3 * 3600          # learn the good offset
+
+    c.initialize()                                     # reconnect resets per-conn cache
+    stale_t = int(fake_now) + 3 * 3600 + 1500          # 25-min remainder -> stale
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=stale_t, time_msc=stale_t * 1000,
+    )
+    assert c.server_offset_sec() == 3 * 3600          # last-good, not corrupted
+
+
+def test_server_offset_requires_confirmation_to_change(mt5_stub, mocker):
+    """A lone fresh sample that DIFFERS from the known-good offset must not flip
+    it on the spot (guards an hour-aligned fluke); a genuine change (e.g. DST)
+    repeats and is adopted on the next cycle."""
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    c.initialize()
+    fake_now = 1_700_000_000.0
+    mocker.patch("analyzer.mt5_connector.time.time", return_value=fake_now)
+    good_t = int(fake_now) + 3 * 3600
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=good_t, time_msc=good_t * 1000,
+    )
+    assert c.server_offset_sec() == 3 * 3600          # known-good = +3h
+
+    c._server_offset_sec = None                        # force re-detection
+    dst_t = int(fake_now) + 2 * 3600                    # offset now +2h (fresh, aligned)
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=dst_t, time_msc=dst_t * 1000,
+    )
+    assert c.server_offset_sec() == 3 * 3600          # first sighting -> hold prior
+    c._server_offset_sec = None
+    assert c.server_offset_sec() == 2 * 3600          # confirmed -> adopt
+
+
+def test_server_offset_for_dst_broker_is_tz_derived_not_tick(mt5_stub, mocker):
+    """For a DST-aware server the offset comes from the IANA zone at the current
+    instant — exact and immune to stale ticks (a tick stale by whole hours could
+    pass the freshness check). 2023-11-14 is EET (+2h) for Europe/Bucharest."""
+    mt5_stub.account_info.return_value = SimpleNamespace(
+        login=1, server="ICMarketsSC-MT5-3", company="IC", currency="JPY",
+        balance=0.0, equity=0.0, profit=0.0, margin=0.0, margin_free=0.0,
+        margin_level=0.0, leverage=500,
+    )
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    c.initialize()
+    mocker.patch("analyzer.mt5_connector.time.time", return_value=1_700_000_000.0)
+    # A wildly stale tick must be IGNORED for a DST broker (tz decides).
+    mt5_stub.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0, ask=2.0, last=1.5, time=1_700_000_000 - 6 * 3600, time_msc=0,
+    )
+    assert c.server_offset_sec() == 2 * 3600          # EET in November, from the zone
+
+
+def test_copy_rates_dst_aware_server_uses_iana_zone(mt5_stub):
+    """A DST-observing server (config.BROKER_TZ_BY_SERVER) must stamp each bar
+    with the correct SEASONAL offset — +2h in winter (EET), +3h in summer (EEST)
+    for Europe/Bucharest — instead of one flat offset that would mis-stamp
+    off-season bars and duplicate trades across a DST boundary."""
+    mt5_stub.account_info.return_value = SimpleNamespace(
+        login=1, server="ICMarketsSC-MT5-3", company="IC", currency="JPY",
+        balance=0.0, equity=0.0, profit=0.0, margin=0.0, margin_free=0.0,
+        margin_level=0.0, leverage=500,
+    )
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    c.initialize()
+
+    winter = int(pd.Timestamp("2026-01-15 12:00:00").timestamp())   # server wall clock
+    summer = int(pd.Timestamp("2026-07-15 12:00:00").timestamp())
+    raw = np.array(
+        [(winter, 1.0, 1.0, 1.0, 1.0, 1, 0, 0),
+         (summer, 2.0, 2.0, 2.0, 2.0, 1, 0, 0)],
+        dtype=[("time", "i8"), ("open", "f8"), ("high", "f8"), ("low", "f8"),
+               ("close", "f8"), ("tick_volume", "i8"), ("spread", "i4"),
+               ("real_volume", "i8")],
+    )
+    mt5_stub.copy_rates_from_pos.return_value = raw
+    df = c.copy_rates("XAUUSD", mt5_timeframe=15, count=2)
+    # Winter server 12:00 EET(+2) -> 10:00 UTC; summer 12:00 EEST(+3) -> 09:00 UTC.
+    assert df.index[0] == pd.Timestamp("2026-01-15 10:00:00", tz="UTC")
+    assert df.index[1] == pd.Timestamp("2026-07-15 09:00:00", tz="UTC")
+
+
 def test_account_snapshot_includes_open_positions(mt5_stub):
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()

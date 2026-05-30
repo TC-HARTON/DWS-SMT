@@ -24,10 +24,13 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, send_from_directory
 
 import config
+from analyzer import journal_store
+from analyzer.state import STATE
 from dashboard.ws_broadcaster import mount_websocket
 
 log = logging.getLogger(__name__)
@@ -165,6 +168,50 @@ def _spawn_restart_then_exit(new_terminal_path: str) -> None:
     os._exit(0)
 
 
+def _r(v) -> float | None:
+    """Round to 1 dp, or None for missing/non-numeric — for journal context."""
+    try:
+        return round(float(v), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tf_context(symbol: str) -> dict:
+    """Per-TF market context at order time (EMA side / ADX / DI / RSI), read
+    DEFENSIVELY from the latest analysis so a missing field can never break an
+    order. The front end renders a compact ↑/↓ tag from these raw figures."""
+    out: dict = {}
+    try:
+        a = STATE.analysis
+        sym = a.by_symbol.get(symbol) if a is not None else None
+        for label, tf in (getattr(sym, "by_tf", {}) or {}).items():
+            out[label] = {
+                "ae": bool(getattr(tf, "above_ema", False)),
+                "adx": _r(getattr(tf, "adx", None)),
+                "dip": _r(getattr(tf, "di_plus", None)),
+                "dim": _r(getattr(tf, "di_minus", None)),
+                "rsi": _r(getattr(tf, "rsi", None)),
+            }
+    except Exception:  # noqa: BLE001 — context is best-effort, never fatal
+        pass
+    return out
+
+
+def _journal_order(symbol: str, side: str, lots: float,
+                   sl: float | None, tp: float | None, res: dict) -> None:
+    """Append one journal entry for a just-placed order (broker-scoped)."""
+    acct = STATE.account
+    server = getattr(acct, "server", None) if acct is not None else None
+    journal_store.append(server, {
+        "ts": int(time.time() * 1000),
+        "symbol": symbol, "side": side, "lots": lots,
+        "sl": sl, "tp": tp,
+        "ticket": res.get("order") or res.get("ticket"),
+        "price": res.get("price"),
+        "ctx": _tf_context(symbol),
+    })
+
+
 def build_app(connector=None) -> Flask:
     """Construct the Flask app, mount static + ``/ws``, return it.
 
@@ -268,7 +315,25 @@ def build_app(connector=None) -> Flask:
         res = connector.place_market_order(symbol, side, lots, sl=sl, tp=tp)
         log.info("order %s %s lots=%s sl=%s tp=%s -> %s", side, symbol, lots, sl, tp,
                  res.get("retcode", res.get("error")))
+        if res.get("ok"):
+            # Log the discretionary entry + the multi-TF context it was taken in.
+            # Never let journalling affect the already-placed order.
+            try:
+                _journal_order(symbol, side, lots, sl, tp, res)
+            except Exception:  # noqa: BLE001
+                log.exception("journal append failed for %s (order placed)", symbol)
         return jsonify(res), (200 if res.get("ok") else 400)
+
+    @app.route("/api/journal", methods=["GET"])
+    def get_journal():
+        acct = STATE.account
+        server = getattr(acct, "server", None) if acct is not None else None
+        try:
+            limit = min(500, max(1, int(request.args.get("limit", 200))))
+        except (TypeError, ValueError):
+            limit = 200
+        return jsonify({"server": server,
+                        "entries": journal_store.load_recent(server, limit)})
 
     @app.route("/api/close", methods=["POST"])
     def post_close():
