@@ -377,9 +377,9 @@ function paintSummaryBar(snap) {
         const sa = analysis.by_symbol[sym];
         if (!sa || !sa.by_tf) {
             return `<div class="sb-cell na" data-sb-sym="${sym}">
-                <div class="sb-row1"><span class="sb-sym">${sym}</span></div>
+                <div class="sb-sym">${sym}</div>
                 <div class="sb-bias na">--</div>
-                <div class="sb-tfs">データ無</div>
+                <div class="sb-tfs sb-nodata">データ無</div>
             </div>`;
         }
         const c = compositeSignal(sa.by_tf);
@@ -387,24 +387,28 @@ function paintSummaryBar(snap) {
         const degraded = drift != null && drift <= REGIME_GATE_DRIFT;
         const scoreStr = c.cls === 'na' ? '--'
             : (c.score > 0 ? '+' : '') + c.score.toFixed(1);
-        // 4-TF EMA side (high→low TF) — the "一致状態" at a glance.
+        // 4-TF EMA side as colour chips (D1/H4/H1/M15): green=above, red=below.
         const tfHtml = TF_LABELS.map(lab => {
             const tf = sa.by_tf[lab];
             if (!tf || tf.last_close == null || tf.ema == null) {
-                return `<span class="sb-tf">${lab}·</span>`;
+                return `<span class="sb-tf">${lab}</span>`;
             }
             const up = tf.last_close >= tf.ema;
-            return `<span class="sb-tf">${lab}<span class="${up ? 'up' : 'dn'}">${up ? '▲' : '▼'}</span></span>`;
+            return `<span class="sb-tf ${up ? 'up' : 'dn'}">${lab}</span>`;
         }).join('');
+        // BIAS stays direction-coloured (the signal); the amber cell frame +
+        // 様子見 pill carry the regime caution when gated.
         const flag = degraded
-            ? `<span class="sb-flag" title="直近地合い悪化 16Y比 ${Math.round(drift * 100)}% → 様子見">様子見</span>`
+            ? `<div class="sb-flag" title="直近地合い悪化: 16Y比 ${Math.round(drift * 100)}% → 様子見 (執行は裁量)">⚠ 様子見</div>`
             : '';
         const cellCls = degraded ? 'degraded' : c.cls;
-        const biasCls = degraded ? 'neutral' : c.cls;   // mute direction colour when gated
-        return `<div class="sb-cell ${cellCls}" data-sb-sym="${sym}" title="${sym} BIAS ${scoreStr}">
-            <div class="sb-row1"><span class="sb-sym">${sym}</span>${flag}</div>
-            <div class="sb-bias ${biasCls}">${c.arrow} ${scoreStr}</div>
+        // BIAS number coloured by SIGN: + green, − red, 0 grey.
+        const signCls = c.score > 0 ? 'pos' : c.score < 0 ? 'neg' : 'zero';
+        return `<div class="sb-cell ${cellCls}" data-sb-sym="${sym}" title="${sym} · BIAS ${scoreStr} (${c.label})">
+            <div class="sb-sym">${sym}</div>
+            <div class="sb-bias ${signCls}"><span class="sb-arrow">${c.arrow}</span>${scoreStr}</div>
             <div class="sb-tfs">${tfHtml}</div>
+            ${flag}
         </div>`;
     }).join('');
 }

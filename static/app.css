@@ -293,39 +293,67 @@ body {
 .sb-cells {
     display: grid;
     grid-template-columns: repeat(8, minmax(0, 1fr));
-    gap:var(--space-2);
-    padding:0 var(--space-3) var(--space-3);
+    gap:var(--space-3);
+    padding:2px var(--space-3) var(--space-3);
 }
 .sb-cell {
-    display: flex; flex-direction: column; gap:2px;
-    padding:4px 7px; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; gap:3px;
+    padding:7px 8px 8px; min-width: 0;
+    text-align: center;
     background: var(--panel-2);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--fg-3);
+    border-radius: var(--radius);
+    border-top: 3px solid var(--fg-dim);   /* posture accent runs across the top */
     cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
-.sb-cell:hover { background: var(--panel); }
-.sb-cell.buy, .sb-cell.strong-buy   { border-left-color: var(--buy); }
-.sb-cell.sell, .sb-cell.strong-sell { border-left-color: var(--sell); }
-.sb-cell.degraded { border-left-color: var(--warning); border-left-style: dashed; }
-.sb-row1 {
-    display: flex; align-items: baseline; justify-content: space-between; gap:4px;
+.sb-cell:hover { box-shadow: inset 0 0 0 1px var(--border-hover); }
+/* Direction tint + top accent — read the whole board's bullish/bearish posture
+   at a glance (greener = more bullish, redder = more bearish). */
+.sb-cell.buy         { border-top-color: var(--buy);  background: rgba(0,208,156,0.07); }
+.sb-cell.strong-buy  { border-top-color: var(--buy);  background: rgba(0,208,156,0.15); }
+.sb-cell.sell        { border-top-color: var(--sell); background: rgba(255,91,107,0.07); }
+.sb-cell.strong-sell { border-top-color: var(--sell); background: rgba(255,91,107,0.15); }
+.sb-cell.neutral, .sb-cell.na { border-top-color: var(--fg-dim); }
+.sb-cell.degraded {
+    border-top-color: var(--warning); border-top-style: dashed;
+    background: rgba(255,183,77,0.10);
 }
 .sb-sym {
     font-family: var(--mono); font-weight: var(--weight-bold);
-    font-size: var(--text-xs); color: var(--fg);
-    overflow: hidden; text-overflow: ellipsis;
+    font-size: var(--text-sm); letter-spacing: 0.06em;
+    color: var(--fg-2);
 }
-.sb-flag { font-size: var(--text-3xs); color: var(--warning); font-weight: 700; white-space: nowrap; }
-.sb-bias { font-family: var(--mono); font-weight: 800; font-size: var(--text-md); }
-.sb-bias.buy, .sb-bias.strong-buy   { color: var(--buy); }
-.sb-bias.sell, .sb-bias.strong-sell { color: var(--sell); }
-.sb-bias.neutral, .sb-bias.na       { color: var(--fg-2); }
-.sb-tfs { display: flex; gap:5px; font-family: var(--mono); font-size: var(--text-3xs); }
-.sb-tf  { color: var(--fg-3); white-space: nowrap; }
-.sb-tf .up { color: var(--buy); }
-.sb-tf .dn { color: var(--sell); }
-.sb-empty { padding:4px var(--space-5) 8px; color: var(--fg-3); font-size: var(--text-2xs); }
+/* BIAS score is the hero: large, vivid direction colour, centred. The arrow
+   doubles (▲▲ / ▼▼) on STRONG so strength reads without a text label. */
+.sb-bias {
+    display: flex; align-items: baseline; justify-content: center; gap:4px;
+    font-family: var(--mono); font-weight: 900;
+    font-size: 23px; line-height: 1.0;
+    font-variant-numeric: tabular-nums;
+}
+.sb-arrow { font-size: 15px; }
+.sb-bias.pos { color: var(--buy); }    /* + → green */
+.sb-bias.neg { color: var(--sell); }   /* − → red   */
+.sb-bias.zero, .sb-bias.na { color: var(--fg-3); }
+/* 4-TF alignment chips D1/H4/H1/M15 — green=above EMA, red=below. The colour
+   pattern (how many green) IS the "TF一致" read at a glance. */
+.sb-tfs { display: flex; gap:3px; }
+.sb-tf {
+    font-family: var(--mono); font-size: var(--text-2xs); font-weight: 800;
+    padding:1px 4px; border-radius:3px;
+    color: var(--fg-3); background: rgba(255,255,255,0.04);
+}
+.sb-tf.up { color: var(--buy);  background: rgba(0,208,156,0.16); }
+.sb-tf.dn { color: var(--sell); background: rgba(255,91,107,0.16); }
+.sb-nodata { color: var(--fg-dim); font-size: var(--text-2xs); }
+/* 様子見 — amber pill, the regime caution flag. */
+.sb-flag {
+    margin-top:1px;
+    font-size: var(--text-2xs); font-weight: 800; color: var(--warning);
+    background: rgba(255,183,77,0.16); border-radius:4px;
+    padding:1px 8px; letter-spacing: var(--track-tight); white-space: nowrap;
+}
+.sb-empty { padding:6px var(--space-5) 10px; color: var(--fg-3); font-size: var(--text-2xs); }
 
 .grid {
     display: grid;
