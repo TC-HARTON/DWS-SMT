@@ -19,11 +19,17 @@ const STRENGTH_WINDOWS = ["H1", "H4", "D1", "W1"];
 const CORR_WINDOWS = [20, 100, 500];
 // Min samples for an hourly-heatmap cell to be treated as signal (not noise).
 const HM_MIN_N = 30;
-// #3 regime gate: when the live rolling PF is this far BELOW the 16Y baseline,
-// a high-conviction setup is DEMOTED to 様子見 and its high-conviction alert is
-// suppressed. Deeper than the -0.20 warn banner so "warn" and "demote" are two
-// distinct tiers. Execution (lot/SL) stays the user's discretion — untouched.
-const REGIME_GATE_DRIFT = -0.30;
+// Regime flags fire on TWO conditions together: (1) recent rolling PF is below
+// the 16Y baseline by the drift threshold, AND (2) recent PF is also under an
+// ABSOLUTE floor. The IC↔Dukascopy calibration proved the FX "drift below 16Y"
+// is a broker-agnostic regime softening that STAYS profitable (PF ~1.5-1.7), so
+// being below the exceptional 16Y peak alone must NOT cry wolf — only flag when
+// the recent edge is genuinely thin in absolute terms. Execution (lot/SL) stays
+// the user's discretion — untouched.
+const REGIME_WARN_DRIFT = -0.20;   // banner (amber): drift this far below 16Y...
+const REGIME_GATE_DRIFT = -0.30;   // demote to 様子見 + mute alert at this depth...
+const REGIME_PF_FLOOR   = 1.30;    // ...but ONLY when recent PF is also below this
+                                   // (PF >= 1.30 = solidly profitable → never flag).
 
 // Per-domain version stamp cache so callbacks can skip no-op renders.
 const STAMPS = {};
@@ -38,7 +44,7 @@ function changed(key, stamp) {
 const UI = {
     strengthWindow: 'H4',
     corrWindow:     100,
-    dwsBase:        'H4',   // DWS-SMT base timeframe (x-axis): H4 / H1 / M15
+    dwsBase:        'M15',  // DWS-SMT trigger base (x-axis): H1 / M15 (H4 hidden here only)
     calYear:        null,   // trigger-calendar selected year (null → newest in data)
     calMonth:       null,   // trigger-calendar selected month 1-12 (JST), or null = whole year
     calView:        'months', // calendar body: 'months' grid or 'years' picker
@@ -324,12 +330,13 @@ function paintActiveSetups(snap) {
         const c = compositeSignal(sa.by_tf);
         if (c.cls === 'na' || c.cls === 'neutral') continue;
         if (Math.abs(c.score) < 5) continue;  // only high-conviction
-        // #3 regime gate: a high-conviction setup whose live rolling PF has
-        // fallen ≥30% below its 16Y baseline is DEMOTED to 様子見 (still shown,
-        // de-emphasised, sorted last) and excluded from alerts.
-        const drift = _regimeDrift(sym, snap);
-        const degraded = drift != null && drift <= REGIME_GATE_DRIFT;
-        scored.push({ sym, c, degraded, drift });
+        // #3 regime gate: a high-conviction setup is DEMOTED to 様子見 (still
+        // shown, de-emphasised, sorted last; excluded from alerts) only when its
+        // live rolling PF is BOTH >=30% below the 16Y baseline AND below the
+        // absolute floor — so a still-profitable below-peak regime is left alone.
+        const st = _regimeState(sym, snap);
+        const degraded = _regimeGated(st);
+        scored.push({ sym, c, degraded, drift: st ? st.drift : null });
     }
     // Non-degraded high-conviction first; 様子見 sink to the end. Strongest
     // |score| first within each group.
@@ -401,11 +408,13 @@ function paintSummaryBar(snap) {
                 <div class="sb-sym">${symHtml}</div>
                 <div class="sb-bias na">--</div>
                 <div class="sb-tfs sb-nodata">データ無</div>
+                <div class="sb-flag sb-flag-off" aria-hidden="true">⚠ 様子見</div>
             </div>`;
         }
         const c = compositeSignal(sa.by_tf);
-        const drift = _regimeDrift(sym, snap);
-        const degraded = drift != null && drift <= REGIME_GATE_DRIFT;
+        const st = _regimeState(sym, snap);
+        const degraded = _regimeGated(st);
+        const drift = st ? st.drift : null;
         const scoreStr = c.cls === 'na' ? '--'
             : (c.score > 0 ? '+' : '') + c.score.toFixed(1);
         // 4-TF EMA side as colour chips (D1/H4/H1/M15): green=above, red=below.
@@ -418,10 +427,13 @@ function paintSummaryBar(snap) {
             return `<span class="sb-tf ${up ? 'up' : 'dn'}">${lab}</span>`;
         }).join('');
         // BIAS stays direction-coloured (the signal); the amber cell frame +
-        // 様子見 pill carry the regime caution when gated.
+        // 様子見 pill carry the regime caution when gated. The pill is ALWAYS in
+        // the DOM (hidden when not gated) so a cell's height never changes when a
+        // flag appears/disappears — otherwise the whole bar reflowed and the app
+        // jumped vertically each snapshot.
         const flag = degraded
             ? `<div class="sb-flag" title="直近地合い悪化: 16Y比 ${Math.round(drift * 100)}% → 様子見 (執行は裁量)">⚠ 様子見</div>`
-            : '';
+            : `<div class="sb-flag sb-flag-off" aria-hidden="true">⚠ 様子見</div>`;
         const cellCls = degraded ? 'degraded' : c.cls;
         // BIAS number coloured by SIGN: + green, − red, 0 grey.
         const signCls = c.score > 0 ? 'pos' : c.score < 0 ? 'neg' : 'zero';
@@ -1886,8 +1898,11 @@ function paintCorrelationList(corr, force) {
 // Canvas and lets the user switch the base timeframe (x-axis).
 // ------------------------------------------------------------
 
-const DWS_BASES = ['H4', 'H1', 'M15'];
-const DWS_BASE_LABEL = { H4: '4H', H1: '1H', M15: 'M15' };
+// H4 is hidden from the TRIGGER-TF selector only (few traders trade the 4H
+// signal). It is NOT removed from BIAS — the composite, the signal matrix and
+// the summary chips all still show H4, and the engine/DWS stacks still use it.
+const DWS_BASES = ['H1', 'M15'];
+const DWS_BASE_LABEL = { H1: '1H', M15: 'M15' };
 // Histogram cell colours by index: 0 up / 1 down / 2 flat.
 const DWS_CELL = ['#00d09c', '#ff5b6b', '#3f4760'];
 
@@ -2368,12 +2383,11 @@ function _buildPeriodVerdict(ps) {
          + `${esc(label)}${esc(dir)} · ${esc(driftTxt)}</span>`;
 }
 
-/** Live rolling PF vs the 16Y baseline PF for the active base TF (UI.dwsBase),
- *  as a signed fraction (-0.30 = 30% below baseline), or null when either side
- *  is missing/degenerate. Shared by the regime banner and the #3 regime gate so
- *  the warning the trader sees and the gating that demotes a setup use the SAME
- *  number. Pure read — never throws on partial snapshots. */
-function _regimeDrift(sym, snap) {
+/** Recent rolling regime vs the 16Y baseline for the active base TF (UI.dwsBase).
+ *  Returns {drift, pf, wr, n} or null. drift = (rolling.PF - base.PF)/base.PF.
+ *  Shared by the banner and the gate so both judge on the SAME numbers. Pure
+ *  read — never throws on partial snapshots. */
+function _regimeState(sym, snap) {
     const base = snap.oos_baseline && snap.oos_baseline.by_symbol
               && snap.oos_baseline.by_symbol[sym]
               && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
@@ -2383,34 +2397,40 @@ function _regimeDrift(sym, snap) {
     const c = stats && stats.raw;
     if (!base || !base.profit_factor || base.profit_factor <= 0) return null;
     if (!c || c.profit_factor == null || c.profit_factor === Infinity) return null;
-    return (c.profit_factor - base.profit_factor) / base.profit_factor;
+    return {
+        drift: (c.profit_factor - base.profit_factor) / base.profit_factor,
+        pf: c.profit_factor, wr: c.win_rate, n: c.n_trades,
+    };
 }
 
-/** Regime banner shown ABOVE everything: when the live rolling PF has drifted
- *  materially BELOW the 16Y baseline (< -20%), warn loudly so the trader doesn't
- *  anchor on the favourable long-run during a deteriorating regime. A materially
- *  BETTER regime (> +20%) gets a quiet positive note; in-line with 16Y → nothing
- *  (the rolling line already carries the detail). */
+/** #3 gate: demote/mute ONLY when recent PF is BOTH materially below the 16Y
+ *  baseline (drift) AND below the absolute floor — genuinely thin, not merely
+ *  below the exceptional long-run peak. Profitable regimes never gate. */
+function _regimeGated(st) {
+    return !!st && st.drift <= REGIME_GATE_DRIFT && st.pf < REGIME_PF_FLOOR;
+}
+
+/** Regime banner shown ABOVE everything. WARN (amber) only when the recent PF is
+ *  BOTH materially below the 16Y baseline AND below the absolute floor — so a
+ *  still-profitable "below the 16Y peak" regime (the common FX case the IC/Duka
+ *  calibration explained) does NOT cry wolf. A materially BETTER regime (>= +20%)
+ *  gets a quiet positive note; everything else → nothing (the rolling line still
+ *  carries the drift detail). */
 function _buildRegimeBanner(sym, snap, base) {
-    const stats = snap.validation && snap.validation.by_symbol
-                  && snap.validation.by_symbol[sym]
-                  && snap.validation.by_symbol[sym][UI.dwsBase];
-    const c = stats && stats.raw;
-    if (!c || !base || !base.profit_factor || base.profit_factor <= 0
-        || c.profit_factor == null || c.profit_factor === Infinity) return '';
-    const drift = (c.profit_factor - base.profit_factor) / base.profit_factor;
-    const pct = Math.round(drift * 100);
-    const wr = c.win_rate == null ? '--' : Math.round(c.win_rate * 100) + '%';
-    if (drift <= -0.20) {
+    const st = _regimeState(sym, snap);
+    if (!st) return '';
+    const pct = Math.round(st.drift * 100);
+    const wr = st.wr == null ? '--' : Math.round(st.wr * 100) + '%';
+    if (st.drift <= REGIME_WARN_DRIFT && st.pf < REGIME_PF_FLOOR) {
         return `<div class="dws-regime warn">⚠ <b>直近地合い悪化</b>`
-             + ` · 直近PF <b>${c.profit_factor.toFixed(2)}</b> <span class="neg">(16Y比 ${pct}%)</span>`
-             + ` · 勝率 ${esc(wr)} · N=${c.n_trades}`
-             + ` <em>— 16Y統計を過信せず、直近の劣化を前提に判断を</em></div>`;
+             + ` · 直近PF <b>${st.pf.toFixed(2)}</b> <span class="neg">(16Y比 ${pct}%)</span>`
+             + ` · 勝率 ${esc(wr)} · N=${st.n}`
+             + ` <em>— 直近PFが絶対水準でも低い (&lt;${REGIME_PF_FLOOR.toFixed(2)})。慎重に。</em></div>`;
     }
-    if (drift >= 0.20) {
+    if (st.drift >= 0.20) {
         return `<div class="dws-regime good">直近地合い良好`
-             + ` · 直近PF <b>${c.profit_factor.toFixed(2)}</b> <span class="pos">(16Y比 +${pct}%)</span>`
-             + ` · 勝率 ${esc(wr)} · N=${c.n_trades}</div>`;
+             + ` · 直近PF <b>${st.pf.toFixed(2)}</b> <span class="pos">(16Y比 +${pct}%)</span>`
+             + ` · 勝率 ${esc(wr)} · N=${st.n}</div>`;
     }
     return '';
 }

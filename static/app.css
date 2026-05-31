@@ -364,6 +364,9 @@ body {
     background: rgba(255,183,77,0.16); border-radius:4px;
     padding:1px 8px; letter-spacing: var(--track-tight); white-space: nowrap;
 }
+/* Reserved-but-invisible: keeps the cell height constant whether or not the
+   flag shows, so the bar never reflows and the app never jumps vertically. */
+.sb-flag-off { visibility: hidden; }
 .sb-empty { padding:6px var(--space-5) 10px; color: var(--fg-3); font-size: var(--text-2xs); }
 
 .grid {
