@@ -180,6 +180,82 @@ def test_compute_handles_no_available_pairs_gracefully():
     assert snap.by_window == {}
 
 
+def _df_pct(chg_pct: float) -> pd.DataFrame:
+    """A rate frame whose last-3-closed-bar % change equals *chg_pct* exactly."""
+    return _make_rate_df(100.0, 100.0 * (1.0 + chg_pct / 100.0))
+
+
+def test_exact_recovery_full_28pair_matrix():
+    """High-precision invariant: when every pair's % change equals
+    (strength_base - strength_quote), the engine recovers the true relative
+    strength EXACTLY — raw_avg perfectly linearly correlated with the true
+    strengths, identical ranking, and every currency contributed by all 7 of
+    its pairs (proves the average + base/quote inversion are mathematically
+    correct over the full symmetric matrix)."""
+    ccys = list(config.ALL_STRENGTH_CURRENCIES)
+    pairs = list(config.CURRENCY_STRENGTH_PAIRS)
+    true_s = dict(zip(ccys, [3.0, 2.0, 1.0, 0.0, -1.0, -2.0, 0.7, -1.4]))
+    mu = sum(true_s.values()) / len(true_s)
+    true_s = {c: v - mu for c, v in true_s.items()}
+    win = config.STRENGTH_WINDOWS[0]
+    rates = {(p, win.label): _df_pct(true_s[p[:3]] - true_s[p[3:]]) for p in pairs}
+    eng = CurrencyStrengthEngine(connector=MagicMock(), pairs=tuple(pairs))
+    scores = eng._compute_window(win, pairs, rates)
+
+    assert {scores[c].n_pairs for c in ccys} == {7}     # symmetric coverage
+    raw = [scores[c].raw_avg for c in ccys]
+    corr = np.corrcoef([true_s[c] for c in ccys], raw)[0, 1]
+    assert corr == pytest.approx(1.0, abs=1e-9)          # exact linear recovery
+    rank_true = sorted(ccys, key=lambda c: -true_s[c])
+    assert sorted(ccys, key=lambda c: -scores[c].raw_avg) == rank_true
+    assert sorted(ccys, key=lambda c: -scores[c].score) == rank_true   # 0-100 monotone
+
+
+def test_uniform_dominance_one_currency_vs_all():
+    """USD rising the same amount against every currency ⇒ USD is the sole top
+    and the other seven share one identical middle score."""
+    pairs = list(config.CURRENCY_STRENGTH_PAIRS)
+    win = config.STRENGTH_WINDOWS[0]
+
+    def chg(p: str) -> float:
+        if p[:3] == "USD":
+            return +0.5
+        if p[3:] == "USD":
+            return -0.5
+        return 0.0
+
+    rates = {(p, win.label): _df_pct(chg(p)) for p in pairs}
+    eng = CurrencyStrengthEngine(connector=MagicMock(), pairs=tuple(pairs))
+    scores = eng._compute_window(win, pairs, rates)
+    ccys = list(config.ALL_STRENGTH_CURRENCIES)
+    assert max(ccys, key=lambda c: scores[c].score) == "USD"
+    others = {round(scores[c].score, 6) for c in ccys if c != "USD"}
+    assert len(others) == 1                              # all non-USD equal
+    assert scores["USD"].score > next(iter(others))
+
+
+def test_pair_bias_sign_matches_strength_delta():
+    """Internal consistency: every display pair's bias delta has the same sign
+    as (base_strength - quote_strength)."""
+    ccys = list(config.ALL_STRENGTH_CURRENCIES)
+    pairs = list(config.CURRENCY_STRENGTH_PAIRS)
+    true_s = dict(zip(ccys, [3.0, 2.0, 1.0, 0.0, -1.0, -2.0, 0.7, -1.4]))
+    mu = sum(true_s.values()) / len(true_s)
+    true_s = {c: v - mu for c, v in true_s.items()}
+    win = config.STRENGTH_WINDOWS[0]
+    rates = {(p, win.label): _df_pct(true_s[p[:3]] - true_s[p[3:]]) for p in pairs}
+    eng = CurrencyStrengthEngine(
+        connector=MagicMock(), pairs=tuple(pairs),
+        display_pairs=tuple(s.base for s in config.SYMBOLS),
+    )
+    scores = eng._compute_window(win, pairs, rates)
+    biases = eng._compute_pair_biases(scores)
+    assert biases, "expected at least one display-pair bias"
+    for pair, pb in biases.items():
+        true_delta = true_s[pb.base] - true_s[pb.quote]
+        assert (pb.delta > 0) == (true_delta > 0), pair
+
+
 def test_compute_skips_pair_with_insufficient_bars():
     # Only one bar — pct change cannot be computed.
     conn = MagicMock()

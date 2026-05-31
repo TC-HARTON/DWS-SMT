@@ -14,7 +14,15 @@ const SYMBOL_ORDER = ["XAUUSD", "EURUSD", "GBPUSD", "AUDUSD",
                       "USDJPY", "EURJPY", "GBPJPY", "AUDJPY"];
 // Strength is a pure 7-fiat metric; XAU is excluded entirely (gold is not
 // a fiat currency). CHF/NZD computed backend-side but not displayed.
-const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD"];
+// Displayed strength currencies. The engine scores all 8 majors; we now show 7
+// (CAD/CHF added — both top-8 by BIS turnover), leaving only minor NZD hidden.
+// Order ≈ descending FX turnover.
+const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF"];
+// Full strength coverage = a currency paired with the other 7 of the 8 majors.
+// A displayed currency reporting fewer means the broker is missing some cross
+// pairs, so its score is computed over fewer pairs and is less reliable — the
+// meter flags it so "is the strength accurate right now?" is auditable live.
+const STRENGTH_FULL_PAIRS = 7;
 const STRENGTH_WINDOWS = ["H1", "H4", "D1", "W1"];
 const CORR_WINDOWS = [20, 100, 500];
 // Min samples for an hourly-heatmap cell to be treated as signal (not noise).
@@ -188,6 +196,7 @@ function buildPanel(sym) {
             </div>
             <div class="sig-body" data-bind="sig-body-${sym}"></div>
         </div>
+        <div class="dws-compact" data-bind="dwsc-${sym}"></div>
         <div class="analytics" data-bind="analytics-${sym}"></div>
         <div class="dws" data-bind="dws-${sym}"></div>
     `;
@@ -244,7 +253,7 @@ function buildStrengthRows() {
         const row = document.createElement('div');
         row.className = 's-row';
         row.innerHTML = `
-            <span class="ccy">${c}</span>
+            <span class="ccy"><span class="s-cov" data-bind="scov-${c}"></span>${c}</span>
             <div class="bar-track">
                 <div class="bar-mid"></div>
                 <div class="bar" data-bind="bar-${c}" style="width:0;left:50%"></div>
@@ -850,11 +859,24 @@ function paintStrength(strength, force) {
         const bar = $bind('bar-' + c);
         const val = $bind('sval-' + c);
         if (!bar || !val) continue;
+        const cov = $bind('scov-' + c);
+        const setCov = (low, np) => {
+            if (!cov) return;
+            cov.textContent = low ? '⚠' : '';
+            cov.title = low
+                ? `${np}/${STRENGTH_FULL_PAIRS} ペアのみ — 精度低下（ブローカーに一部クロスペアが無い）`
+                : '';
+            const r = cov.closest('.s-row');
+            if (r) r.classList.toggle('low-cov', !!low);
+        };
         if (!sc || sc.score == null) {
             bar.style.width = '0%'; bar.style.left = '50%';
             val.textContent = '--';
+            setCov(false);
             continue;
         }
+        // Coverage flag: fewer than the full 7 pairs ⇒ less reliable score.
+        setCov(sc.n_pairs != null && sc.n_pairs < STRENGTH_FULL_PAIRS, sc.n_pairs);
         const score = sc.score;
         const offset = Math.abs(score - 50) * 2;
         const width = Math.min(offset, 100);
@@ -917,14 +939,37 @@ function paintCalendar(snap) {
         const cat = e.category ? catChip(e.category) : calendarCategory(e.title);
         const dateJst = new Date(e.release_ts * 1000 + JST_MS).toISOString().slice(0, 10);
         const day = dateJst === todayKey ? ' today' : dateJst === tomorrowKey ? ' tomorrow' : '';
+        const src = _calSrcUrl(e.source_url);
+        const srcLink = src
+            ? ` <a class="cal-src" href="${esc(src)}" target="_blank" rel="noopener noreferrer" title="ソース元を開く">↗</a>`
+            : '';
         return `<div class="cal-row${day}" data-ccy="${esc(e.currency)}">
             <span class="cal-date">${esc(fmtJSTdate(e.release_ts))}</span>
             <span class="time">${esc(fmtJSTclockNoSec(e.release_ts))}</span>
             <span class="ccy">${esc(e.currency)}</span>
             <span class="cat ${cat.cls}">${cat.label}</span>
-            <span class="title" title="${esc(e.title)}">${esc(e.title)}</span>
+            <span class="title" title="${esc(e.title)}">${esc(e.title)}${srcLink}</span>
         </div>`;
     }).join('');
+}
+
+// Calendar source links come from an external feed, so only render a link when
+// it is https AND points at a known source host — never let the feed inject an
+// arbitrary (or javascript:) URL into the DOM.
+const CAL_SRC_HOSTS = new Set([
+    'forexfactory.com', 'www.forexfactory.com',
+    'federalreserve.gov', 'www.federalreserve.gov',
+    'bls.gov', 'www.bls.gov',
+    'ecb.europa.eu', 'www.ecb.europa.eu',                 // ECB
+    'bankofengland.co.uk', 'www.bankofengland.co.uk',     // BoE
+    'boj.or.jp', 'www.boj.or.jp',                         // BoJ
+    'rba.gov.au', 'www.rba.gov.au',                       // RBA
+]);
+function _calSrcUrl(url) {
+    if (typeof url !== 'string' || !/^https:\/\//i.test(url)) return '';
+    try {
+        return CAL_SRC_HOSTS.has(new URL(url).hostname.toLowerCase()) ? url : '';
+    } catch (e) { return ''; }
 }
 
 /** Map an FF calendar event title to a category chip (rate decision vs
@@ -1970,7 +2015,67 @@ function paintDws(snap) {
     for (const sym of SYMBOL_ORDER) {
         ensureDwsSkeleton(sym);
         drawDwsCanvas(snap, sym);
+        const dc = $bind('dwsc-' + sym);
+        if (dc) dc.innerHTML = buildCompactDws(snap, sym);   // fills the compact panel
     }
+}
+
+/** Compact-mode DWS summary that fills the otherwise-empty lower half of a
+ *  collapsed panel: the 3-TF alignment state pill, the latest trigger (side +
+ *  gross pips + bars-ago) and the bar-close countdown — the actual entry signal
+ *  for all 8 symbols at a glance, without expanding. Reuses the SAME win data /
+ *  alignment / pips logic as the expanded DWS panel (no duplicate trigger logic).
+ *  Hidden when the panel is expanded (the full DWS histogram shows instead). */
+function buildCompactDws(snap, sym) {
+    const d = dwsResult(snap, sym);
+    const win = d && d.by_base && d.by_base[UI.dwsBase];
+    if (!win || !win.c || !win.c.length) {
+        return '<div class="dwsc-inner"><div class="dwsc-empty mute">DWS 計算待ち</div></div>';
+    }
+    const N = win.c.length;
+    const last = win.c[N - 1];
+    const allUp = last.every(c => c === 0);
+    const allDown = last.every(c => c === 1);
+    const pill = allUp ? { cls: 'buy', txt: '▲ 揃い BUY' }
+               : allDown ? { cls: 'sell', txt: '▼ 揃い SELL' }
+               : { cls: 'wait', txt: '— 待機 (不一致)' };
+    // Latest trigger + its gross pips (same conversion as drawDwsCanvas).
+    const ptMult = pointMultiplierFor(sym);
+    const liveF = pipsFactor(sym, 'live');
+    const tradeByEntry = {};
+    (win.trades || []).forEach(t => { tradeByEntry[t.i] = t; });
+    let trig = '<span class="dwsc-none">直近トリガー無し</span>';
+    for (let j = N - 1; j >= 0; j--) {
+        const g = win.g[j];
+        if (!g) continue;
+        const gc = g === 'BUY' ? 'tg-buy' : g === 'SELL' ? 'tg-sell' : 'tg-exit';
+        const tr = tradeByEntry[j];
+        let pipsHtml = '';
+        if (tr) {
+            const pips = tr.p * ptMult * liveF;
+            const pc = pips > 0 ? 'pos' : pips < 0 ? 'neg' : '';
+            pipsHtml = ` <b class="${pc}">${pips >= 0 ? '+' : ''}${fmtPips(pips)}</b>`;
+        }
+        trig = `<span class="${gc}">${esc(g)}</span>${pipsHtml}`
+             + ` <span class="dwsc-ago">${N - 1 - j}本前</span>`;
+        break;
+    }
+    let cd = '';
+    const mins = TF_MINUTES[UI.dwsBase];
+    if (mins && win.t && win.t.length) {
+        const closeMs = win.t[win.t.length - 1] + mins * 60000;
+        // class "dws-cd" + data-close → ticked every 1s by startTickers().
+        cd = `<div class="dwsc-cd">確定まで <span class="dws-cd" data-close="${closeMs}">`
+           + `${esc(fmtCountdown(closeMs - Date.now()))}</span></div>`;
+    }
+    const baseLbl = esc(DWS_BASE_LABEL[UI.dwsBase] || UI.dwsBase);
+    return `<div class="dwsc-inner">`
+         + `<div class="dwsc-head"><span class="dwsc-cap">DWS-SMT</span>`
+         +   `<span class="dwsc-base">${baseLbl}</span></div>`
+         + `<div class="dwsc-pill ${pill.cls}">${esc(pill.txt)}</div>`
+         + `<div class="dwsc-trig"><span class="dwsc-lbl">直近</span> ${trig}</div>`
+         + cd
+         + `</div>`;
 }
 
 /** Format a base-bar epoch-ms time for the x-axis.

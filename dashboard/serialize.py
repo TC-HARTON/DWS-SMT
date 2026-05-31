@@ -475,6 +475,10 @@ def _jp_calendar_title(title: str, ccy: str) -> str:
     bank via the event currency. Anything unrecognised falls back to the
     original title so nothing is ever dropped."""
     t = title.lower()
+    # ADP is "ADP Non-Farm Employment Change" — a PRIVATE payroll estimate, NOT
+    # the official BLS NFP. Match it FIRST so it doesn't collapse into "NFP".
+    if "adp" in t:
+        return "ADP雇用統計"
     if any(k in t for k in ("non-farm", "nonfarm", "payroll")):
         return "米雇用統計 (NFP)"
     if any(k in t for k in ("unemployment", "jobless", "claimant")):
@@ -521,6 +525,7 @@ def serialize_calendar_event(e: CalendarEvent) -> dict[str, Any]:
         "previous": e.previous,
         "actual": e.actual,
         "source": e.source,
+        "source_url": getattr(e, "source_url", ""),
     }
 
 

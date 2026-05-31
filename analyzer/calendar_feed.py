@@ -58,7 +58,8 @@ class CalendarEvent:
     forecast: str            # raw string from the feed (may be "")
     previous: str            # raw string from the feed (may be "")
     actual: str = ""         # filled in after release; may be ""
-    source: str = "forex_factory"   # or "mt5"
+    source: str = "forex_factory"   # or "mt5" / "scheduled"
+    source_url: str = ""     # link to the source page for this release (may be "")
 
 
 @dataclass(frozen=True)
@@ -99,11 +100,19 @@ def _local_wall_to_utc_ts(date_iso: str, hour: int, minute: int, tz) -> float:
 
 
 def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
-    """Convert Forex Factory's MM-DD-YYYY + h:MMam/pm into a UTC epoch.
+    """Convert the faireconomy Forex Factory feed's MM-DD-YYYY + h:MMam/pm into
+    a UTC epoch.
 
-    Returns ``None`` for entries with no scheduled time (e.g. ``"All Day"``,
-    ``"Tentative"``) — these are filtered out because a countdown does not
-    apply.
+    THE FEED IS IN GMT/UTC, **not** US-Eastern. Verified empirically against
+    fixed-time releases in the live feed: ADP "12:15pm" (= 8:15am ET), US
+    jobless claims "12:30pm" (= 8:30am ET), ISM "2:00pm" (= 10:00am ET),
+    AU GDP "1:30am" (= 11:30am AEST) — all consistent with UTC, none with
+    Eastern. The previous code localised the time to US-Eastern, which shifted
+    EVERY event +4h (EDT) / +5h (EST): e.g. NFP (12:30 UTC) surfaced at 01:30
+    JST instead of the correct 21:30. Parse as UTC.
+
+    Returns ``None`` for entries with no scheduled time ("All Day",
+    "Tentative") — these have no countdown meaning.
     """
     if not date_str or not time_str:
         return None
@@ -120,8 +129,7 @@ def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
             dt_naive = datetime.strptime(f"{date_str} {t}", fmt)
         except ValueError:
             continue
-        dt_eastern = dt_naive.replace(tzinfo=_EASTERN)
-        return dt_eastern.astimezone(timezone.utc).timestamp()
+        return dt_naive.replace(tzinfo=timezone.utc).timestamp()
     return None
 
 
@@ -203,6 +211,7 @@ def parse_forex_factory_xml(
             previous=(raw.get("previous") or "").strip(),
             actual=(raw.get("actual") or "").strip(),
             source="forex_factory",
+            source_url=(raw.get("url") or "").strip(),
         ))
     out.sort(key=lambda e: e.release_ts)
     return out
@@ -340,7 +349,8 @@ def upcoming_fomc_events(
         out.append(CalendarEvent(
             release_ts=ts, currency="USD",
             title="FOMC Meeting (rate decision)", impact="High",
-            forecast="", previous="", source="scheduled"))
+            forecast="", previous="", source="scheduled",
+            source_url="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"))
         if len(out) >= count:
             break
     return out
@@ -386,7 +396,8 @@ def fetch_upcoming_nfp_events(
         out.append(CalendarEvent(
             release_ts=ts, currency="USD",
             title="Non-Farm Payrolls (Employment Situation)", impact="High",
-            forecast="", previous="", source="scheduled"))
+            forecast="", previous="", source="scheduled",
+            source_url="https://www.bls.gov/news.release/empsit.toc.htm"))
         if len(out) >= count:
             break
     return out
@@ -401,6 +412,7 @@ def upcoming_cb_events(
     minute: int,
     tz,
     title: str,
+    source_url: str = "",
     count: int = config.CALENDAR_UPCOMING_COUNT,
     skip_dates: frozenset[str] = frozenset(),
 ) -> list[CalendarEvent]:
@@ -422,7 +434,8 @@ def upcoming_cb_events(
         out.append(CalendarEvent(
             release_ts=ts, currency=currency,
             title=title, impact="High",
-            forecast="", previous="", source="scheduled"))
+            forecast="", previous="", source="scheduled",
+            source_url=source_url))
         if len(out) >= count:
             break
     return out
@@ -539,28 +552,32 @@ class CalendarEngine:
                     dates=config.ECB_MEETING_DATES,
                     hour=config.ECB_ANNOUNCE_CET[0],
                     minute=config.ECB_ANNOUNCE_CET[1], tz=_FRANKFURT,
-                    title="ECB Governing Council (rate decision)")),
+                    title="ECB Governing Council (rate decision)",
+                    source_url="https://www.ecb.europa.eu/press/govcdec/html/index.en.html")),
             ],
             "GBP": [
                 ("BoE", upcoming_cb_events, dict(currency="GBP",
                     dates=config.BOE_MEETING_DATES,
                     hour=config.BOE_ANNOUNCE_LON[0],
                     minute=config.BOE_ANNOUNCE_LON[1], tz=_LONDON,
-                    title="BoE MPC (Bank Rate decision)")),
+                    title="BoE MPC (Bank Rate decision)",
+                    source_url="https://www.bankofengland.co.uk/monetary-policy")),
             ],
             "JPY": [
                 ("BoJ", upcoming_cb_events, dict(currency="JPY",
                     dates=config.BOJ_MEETING_DATES,
                     hour=config.BOJ_ANNOUNCE_JST[0],
                     minute=config.BOJ_ANNOUNCE_JST[1], tz=_TOKYO,
-                    title="BoJ Monetary Policy Meeting (rate decision)")),
+                    title="BoJ Monetary Policy Meeting (rate decision)",
+                    source_url="https://www.boj.or.jp/en/mopo/mpmdeci/index.htm")),
             ],
             "AUD": [
                 ("RBA", upcoming_cb_events, dict(currency="AUD",
                     dates=config.RBA_MEETING_DATES,
                     hour=config.RBA_ANNOUNCE_AET[0],
                     minute=config.RBA_ANNOUNCE_AET[1], tz=_SYDNEY,
-                    title="RBA Cash Rate decision")),
+                    title="RBA Cash Rate decision",
+                    source_url="https://www.rba.gov.au/monetary-policy/int-rate-decisions/")),
             ],
         }
         scheduled: list[CalendarEvent] = []

@@ -730,6 +730,54 @@ body {
 .dws-legend .tg.exit { color: var(--warning); }
 .dws-legend .dws-leg-sep { color: var(--fg-dim); margin-left:var(--space-2); }
 
+/* ============================================================
+   Compact-mode DWS summary — fills the lower ~60% of a COLLAPSED panel with
+   the live entry signal (alignment state + latest trigger + countdown). Hidden
+   when the panel is expanded (the full histogram shows instead). Reuses the
+   same win data as the expanded panel.
+   ============================================================ */
+.dws-compact {
+    flex: 1 1 auto; min-height: 0;
+    display: flex; flex-direction: column;
+    background: var(--panel-2);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding:var(--space-3) var(--space-4);
+    overflow: hidden;
+}
+.panel.expanded .dws-compact { display: none; }   /* full histogram shows instead */
+.dwsc-inner {
+    display: flex; flex-direction: column; gap:var(--space-3);
+    justify-content: center; height: 100%; min-height: 0;
+}
+.dwsc-head { display: flex; align-items: baseline; justify-content: space-between;
+             font-family: var(--mono); }
+.dwsc-cap  { font-size: var(--text-2xs); font-weight: var(--weight-bold);
+             letter-spacing: var(--track-loose); color: var(--fg-3); text-transform: uppercase; }
+.dwsc-base { font-size: var(--text-2xs); color: var(--fg-2); font-weight: 700; }
+.dwsc-pill {
+    align-self: flex-start;
+    font-family: var(--mono); font-weight: 900; letter-spacing: 0.04em;
+    font-size: var(--text-md); padding:3px 12px; border-radius: 999px; white-space: nowrap;
+}
+.dwsc-pill.buy  { color: #04150f; background: var(--buy); }
+.dwsc-pill.sell { color: #1c0205; background: var(--sell); }
+.dwsc-pill.wait { color: var(--warning); background: rgba(255,183,77,0.14);
+                  box-shadow: inset 0 0 0 1px rgba(255,183,77,0.5); }
+.dwsc-trig { font-family: var(--mono); font-size: var(--text-sm); color: var(--fg-2);
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dwsc-trig .dwsc-lbl { color: var(--fg-3); font-size: var(--text-2xs); }
+.dwsc-trig .tg-buy  { color: var(--buy);     font-weight: 900; }
+.dwsc-trig .tg-sell { color: var(--sell);    font-weight: 900; }
+.dwsc-trig .tg-exit { color: var(--warning); font-weight: 900; }
+.dwsc-trig b.pos { color: var(--buy); }
+.dwsc-trig b.neg { color: var(--sell); }
+.dwsc-trig .dwsc-ago { color: var(--fg-3); font-size: var(--text-2xs); }
+.dwsc-none { color: var(--fg-3); }
+.dwsc-cd { font-family: var(--mono); font-size: var(--text-2xs); color: var(--fg-3); }
+.dwsc-cd .dws-cd { color: #8fc4ff; font-weight: 900; font-variant-numeric: tabular-nums; }
+.dwsc-empty { font-size: var(--text-2xs); }
+
 /* Correlation concentration warning (recommendation 5). */
 .concentration:empty { display: none; }
 .concentration {
@@ -1225,6 +1273,10 @@ body {
 .cal-row .cat.oth  { background: rgba(255, 255, 255, 0.08); color: var(--fg-2); }
 .cal-row .title    { color: var(--fg); font-size: var(--text-xs);
                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Source-link icon — opens the release's source page (ForexFactory / Fed / BLS). */
+.cal-row .cal-src  { color: var(--fg-3); text-decoration: none; font-weight: 700;
+                     padding:0 2px; }
+.cal-row .cal-src:hover { color: var(--accent); }
 /* Currency-coloured left border so the reader can identify which
    currency's event a row affects without parsing the ccy text. */
 .cal-row[data-ccy="USD"] { border-left-color: #4d8eff; }
@@ -1265,6 +1317,12 @@ body {
 .s-row .ccy { color: var(--fg); font-weight: var(--weight-bold); text-align: right;
               display: inline-flex; align-items: baseline; justify-content: flex-end; gap:var(--space-3); }
 .s-row .val { color: var(--fg); text-align: right; }
+/* Coverage flag — amber ⚠ when a currency is scored over fewer than 7 pairs
+   (broker missing crosses). :empty → display:none so it adds no gap normally. */
+.s-row .s-cov { color: var(--warning); font-size: var(--text-2xs); line-height: 1; }
+.s-row .s-cov:empty { display: none; }
+.s-row.low-cov { opacity: 0.62; }
+.s-row.low-cov .val { color: var(--warning); }
 .s-row .bar-track {
     position: relative; height: 20px;
     background: var(--panel-2); border-radius: 10px; overflow: hidden;

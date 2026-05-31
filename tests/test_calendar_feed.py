@@ -68,21 +68,30 @@ SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 # datetime parser
 # --------------------------------------------------------------------------- #
 
-def test_parse_ff_datetime_eastern_to_utc():
-    # 05-21-2026 8:30am EDT (UTC-4 in May) → 12:30 UTC.
+def test_parse_ff_datetime_is_utc_not_eastern():
+    # The faireconomy feed is GMT/UTC: "8:30am" means 08:30 UTC (NOT 8:30 ET).
+    # Regression guard for the +4/5h bug that put NFP at 01:30 JST.
     ts = _parse_ff_datetime("05-21-2026", "8:30am")
     assert ts is not None
-    # Allow ±1s of slack to absorb tzdata details across environments.
     from datetime import datetime, timezone
-    expected = datetime(2026, 5, 21, 12, 30, tzinfo=timezone.utc).timestamp()
+    expected = datetime(2026, 5, 21, 8, 30, tzinfo=timezone.utc).timestamp()
     assert abs(ts - expected) < 1
+
+
+def test_parse_ff_datetime_nfp_lands_at_2130_jst():
+    # Real-world check: NFP is published "12:30pm" in the GMT feed (= 8:30 ET).
+    # That must be 12:30 UTC → 21:30 JST, never 01:30 JST.
+    from datetime import datetime, timezone, timedelta
+    ts = _parse_ff_datetime("06-05-2026", "12:30pm")
+    jst = datetime.fromtimestamp(ts, tz=timezone(timedelta(hours=9)))
+    assert (jst.hour, jst.minute) == (21, 30)
 
 
 def test_parse_ff_datetime_no_minutes():
     ts = _parse_ff_datetime("05-21-2026", "8am")
     assert ts is not None
     from datetime import datetime, timezone
-    expected = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc).timestamp()
+    expected = datetime(2026, 5, 21, 8, 0, tzinfo=timezone.utc).timestamp()
     assert abs(ts - expected) < 1
 
 
@@ -141,6 +150,34 @@ def test_parse_xml_sorted_by_release_time():
 def test_parse_xml_invalid_input_raises_valueerror():
     with pytest.raises(ValueError):
         parse_forex_factory_xml("not xml at all <<<")
+
+
+def test_parse_xml_captures_source_url():
+    xml = (
+        '<?xml version="1.0"?><weeklyevents><event>'
+        '<title>Non-Farm Employment Change</title><country>USD</country>'
+        '<date>06-05-2026</date><time>12:30pm</time><impact>High</impact>'
+        '<url>https://www.forexfactory.com/calendar/123-usd-nfp</url>'
+        '</event></weeklyevents>'
+    )
+    events = parse_forex_factory_xml(xml)
+    assert len(events) == 1
+    assert events[0].source_url == "https://www.forexfactory.com/calendar/123-usd-nfp"
+
+
+def test_adp_is_not_labelled_as_official_nfp():
+    # ADP is a PRIVATE payroll estimate, not the BLS NFP — distinct label.
+    from dashboard.serialize import _jp_calendar_title
+    assert _jp_calendar_title("ADP Non-Farm Employment Change", "USD") == "ADP雇用統計"
+    assert _jp_calendar_title("Non-Farm Employment Change", "USD") == "米雇用統計 (NFP)"
+
+
+def test_cb_events_carry_source_url():
+    from analyzer.calendar_feed import upcoming_cb_events, _FRANKFURT
+    evs = upcoming_cb_events(
+        0.0, currency="EUR", dates=("2030-06-05",), hour=14, minute=15,
+        tz=_FRANKFURT, title="ECB", source_url="https://www.ecb.europa.eu/x")
+    assert evs and evs[0].source_url == "https://www.ecb.europa.eu/x"
 
 
 def test_parse_xml_empty_payload_returns_empty_list():
