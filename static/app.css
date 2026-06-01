@@ -456,8 +456,11 @@ body {
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
 }
-.panel.quiet  { opacity: 0.6; }
-.panel.quiet:hover { opacity: 1; }
+/* All panels stay at full brightness — the old quiet=0.6 dimming (with a
+   hover-to-1 brighten) flickered light/dark as the cursor crossed panels and
+   tired the eyes. Weak vs strong signal is already conveyed by the BIAS gauge,
+   the matrix colours and the .active/.touch border, so opacity is not needed. */
+.panel.quiet  { opacity: 1; }
 /* .active and .touch are the highest-signal states (DWS-SMT firing /
    structure touch). Keep the inner ring; drop the outer glow that was
    making the dashboard look like an after-effects template. Border colour

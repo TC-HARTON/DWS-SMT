@@ -1,8 +1,14 @@
 # セッション申し送り (Session Handoff)
 
-> 最終更新: 2026-05-30 (3回目) / 直近コミット: `9070ae5` (origin/main)
-> **未コミットの変更あり**(§9 トリガー履歴重複バグ修正 + §10 提言5件バッチ)。ユーザ指示でコミット/プッシュ。
-> 新しいセッションを開始したら**まずこれを読む**こと。
+> 最終更新: 2026-06-01 / 直近コミット: `86e3dbb`(+本申し送り更新) origin/main と同期。
+> §9–§11 は全て**コミット済み**(9070ae5 以降: f509595 / 56aee6b / e151c03 / 9499f04 / 86e3dbb)。
+> **最新の作業は §12 を読む**こと(カレンダー時刻バグ根治・通貨強弱検証・IC較正・縮小DWS 等)。
+> 新しいセッションを開始したら**まずこれ(特に §2/§5/§12)を読む**こと。
+>
+> ⚠️ **運用の最重要ハマりどころ**(§12詳細): **バックエンド(Python)修正はプロセスの“完全再起動”が必須**。
+> `Desktop\Dashboard.bat` は健全なサーバを検知すると**再起動せずブラウザを開くだけ**なので、
+> 反映には **8050 を握る python PID を明示 kill → 再起動** が必要(`Stop-Process -Id <PID> -Force`)。
+> フロント(app.js/css/html)のみの変更は no-cache 配信なので**ブラウザ再読込で反映**。
 
 ---
 
@@ -200,3 +206,52 @@ node --check static/app.js
   - **見た目の最終確認はユーザ環境**(常設1行ぶんの縦圧迫・8セルの可読性)。盲目実装ゆえ違和感あれば微調整。
 
 **検証**: `pytest -q` **314 passed**(+1) / `node --check` OK / 統合チェック: `serialize_correlation` が `bars_available` を出力、`/api/journal` 200、`app.js` に相関可用性UI在・load時二重fetch除去。**相関の見た目とトレード日誌の実発注記録はユーザ環境(実MT5/再起動後)で最終確認**。
+
+---
+
+## 12. 2026-05-31〜06-01 セッション(全コミット済み) — UI拡張・IC較正・カレンダー根治
+
+コミット対応: `f509595`(日誌/劣化ゲート/サマリー/トリガー重複/相関) → `56aee6b`(サマリー視認性) → `e151c03`(国旗) → `9499f04`(劣化フロア/サマリー高さ/IC較正ツール) → `86e3dbb`(カレンダー時刻+リンク/強弱検証+CAD/CHF/縮小DWS) → 本コミット(パネル常時明+申し送り)。現在 **pytest 322 passed**。
+
+### 12.1 ⚠️ 運用ハマりどころ(最重要・再発防止)
+- **バックエンド修正はプロセス完全再起動が必須**。`Dashboard.bat` は 8050 が健全応答(200+"MT5 Dashboard")だと**再起動せずブラウザを開くだけで exit**。→ 旧 python プロセスが古いコードのまま生き続ける。手順: `Get-NetTCPConnection -LocalPort 8050 -State Listen` で PID 特定 → `Stop-Process -Id <PID> -Force` → `Dashboard.bat` 再実行。WS スナップショット(`ws://127.0.0.1:8050/ws`、`simple_websocket.Client`)で実データを直接検証できる。
+- フロント(static/*)変更は no-cache 配信なので**ブラウザ再読込のみ**で反映。
+
+### 12.2 サマリーバー(新規・ヘッダー直下の常設帯)
+- `index.html` の `<details class="summary-bar" open>` + body グリッドに full幅 `summary` 行。全8銘柄を1セル: **BIAS総合(符号で色: +緑/−赤/0灰)+ 4TF EMA一致チップ + 様子見ピル + 国旗**。
+- **国旗 = インラインSVG**(`CCY_FLAGS`、Windows は絵文字国旗を持たないため)。基軸/決済通貨を左右に。`flagSvg()`。
+- **様子見ピルは常時DOM(非該当時 `visibility:hidden`=`.sb-flag-off`)** → カードの高さが不変=バー伸縮せずアプリが上下しない。
+- セルクリックで `focusPanel(sym)`。開閉は localStorage `mt5-summary`。
+
+### 12.3 劣化ゲート/バナーに絶対PFフロア(`9499f04`)
+- `_regimeState(sym,snap)` = `{drift, pf, wr, n}`、`_regimeGated(st)` で**2条件 AND**判定: `drift ≤ 閾値` **かつ** `pf < REGIME_PF_FLOOR(1.30)`。**黒字(PF≥1.30)なら鳴らさない**。警告 -20% / 降格+アラート抑制 -30%。バナー(#2)・ActiveSetups降格(#3)・サマリー様子見が同一ロジック共有。**ロット/SL不変**。
+
+### 12.4 H4 を UI のトリガーTFセレクタからのみ隠す
+- `DWS_BASES=['H1','M15']`、デフォルト `UI.dwsBase='M15'`。**BIAS計算(`TF_LABELS=D1/H4/H1/M15`)・シグナル行列・サマリーチップ・エンジンの `DWS_SMT_STACKS` は H4 を保持**(M15/H1 ベースの3TFスタックの構成要素)。隠すのは“トリガー選択ピル”だけ。
+
+### 12.5 IC ヒストリ取得 + フィード較正(Option A)— **結論: IC≒Dukascopy、補正不要**
+- IC は **2023-03-20 以降の全足しか保持しない**(下位足は2-3年、ICは全TFこの日が底)。**ルートに IC CSV**(`SYMBOL_TF_開始_終了.csv`、MT5タブ区切り・intradayはDATE+TIME/D1-W1はDATEのみ・サーバ時刻=Europe/Bucharest)。**`.gitignore` の `/SYMBOL*.csv` で無視**(コミットされない)。
+- `scripts/_calib_ic_vs_duka.py`(新規): **本番 `dws_smt.compute_symbol` + `config.DWS_SMT_STACKS`** を IC/Dukascopy 両フィードに同一窓(2023-03〜2025-12)・一律2.0pipで流しフィード差を抽出。pips=`points/pip_price`(ポイント非依存)。
+- **結果: 全8銘柄で IC≒Dukascopy(PF ±1〜6%)** → 深いDukascopyベースラインはICにそのまま使える。「FXが16Y比 −20〜40%」は**ブローカー無関係の地合い軟化**(Dukascopyも同じ・全銘柄黒字)。金は+23%。M5追加は**見送り**(コスト相対重・データ巨大)。
+
+### 12.6 縮小パネルに DWS シグナル要約
+- `buildCompactDws(snap,sym)`: 折りたたみ時の空き下半分に **3TF整列状態 + 直近トリガー(方向/グロスpips/何本前) + 足確定カウントダウン**。展開DWSと**同一 `win` データ再利用**(`win.c`/`win.g`/`win.trades`(`t.i`/`t.p`)、`pips=t.p*ptMult*liveF`)。`.panel.expanded .dws-compact{display:none}`。カウントダウンは `.dws-cd[data-close]` ティッカー相乗り。
+
+### 12.7 通貨強弱: 厳密検証 + カバレッジ可視化 + CAD/CHF
+- **強弱は接続中ブローカーのライブ足**(各ペア直近N+2本、`fetch_rates_parallel`)。Dukascopy/16Yではない。
+- 設計は **8メジャー全28ペア行列・各通貨7ペア対称・z-score(平均50/±2σ=0/100)**。回帰テスト追加: **28ペア厳密復元(raw_avg と真値 相関1.0)**・1通貨全面高・pair-bias符号整合(`tests/test_currency_strength.py`)。
+- **カバレッジ⚠**: ある通貨が7ペア未満(ブローカーがクロス欠落)だと通貨コード横にアンバー⚠+行淡色(`.s-row.low-cov`)。`n_pairs` は元々シリアライズ済。満額なら非表示(`.s-cov:empty{display:none}`)。
+- 表示を **5→7通貨(USD/EUR/GBP/JPY/AUD/CAD/CHF)**。`STRENGTH_CCYS`。非表示は NZD のみ。**注意**: z-score は8通貨基準(平均50)なので、表示通貨が全て50未満でも正しい(隠れた NZD が強いだけ)。
+
+### 12.8 経済カレンダー: 時刻バグ根治 + ソースリンク + ADP区別
+- **根本原因**: faireconomy `ff_calendar_thisweek.xml` は **GMT/UTC** なのに `_parse_ff_datetime` が **US-Eastern 解釈** → 全FFイベント **+4h(夏)/+5h(冬)** ズレ(NFP が 01:30、正21:30)。既知時刻(ADP/ISM/失業保険/豪GDP)で実証 → **UTC解釈に修正**。`_et_to_utc_ts`(FRED/FOMC/CB)は ET 由来なので不変。
+- **ソースリンク**: `CalendarEvent.source_url` 追加。FFは `<url>` を取込、合成は **FOMC→Fed / NFP→BLS / ECB / BoE / BoJ / RBA** 公式URL。フロントは ↗ リンク、**https + ホスト許可リスト(`CAL_SRC_HOSTS`)** で検証(`javascript:`/`http:`/不明ホスト拒否)。
+- **ADP を NFP と区別**: `_jp_calendar_title` で ADP→「ADP雇用統計」を先に判定。
+- 自動取得 = **毎時(`CALENDAR_REFRESH_SEC=3600`)・別スレッド・3リトライ・失敗時キャッシュ(`external/forex_factory_xml/thisweek.xml`)フォールバック**。
+
+### 12.9 パネル常時明るく(本コミット)
+- `.panel.quiet` の `opacity:0.6`(+ホバーで1)を撤去 → 全パネル `opacity:1` 固定。カーソル出入りの明暗チラつき(目の疲れ)を解消。
+
+### 12.10 現在のライブ状態 / 残課題
+- 稼働サーバ: **新コード反映済み**(セッション中に PID 明示kill→再起動を2回実施)。接続ブローカーは MT5 端末依存(切替はダッシュボードのドロップダウン)。
+- 残(任意): カレンダーの ADP は**時刻21:15で正・ラベルのみ区別**(値ソースは別物)。中銀URLはホスト許可リスト追加済。`Average Hourly Earnings` 等一部は英語ラベルのまま(必要なら和訳追加可)。**Bonferroni/structures撤去**(§7)は据え置き。
