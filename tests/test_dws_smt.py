@@ -404,10 +404,10 @@ def test_window_exposes_flip_norm_matching_colors_shape():
     assert np.all(np.abs(win.flip_norm) <= 1.0)
 
 
-def test_flip_norm_forming_inclusive_while_triggers_are_not():
-    """The proximity path sees the forming bar (live preview) even though
-    trigger detection does not. Two variants differing ONLY in the forming H4
-    close must yield identical triggers but a DIFFERENT current-bar flip_norm."""
+def test_flip_norm_is_look_ahead_safe_like_triggers():
+    """flip_norm reuses the SAME forming-excluded smoothed series as the colours
+    /triggers, so perturbing ONLY a forming row-TF bar changes neither the
+    confirmed triggers NOR the confirmed flip_norm — no look-ahead leak."""
     n_m15 = 100
     m15_idx = pd.date_range("2026-01-01 00:00", periods=n_m15, freq="15min", tz="UTC")
     m15c = 100.0 + 5.0 * np.sin(np.arange(n_m15) / 8.0)
@@ -428,8 +428,7 @@ def test_flip_norm_forming_inclusive_while_triggers_are_not():
 
     wa = compute_symbol(fa).by_base["M15"]
     wb = compute_symbol(fb).by_base["M15"]
-    # Triggers on confirmed bars must be identical (look-ahead-safe).
+    # Confirmed triggers AND confirmed flip_norm are both forming-excluded, so a
+    # forming-only perturbation leaves both unchanged on the confirmed bars.
     assert wa.triggers[:-1] == wb.triggers[:-1]
-    # The H4 row (index 0) flip_norm on the CURRENT bar must move with the
-    # live forming price (this is the "もう少しで" preview).
-    assert wa.flip_norm[-1][0] != wb.flip_norm[-1][0]
+    np.testing.assert_array_equal(wa.flip_norm[:-1], wb.flip_norm[:-1])
