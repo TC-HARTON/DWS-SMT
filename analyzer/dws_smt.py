@@ -160,14 +160,29 @@ def _flip_norm(smoothed: np.ndarray, window: int, k: float) -> np.ndarray:
     is how firmly aligned it is (``~0`` = at the zero-cross = a colour flip / a
     trigger is imminent; ``~1`` = firmly in its colour). Returns 0 wherever the
     scale is undefined (warmup with <2 points, or a flat zero-variance window),
-    never NaN/inf — mirroring ``_colorize`` treating a flat series as neutral."""
-    out = np.zeros(smoothed.size, dtype=np.float64)
-    if smoothed.size == 0:
+    never NaN/inf — mirroring ``_colorize`` treating a flat series as neutral.
+
+    The trailing population std uses a VECTORISED cumulative-sum rolling window,
+    not ``pandas.rolling``: this runs ~72 times per analysis cycle (row x base
+    stack x symbol) and pandas' fixed per-call overhead (~0.3 ms) summed to
+    ~20 ms, pushing the SPEC 19 analysis budget over 50 ms. The cumsum form is
+    O(n), allocation-light, and matches the population std (ddof=0)."""
+    n = smoothed.size
+    out = np.zeros(n, dtype=np.float64)
+    if n == 0:
         return out
-    std = (pd.Series(smoothed).rolling(window, min_periods=2)
-           .std(ddof=0).to_numpy())
-    denom = k * std
-    ok = np.isfinite(denom) & (denom > 0.0)
+    # Windowed sum over (lo..i] = c[i+1] - c[lo] via prefix sums.
+    c1 = np.concatenate(([0.0], np.cumsum(smoothed)))
+    c2 = np.concatenate(([0.0], np.cumsum(smoothed * smoothed)))
+    idx = np.arange(n)
+    lo = np.maximum(0, idx - window + 1)
+    cnt = (idx - lo + 1).astype(np.float64)
+    s = c1[idx + 1] - c1[lo]
+    ss = c2[idx + 1] - c2[lo]
+    mean = s / cnt
+    var = np.maximum(ss / cnt - mean * mean, 0.0)     # clamp tiny negatives
+    denom = k * np.sqrt(var)
+    ok = (cnt >= 2.0) & (denom > 0.0)                 # <2 pts or flat -> leave 0
     out[ok] = np.clip(smoothed[ok] / denom[ok], -1.0, 1.0)
     return out
 
