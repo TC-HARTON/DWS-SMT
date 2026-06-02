@@ -316,3 +316,18 @@ def test_serialize_validation_handles_infinite_pf():
     # inf must serialise to null — json.dumps would otherwise raise.
     out = serialize_validation(snap)
     assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["profit_factor"] is None
+
+
+def test_state_set_and_read_gold_macro():
+    from analyzer.state import LatestState
+    from analyzer.gold_macro import GoldMacroSnapshot
+    st = LatestState()
+    assert st.gold_macro is None
+    snap = GoldMacroSnapshot(score=2.5, band="中立", contributions=(),
+                             n_drivers=4, window=252, as_of="2026-06-01",
+                             stale=False, generated_at=1.0)
+    st.set_gold_macro(snap)
+    assert st.gold_macro is snap
+    # It must ride the FULL snapshot, never the light one.
+    assert st.snapshot()["gold_macro"] is snap
+    assert "gold_macro" not in st.light_snapshot()
