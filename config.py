@@ -350,6 +350,14 @@ MACRO_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD")
 MACRO_FRED_REALYIELD_SERIES: Final[str] = "DFII10"   # 10Y TIPS real yield, daily
 MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
 
+# DWS histogram flip-proximity gradient (spec
+# docs/superpowers/specs/2026-06-02-dws-flip-proximity-design.md). Each stack
+# row's smoothed-diff magnitude is normalised by its own trailing volatility so
+# "near the zero-cross" (= near a colour flip = near a trigger) is comparable
+# across symbols. Display-only; never used by trigger/trade/order logic.
+DWS_FLIP_STD_WINDOW: Final[int] = 96    # trailing bars for the smoothed-diff std
+DWS_FLIP_K: Final[float] = 1.0          # scale: |sd| = k*std maps to |flip_norm| = 1
+
 # GoldMacroScore — XAUUSD-specific macro composite (spec
 # docs/superpowers/specs/2026-06-02-gold-macro-score-design.md). Four daily
 # FRED drivers fused into a -10..+10 level-z equal-weight score. The live
