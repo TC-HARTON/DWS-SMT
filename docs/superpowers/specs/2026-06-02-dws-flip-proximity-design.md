@@ -1,9 +1,26 @@
 # DWS histogram — flip-proximity gradient + holdout emphasis (design)
 
-> Date: 2026-06-02 · Status: design (pending spec review)
-> Approved direction: 3-row proximity gradient + holdout emphasis;
-> proximity preview INCLUDES the forming bar (display-only, isolated from
-> trigger detection).
+> Date: 2026-06-02 · Status: SHIPPED (2026-06-03)
+> Original approved direction: 3-row proximity gradient + holdout emphasis with
+> a forming-bar-inclusive live preview.
+>
+> **As-built deviations (recorded honestly):**
+> 1. **Confirmed-based, not forming-inclusive.** The forming-inclusive second
+>    pass roughly doubled the analysis compute (~29 → ~54 ms, over the 50 ms
+>    SPEC §19 budget). Per the user's decision it was dropped: the gradient now
+>    REUSES the same forming-EXCLUDED smoothed series the colour path already
+>    computes (its discarded magnitude), so it is look-ahead-safe by
+>    construction and essentially free (compute floor back to ~33 ms). The only
+>    behavioural change vs the original design: the current bar's proximity
+>    updates at bar-confirmation cadence (same as triggers), not intra-bar.
+> 2. **Render = opaque lerp-to-neutral + knee, not alpha-on-dark.** The first
+>    cut faded the cell alpha toward the dark background, which produced muddy
+>    "dirty" smears. Replaced with an OPAQUE interpolation from the sign colour
+>    to the palette neutral grey, with a knee (`|fn| >= 0.45` = full solid sign
+>    colour) so the histogram reads as crisp colour bands and only genuinely
+>    near-flip cells fade toward grey.
+> 3. The single-shot analysis-budget test was de-flaked to best-of-3 (measures
+>    the algorithm's floor, not OS-scheduling spikes).
 
 ## 1. Motivation
 

@@ -277,3 +277,29 @@ node --check static/app.js
 - push 済み: `25d24e8`(ロジック監査修正)。
 - **ローカル main のみ・未 push**: GoldMacroScore 関連の commit 群(`00b4a1f`〜`00c7910`)。research 資産 + spec/plan + 検証ハーネス + ライブ配線除去。ユーザが「プッシュ」と言うまで push しない(§3)。
 - pytest: **339 passed**。稼働サーバはライブ配線除去後の新コード反映済み(`gold_macro` は WS 非配信を確認)。
+- (2026-06-03 追記) §13 の GoldMacroScore 群 + §14 の flip-proximity 群は**この日に origin/main へ push 済み**。
+
+---
+
+## 14. 2026-06-03 — DWS ヒストグラム「反転接近度」グラデーション(新機能・採用)
+
+ユーザ要望②「M15(等)が反転寸前=もう少しでトリガー、を価格変動でカラー変動表示」を実装。spec `docs/superpowers/specs/2026-06-02-dws-flip-proximity-design.md` / plan `docs/superpowers/plans/2026-06-02-dws-flip-proximity.md`。
+
+### 14.1 何をするか
+- DWS の各段(行)の色を二値(緑/赤/灰)から、**反転接近度グラデーション**へ。`flip_norm = clamp(smoothed_diff / (k·rolling_std), -1, +1)`(`analyzer/dws_smt._flip_norm`、`config.DWS_FLIP_STD_WINDOW=96` / `DWS_FLIP_K=1.0`)。エンジンが計算済みで**色化時に捨てていた平滑値の大きさ**を露出するだけ(新シグナルではない=統計検証不要)。
+- **色 = 符号色 ↔ ニュートラル灰(#3f4760)の不透明補間 + ニー0.45**。`|flip_norm|≥0.45` は完全単色(クリスプな帯)、本当に反転寸前のセルだけ灰へ。透明フェード(暗背景で濁る)は不採用。`app.js dwsCellFill` / 定数 `_DWS_FLIP_KNEE`。
+- **暗色(灰寄り)= その段が反転境界**(方向が弱い/迷い)。新規点火寸前にも整列崩壊(EXIT/反転)寸前にもなる中立的近接シグナル。
+- **holdout 強調**: 2段整列 + 残り1段が現在足で `|flip_norm|<DWS_FLIP_IMMINENT(0.25)` のとき、その段に枠 + TFラベル(例 `M15▲`)= トリガー完成寸前。`drawDwsCanvas`。
+
+### 14.2 壊さない設計(重要)
+- **トリガー検出・`win.c`・マーカーは完全不変**。flip_norm は**確定足の同じ平滑系列を再利用**(forming除外=look-ahead安全)。当初の forming-inclusive 二重パスは**性能劣化(29→54ms, SPEC50超過)**のため不採用 → 確定足ベースで floor ~33ms に回復(§14.3)。
+- `flip_norm` は full スナップの DWS ブロックに `fn`(`[n][rows]`、[-1,1]、3dp)で同梱。`dashboard/serialize.serialize_dws_smt`。
+
+### 14.3 性能(劣化させない)
+- `_flip_norm` は **pandas rolling 不使用**(72回/サイクルで固定オーバーヘッド~20ms積上)→ **numpy cumsum rolling-std** に。解析 compute floor ≈ **33ms < SPEC 50ms**。
+- budget テスト `test_engine_compute_under_budget_for_full_load` は単発計測の脆さを **best-of-3(floor計測)** に修正(許容値不変、回帰検出力維持)。
+
+### 14.4 検証 / 状態
+- **pytest 346 passed**(look-ahead 回帰ガード red-green 実証済 / flip_norm も forming除外で安全と assert)。`node --check` OK。
+- 実機: 全8銘柄でグラデ描画、holdout `▲` ラベル描画(GBPUSD M15 で確認)、コンソールエラー0、`fn` 配信確認。
+- 調整ダイヤル: `_DWS_FLIP_KNEE`(クリスプ↔グラデ量)/ `DWS_FLIP_IMMINENT`(holdout閾値)/ `config.DWS_FLIP_K`,`DWS_FLIP_STD_WINDOW`(正規化)。
