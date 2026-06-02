@@ -386,7 +386,8 @@ TARGET_ANALYSIS_BUDGET_MS: Final[int] = 50  # SPEC 19 計算 50ms 以内
 # included in the cross-pair averaging because there are no XAU/EUR etc.).
 FIAT_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD", "CHF", "NZD")
 
-# SPEC §12.2 the full 27-pair compute set. Symbols not exposed by the
+# SPEC §12.2 the full 28-pair compute set (C(8, 2) = 28 over the 8-currency
+# universe USD/EUR/GBP/JPY/AUD/CAD/CHF/NZD). Symbols not exposed by the
 # broker are dropped from the calculation with a warning at startup.
 CURRENCY_STRENGTH_PAIRS: Final[tuple[str, ...]] = (
     "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD",

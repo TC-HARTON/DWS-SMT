@@ -60,7 +60,7 @@ def load_recent(server: str | None, limit: int = 200) -> list[dict[str, Any]]:
                 continue
             try:
                 rows.append(json.loads(line))
-            except ValueError:
+            except json.JSONDecodeError:
                 continue          # skip a corrupt line rather than abort
     rows.sort(key=lambda r: r.get("ts", 0), reverse=True)
     return rows[:limit]

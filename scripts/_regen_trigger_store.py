@@ -85,7 +85,15 @@ def main() -> int:
     sv = SignalValidator(conn)
     for sym in (s.base for s in config.SYMBOLS):
         rates = conn.fetch_rates_parallel([sym], sv._deep_specs)
-        frames = {tf: rates[(b, tf)] for (b, tf) in rates}    # already true-UTC (DST-aware copy_rates)
+        # Strict filter on the current symbol: silently dropping the (base, tf)
+        # key would let a future multi-symbol call mix DataFrames between
+        # symbols (last-write-wins). Match signal_validator.compute's pattern.
+        frames = {
+            tf: rates[(sym, tf)]
+            for spec in sv._deep_specs
+            for tf in (spec.label,)
+            if (sym, tf) in rates and not rates[(sym, tf)].empty
+        }
         if not frames:
             continue
         res = dws_smt.compute_symbol(frames, out_bars=config.VALIDATION_HISTORY_BARS)

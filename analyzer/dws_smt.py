@@ -353,12 +353,23 @@ def compute_symbol(
     """
     # A row TF's diff is identical wherever it appears, so compute the diff for
     # each distinct row TF across all stacks exactly once and reuse it.
+    #
+    # NO LOOK-AHEAD: the last bar of each row frame is the in-progress (forming)
+    # candle whose close is still drifting tick-by-tick. Feeding it into
+    # ``_diff_series`` lets the forming sub-TF colour propagate through
+    # ``_map_onto`` onto every confirmed base bar whose timestamp falls inside
+    # the still-open sub-TF candle — a textbook look-ahead leak that makes
+    # confirmed-bar triggers flicker as the forming bar moves. ``iloc[:-1]``
+    # drops it so confirmed base bars only see closed sub-TF diffs. The base
+    # frame itself is NOT trimmed below: its forming bar is excluded from
+    # trigger detection by ``_detect_triggers`` (``state[1:n-1]``) but its
+    # latest close is still needed for the open trade's mark-to-market.
     needed = {tf for stack in stacks.values() for tf in stack}
     row_diffs: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for label in needed:
         df = frames.get(label)
-        if df is not None and not df.empty and len(df) > 1:
-            row_diffs[label] = _diff_series(df, period)
+        if df is not None and not df.empty and len(df) > 2:
+            row_diffs[label] = _diff_series(df.iloc[:-1], period)
 
     by_base: dict[str, DwsSmtWindow] = {}
     for base, rows in stacks.items():

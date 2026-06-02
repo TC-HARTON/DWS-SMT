@@ -1924,84 +1924,90 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    Trigger-history CALENDAR — a date-picker the user selects a
    period from: a ◀ year ▶ navigator (the year opens a year
    grid), a 12-month grid, and the selected period's aggregate.
-   tcal-/cal- classes here are scoped to .anlx-triggers and do
-   NOT collide with the economic .cal-row / .cal-list panel.
+   Every .cal-* / .tcal-* rule below is scoped to .anlx-triggers
+   so it cannot accidentally restyle the economic-calendar panel
+   (which uses .cal-row / .cal-list as bare globals).
    ============================================================ */
-.cal-broker {
+.anlx-triggers .cal-broker {
     font-family: var(--mono); font-size: var(--text-2xs); font-weight: 700;
     color: var(--accent); text-transform: none; letter-spacing: 0; margin-left:var(--space-4);
 }
-.cal-rec {
+.anlx-triggers .cal-rec {
     font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.04em;
     color: var(--buy); text-transform: none; margin-left:var(--space-3);
 }
-.cal-nav { display:flex; align-items:center; gap:var(--space-3); margin:var(--space-1) 0 var(--space-3) 0; }
-.cal-arrow {
+.anlx-triggers .cal-nav { display:flex; align-items:center; gap:var(--space-3); margin:var(--space-1) 0 var(--space-3) 0; }
+.anlx-triggers .cal-arrow {
     font-size: var(--text-sm); color: var(--fg-2); cursor:pointer; user-select:none;
     padding:0 var(--space-3); border-radius: var(--radius-sm);
     border: 1px solid rgba(255,255,255,0.14);
 }
-.cal-arrow:hover { color: var(--fg); border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.05); }
-.cal-arrow.off { opacity:0.25; pointer-events:none; }
-.cal-ytitle {
+.anlx-triggers .cal-arrow:hover { color: var(--fg); border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.05); }
+.anlx-triggers .cal-arrow.off { opacity:0.25; pointer-events:none; }
+.anlx-triggers .cal-ytitle {
     font-family: var(--mono); font-weight: 800; color: var(--fg); cursor:pointer;
     letter-spacing:0.02em; min-width: 88px; text-align:center;
 }
-.cal-ytitle i { font-style:normal; font-size: var(--text-xs); color: var(--fg-dim); }
-.cal-ytitle.is-live { color: #5fb3ff; }
-.cal-ytitle:hover { color: #fff; }
-.cal-src { margin-left:auto; font-size: var(--text-2xs); font-weight:700; color: var(--fg-dim); font-family: var(--mono); }
-.cal-src.is-live { color: #5fb3ff; }
-.cal-chip {
+.anlx-triggers .cal-ytitle i { font-style:normal; font-size: var(--text-xs); color: var(--fg-dim); }
+.anlx-triggers .cal-ytitle.is-live { color: #5fb3ff; }
+.anlx-triggers .cal-ytitle:hover { color: #fff; }
+.anlx-triggers .cal-src { margin-left:auto; font-size: var(--text-2xs); font-weight:700; color: var(--fg-dim); font-family: var(--mono); }
+.anlx-triggers .cal-src.is-live { color: #5fb3ff; }
+.anlx-triggers .cal-chip {
     margin-left:auto; font-size: var(--text-2xs); font-weight:700; cursor:pointer;
     color: var(--fg-2); border:1px solid rgba(95,179,255,0.4); border-radius: var(--radius-sm);
     padding:0 var(--space-3);
 }
-.cal-chip:hover { color:#fff; background: rgba(95,179,255,0.18); }
-.cal-months, .cal-years { display:grid; grid-template-columns: repeat(4, 1fr); gap:3px; margin-bottom:var(--space-3); }
-.cal-mcell, .cal-ycell {
+.anlx-triggers .cal-chip:hover { color:#fff; background: rgba(95,179,255,0.18); }
+.anlx-triggers .cal-months,
+.anlx-triggers .cal-years { display:grid; grid-template-columns: repeat(4, 1fr); gap:3px; margin-bottom:var(--space-3); }
+.anlx-triggers .cal-mcell,
+.anlx-triggers .cal-ycell {
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
     font-family: var(--mono); font-size: var(--text-2xs); font-weight:700; color:#eef2f8;
     padding:6px 2px; border-radius: var(--radius-sm); cursor:pointer; min-width:0;
     white-space:nowrap; background: rgba(255,255,255,0.04); transition: filter 90ms;
 }
-.cal-mcell i, .cal-ycell i { font-style:normal; font-size: var(--text-3xs); font-weight:700; opacity:0.95; }
-.cal-mcell:hover, .cal-ycell:hover { filter: brightness(1.2); }
-.cal-mcell.empty { color: var(--fg-dim); background: rgba(255,255,255,0.03); }
-.cal-mcell.empty i { opacity:0.45; }
-.cal-mcell.on, .cal-ycell.on { box-shadow: inset 0 0 0 2px rgba(95,179,255,0.95); color:#fff; }
-.cal-ycell.is-live { outline:1px solid rgba(95,179,255,0.30); }
-.cal-summary {
+.anlx-triggers .cal-mcell i,
+.anlx-triggers .cal-ycell i { font-style:normal; font-size: var(--text-3xs); font-weight:700; opacity:0.95; }
+.anlx-triggers .cal-mcell:hover,
+.anlx-triggers .cal-ycell:hover { filter: brightness(1.2); }
+.anlx-triggers .cal-mcell.empty { color: var(--fg-dim); background: rgba(255,255,255,0.03); }
+.anlx-triggers .cal-mcell.empty i { opacity:0.45; }
+.anlx-triggers .cal-mcell.on,
+.anlx-triggers .cal-ycell.on { box-shadow: inset 0 0 0 2px rgba(95,179,255,0.95); color:#fff; }
+.anlx-triggers .cal-ycell.is-live { outline:1px solid rgba(95,179,255,0.30); }
+.anlx-triggers .cal-summary {
     font-size: var(--text-sm); color: var(--fg-2);
     border-top: 1px dashed rgba(255,255,255,0.10); padding-top:var(--space-3); margin-bottom:var(--space-2);
 }
-.cal-summary b { font-weight: 800; color: var(--fg); }
-.cal-summary b.pos { color: var(--buy); }
-.cal-summary b.neg { color: var(--sell); }
-.cal-open { color:#d69e2e; }
-.cal-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
-.tcal-scroll {
+.anlx-triggers .cal-summary b { font-weight: 800; color: var(--fg); }
+.anlx-triggers .cal-summary b.pos { color: var(--buy); }
+.anlx-triggers .cal-summary b.neg { color: var(--sell); }
+.anlx-triggers .cal-open { color:#d69e2e; }
+.anlx-triggers .cal-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
+.anlx-triggers .tcal-scroll {
     display:flex; flex-direction:column; gap:2px; max-height: 220px; overflow-y:auto;
     scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent;
 }
-.cal-trow {
+.anlx-triggers .cal-trow {
     display:grid; grid-template-columns: 1fr auto auto auto; gap:var(--space-3); align-items:center;
     font-size: var(--text-xs); font-family: var(--mono); padding:2px var(--space-3);
     border-left:2px solid transparent; border-radius:2px;
 }
-.cal-trow.win  { border-left-color: rgba(0,208,156,0.55); background: rgba(0,208,156,0.05); }
-.cal-trow.loss { border-left-color: rgba(255,91,107,0.55); background: rgba(255,91,107,0.05); }
-.cal-trow.open { box-shadow: inset 0 0 0 1px rgba(95,179,255,0.45); }
-.cal-tt { color: var(--fg-2); white-space:nowrap; }
-.cal-tt i { font-style:normal; color:#d69e2e; font-weight:700; margin-right:var(--space-2); }
-.cal-td { font-weight:800; }
-.cal-td.buy { color: var(--buy); }
-.cal-td.sell { color: var(--sell); }
-.cal-tw { text-align:center; font-weight:800; }
-.cal-tw.win { color: var(--buy); }
-.cal-tw.loss { color: var(--sell); }
-.cal-tp { text-align:right; font-weight:700; font-variant-numeric: tabular-nums; }
-.cal-tp.pos { color: var(--buy); }
-.cal-tp.neg { color: var(--sell); }
-.cal-tp.muted { color: var(--fg-dim); }
+.anlx-triggers .cal-trow.win  { border-left-color: rgba(0,208,156,0.55); background: rgba(0,208,156,0.05); }
+.anlx-triggers .cal-trow.loss { border-left-color: rgba(255,91,107,0.55); background: rgba(255,91,107,0.05); }
+.anlx-triggers .cal-trow.open { box-shadow: inset 0 0 0 1px rgba(95,179,255,0.45); }
+.anlx-triggers .cal-tt { color: var(--fg-2); white-space:nowrap; }
+.anlx-triggers .cal-tt i { font-style:normal; color:#d69e2e; font-weight:700; margin-right:var(--space-2); }
+.anlx-triggers .cal-td { font-weight:800; }
+.anlx-triggers .cal-td.buy { color: var(--buy); }
+.anlx-triggers .cal-td.sell { color: var(--sell); }
+.anlx-triggers .cal-tw { text-align:center; font-weight:800; }
+.anlx-triggers .cal-tw.win { color: var(--buy); }
+.anlx-triggers .cal-tw.loss { color: var(--sell); }
+.anlx-triggers .cal-tp { text-align:right; font-weight:700; font-variant-numeric: tabular-nums; }
+.anlx-triggers .cal-tp.pos { color: var(--buy); }
+.anlx-triggers .cal-tp.neg { color: var(--sell); }
+.anlx-triggers .cal-tp.muted { color: var(--fg-dim); }
 

@@ -1,21 +1,32 @@
-"""Generate the OOS-baseline JSON the live dashboard displays beside its
-short-window validation tier.
+"""LEGACY / schema_version=1 OOS-baseline writer — superseded.
 
-Runs the production DWS-SMT trigger + signal_validator.evaluate_trades on
-16 y of Dukascopy data per symbol/base TF with swap costs applied (matches
-``_backtest_all_yearly_swap.py``), takes the *overall* ValidationCore for
-each (symbol, base_tf), and writes the result to
-``data/oos_baseline.json`` for the lite dashboard to surface.
+The canonical baseline writer is now ``scripts/_oos_xauusd_16y.py`` which
+emits ``data/oos_baseline.json`` with ``schema_version=2`` including the
+rich keys the live dashboard depends on:
 
-This is a one-shot offline script — the user runs it once per
-data-refresh cycle. The dashboard loads the resulting JSON at startup
-and never recomputes during the live session.
+* ``bootstrap_ci`` — moving-block bootstrap WR confidence interval
+* ``period_split`` — early vs late half Welch-t / WR-z verdict
+* ``year_breakdown`` — per-year n / WR / cum-pts arrays
+* ``hourly_winrate`` — 24-bucket JST hourly win-rate (heatmap source)
+* ``trigger_history`` — per-year + per-month aggregate (calendar source)
+
+This older script wrote only the flat back-compat shape (``n_trades``,
+``win_rate``, ``ci_low``, ``ci_high``, ``profit_factor``, ``expectancy``,
+``max_drawdown``, ``tier``) with ``schema_version=1``. Running it on top
+of a schema_version=2 file would SILENTLY strip every rich key the
+dashboard reads — the hourly heatmap, trigger calendar and regime gate
+would all blank out with no error.
+
+A version guard at the top of ``main()`` refuses to overwrite a higher
+schema_version unless ``FORCE=1`` is set, so this script can stay around
+as a legacy reference but cannot break the live data by accident.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -37,6 +48,46 @@ import _backtest_all_yearly_swap as yearly  # type: ignore  # noqa: E402
 OUT_FILE = PROJECT_ROOT / "data" / "oos_baseline.json"
 
 
+_OWN_SCHEMA_VERSION = 1
+
+
+def _refuse_schema_downgrade(log: logging.Logger) -> int | None:
+    """Refuse to overwrite a higher-schema baseline unless ``FORCE=1`` is set.
+
+    Returns ``None`` to proceed, or an exit code to abort. Reads the existing
+    baseline's ``schema_version`` and compares against this script's own
+    version (1). The canonical writer is ``_oos_xauusd_16y.py`` which emits
+    version 2 with rich keys the dashboard depends on — silently downgrading
+    them would blank the hourly heatmap, trigger calendar and regime gate.
+    """
+    if not OUT_FILE.exists():
+        return None
+    try:
+        existing = json.loads(OUT_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("existing %s unreadable (%s) — proceeding with overwrite",
+                    OUT_FILE.name, exc)
+        return None
+    have = int(existing.get("schema_version") or 0)
+    if have <= _OWN_SCHEMA_VERSION:
+        return None
+    if os.environ.get("FORCE") == "1":
+        log.warning(
+            "FORCE=1 — overwriting schema_version=%d with schema_version=%d "
+            "(rich keys will be lost)", have, _OWN_SCHEMA_VERSION,
+        )
+        return None
+    log.error(
+        "REFUSING to overwrite %s: existing schema_version=%d is newer than "
+        "this script's schema_version=%d. The canonical writer is "
+        "scripts/_oos_xauusd_16y.py. Set FORCE=1 to override (you will lose "
+        "bootstrap_ci, period_split, year_breakdown, hourly_winrate, "
+        "trigger_history).",
+        OUT_FILE.name, have, _OWN_SCHEMA_VERSION,
+    )
+    return 2
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -46,6 +97,10 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     log = logging.getLogger("gen_oos_baseline")
+
+    abort = _refuse_schema_downgrade(log)
+    if abort is not None:
+        return abort
 
     rates = yearly.load_rates()
     symbols = [s.base for s in config.SYMBOLS]
@@ -85,7 +140,7 @@ def main() -> int:
 
     elapsed = time.perf_counter() - t0
     payload = {
-        "schema_version": 1,
+        "schema_version": _OWN_SCHEMA_VERSION,
         "generated_at": time.time(),
         "generated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": "Dukascopy CSV 2010-01-01 → 2025-12-31 (W1 starts 2009-12-28)",

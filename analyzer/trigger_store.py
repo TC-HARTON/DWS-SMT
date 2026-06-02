@@ -152,8 +152,11 @@ def scan_corruption(recs: list[dict[str, Any]]) -> dict[str, int]:
     """Detect server-offset re-stamp corruption in store records.
 
     Returns ``{"exact_t_dups": n, "tight_triples": n}``:
-    * ``exact_t_dups`` — the SAME entry_ms recorded more than once (a bar stamped
-      twice; should be impossible given the entry_ms dedup).
+    * ``exact_t_dups`` — count of SURPLUS rows that repeat an entry_ms already
+      present (= ``len(rows) - len(unique_entry_ms)``, NOT the number of
+      distinct ts that have duplicates). A single ts seen 3 times contributes
+      2 to this count. Zero is healthy; any positive value means the entry_ms
+      dedup invariant has been violated.
     * ``tight_triples`` — a ``(direction, round(net_pts, 1))`` group with 3+
       members inside a 6 h window, all whole-hour-aligned: the offset-bug
       fingerprint. Coincidental same-value pairs are intentionally NOT counted.
@@ -235,9 +238,13 @@ def load_by_year(server: str | None, symbol: str, tf: str) -> dict[str, Any]:
     trades:[last 30 newest-first]}}}`` — the same shape the 16Y baseline ships,
     so the front-end renders live years identically. Empty if no store yet."""
     path = store_path(server, symbol, tf)
-    if not path.exists():
-        return {"by_year": {}}
     with _lock_for(path):
+        # exists() is rechecked inside the lock so a concurrent append_closed
+        # that creates the file mid-read is observed atomically (otherwise the
+        # first read after store creation could return an empty by_year for
+        # one extra cycle, which the mtime-keyed cache would also memoise).
+        if not path.exists():
+            return {"by_year": {}}
         st = path.stat()
         sig = (st.st_size, st.st_mtime_ns)
         cached = _by_year_cache.get(path)

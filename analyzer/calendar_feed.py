@@ -116,13 +116,17 @@ def _parse_ff_datetime(date_str: str, time_str: str) -> float | None:
     """
     if not date_str or not time_str:
         return None
-    t = time_str.strip().lower()
-    if t in {"all day", "tentative", "", "n/a", "day 1", "day 2"}:
+    raw = time_str.strip()
+    if raw.lower() in {"all day", "tentative", "", "n/a", "day 1", "day 2"}:
         return None
+    # ``%p`` only reliably accepts uppercase AM/PM across all C runtimes — the
+    # Windows CRT historically rejected lowercase "am"/"pm" depending on the
+    # locale, which would silently null every event. Normalise once here.
+    t = raw.upper()
     # Common formats observed in the feed.
     fmt_candidates = (
-        "%m-%d-%Y %I:%M%p",  # "05-21-2026 8:30am"
-        "%m-%d-%Y %I%p",     # "05-21-2026 8am"
+        "%m-%d-%Y %I:%M%p",  # "05-21-2026 8:30AM"
+        "%m-%d-%Y %I%p",     # "05-21-2026 8AM"
     )
     for fmt in fmt_candidates:
         try:

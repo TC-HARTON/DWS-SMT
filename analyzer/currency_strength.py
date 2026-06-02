@@ -200,6 +200,14 @@ class CurrencyStrengthEngine:
         for pair in usable_pairs:
             df = rates.get((pair, window.label))
             if df is None or len(df) < need:
+                # Holiday weeks / fresh W1 sessions can return fewer bars than
+                # the lookback needs. Log at DEBUG so coverage drops are
+                # explainable, but do not warn — this is normal and not a
+                # broker-data failure.
+                log.debug(
+                    "currency_strength: %s/%s skipped (need %d bars, got %d)",
+                    pair, window.label, need, 0 if df is None else len(df),
+                )
                 continue
             closes = df["close"]
             # Cumulative % change over the last N CLOSED bars: reference is

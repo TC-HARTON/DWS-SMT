@@ -285,3 +285,78 @@ def test_pair_trades_mae_zero_when_never_adverse():
     lows = np.array([98, 100, 109, 119], dtype=float)
     trades = _pair_trades(trigs, closes, highs, lows)
     assert trades[0].mae == pytest.approx(0.0)
+
+
+# ----------------------------------------------------- forming-bar look-ahead
+
+def test_forming_subtf_bar_never_changes_confirmed_base_triggers():
+    """A forming higher-TF bar must not retroactively flip the colour (and
+    therefore the trigger) of any *confirmed* base bar.
+
+    Before the fix, ``compute_symbol`` fed the raw sub-TF DataFrame (forming
+    bar included) into ``_diff_series`` → ``_map_onto`` projected the
+    forming bar's diff onto every base bar whose timestamp fell inside the
+    still-open sub-TF candle. As the forming bar's close drifted intra-bar,
+    the colour of recent confirmed base bars flipped, and trigger detection
+    re-fired or vanished. The fix drops the forming bar before the diff is
+    computed so confirmed base bars depend only on closed sub-TF data.
+
+    The probe builds a 100-bar M15 sequence whose last 4 closed bars
+    (00:00…00:45 of day 2) all fall inside the H4 candle that opened at
+    day-2 00:00 (the H4 forming bar at the end of the 7-bar H4 series).
+    Two variants share every bar EXCEPT the forming H4 close: A leaves it
+    on the sinusoid, B perturbs it by +50 (a swing far larger than the
+    EMA-diff threshold). The triggers on every confirmed base bar must
+    match between A and B."""
+    n_m15 = 100
+    m15_idx = pd.date_range(
+        "2026-01-01 00:00", periods=n_m15, freq="15min", tz="UTC",
+    )
+    m15_close = 100.0 + 5.0 * np.sin(np.arange(n_m15) / 8.0)
+    m15_df = pd.DataFrame(
+        {"open": m15_close, "high": m15_close + 0.05,
+         "low": m15_close - 0.05, "close": m15_close},
+        index=m15_idx,
+    )
+
+    # 7 H4 bars: 0/4/8/12/16/20/24 h. idx 6 (24 h) is the forming candle.
+    h4_idx = pd.date_range(
+        "2026-01-01 00:00", periods=7, freq="4h", tz="UTC",
+    )
+    h4_close_base = 100.0 + 5.0 * np.sin(np.arange(7) / 2.0)
+
+    h1_idx = pd.date_range(
+        "2026-01-01 00:00", periods=25, freq="1h", tz="UTC",
+    )
+    h1_close = 100.0 + 5.0 * np.sin(np.arange(25) / 3.0)
+
+    def _ohlc(idx, close):
+        return pd.DataFrame(
+            {"open": close, "high": close + 0.05,
+             "low": close - 0.05, "close": close},
+            index=idx,
+        )
+
+    frames_a = {"M15": m15_df, "H1": _ohlc(h1_idx, h1_close),
+                "H4": _ohlc(h4_idx, h4_close_base)}
+    # B perturbs ONLY the forming H4 bar's close by +50.
+    h4_close_b = h4_close_base.copy()
+    h4_close_b[-1] += 50.0
+    frames_b = {"M15": m15_df, "H1": _ohlc(h1_idx, h1_close),
+                "H4": _ohlc(h4_idx, h4_close_b)}
+
+    res_a = compute_symbol(frames_a)
+    res_b = compute_symbol(frames_b)
+    win_a = res_a.by_base["M15"]
+    win_b = res_b.by_base["M15"]
+
+    # The last emitted base bar is the forming M15 candle; confirmed bars
+    # are every preceding index. The forming bar is allowed to differ
+    # (it is excluded from trigger detection anyway), but every confirmed
+    # bar must be identical between the two variants.
+    confirmed_a = win_a.triggers[:-1]
+    confirmed_b = win_b.triggers[:-1]
+    assert confirmed_a == confirmed_b, (
+        "forming H4 perturbation altered a confirmed M15 trigger — "
+        f"A={confirmed_a} B={confirmed_b}"
+    )

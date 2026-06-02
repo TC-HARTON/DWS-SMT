@@ -2491,7 +2491,19 @@ function _buildPeriodVerdict(ps) {
 /** Recent rolling regime vs the 16Y baseline for the active base TF (UI.dwsBase).
  *  Returns {drift, pf, wr, n} or null. drift = (rolling.PF - base.PF)/base.PF.
  *  Shared by the banner and the gate so both judge on the SAME numbers. Pure
- *  read — never throws on partial snapshots. */
+ *  read — never throws on partial snapshots.
+ *
+ *  Returns null (= gate + banner both silent) in three documented cases:
+ *    1. The baseline cell is absent (no oos_baseline entry for this sym/tf).
+ *    2. The baseline PF is null or ≤ 0. JSON-null is how
+ *       ``_oos_xauusd_16y._aggregate`` encodes PF = +∞ (a baseline with zero
+ *       losing trades) — drift is undefined in that case so the conservative
+ *       choice is to monitor it manually rather than fabricate a denominator.
+ *       Verify against ``data/oos_baseline.json``: at last regeneration every
+ *       cell had a finite positive PF, so no symbol is currently in this
+ *       branch. If a future regen produces a zero-loss cell, that symbol
+ *       silently drops out of drift monitoring — by design.
+ *    3. Rolling PF is null/Infinity (no closed trades yet, or no losses). */
 function _regimeState(sym, snap) {
     const base = snap.oos_baseline && snap.oos_baseline.by_symbol
               && snap.oos_baseline.by_symbol[sym]
