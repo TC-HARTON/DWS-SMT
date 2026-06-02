@@ -235,7 +235,6 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
-
     def wait_for_update(self, since_version: int, timeout: float) -> bool:
         """Block until ``self.version > since_version`` or *timeout* elapses.
 
