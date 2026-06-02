@@ -290,15 +290,17 @@ def test_fetch_gold_drivers_returns_all_present(monkeypatch, tmp_path):
         return _fred_series_body([1.0, 2.0, 3.0])
     monkeypatch.setattr(eng, "_fred_get", fake_fred_get)
 
-    histories, as_of = eng.fetch_gold_drivers()
+    histories, as_of, n_fresh = eng.fetch_gold_drivers()
     from analyzer import gold_macro as gm
     assert set(histories) == {d.key for d in gm.GOLD_DRIVERS}
     assert histories["vix"] == [1.0, 2.0, 3.0]
     assert as_of == "2025-01-03"
+    assert n_fresh == len(gm.GOLD_DRIVERS)        # all four fetched fresh
 
 
-def test_fetch_gold_drivers_omits_failed_series(monkeypatch, tmp_path):
+def test_fetch_gold_drivers_omits_failed_series_with_no_cache(monkeypatch, tmp_path):
     import requests
+    from analyzer import gold_macro as gm
     eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
 
     def fake_fred_get(series_id, limit=6):
@@ -307,9 +309,85 @@ def test_fetch_gold_drivers_omits_failed_series(monkeypatch, tmp_path):
         return _fred_series_body([1.0, 2.0, 3.0])
     monkeypatch.setattr(eng, "_fred_get", fake_fred_get)
 
-    histories, _ = eng.fetch_gold_drivers()
-    assert "dxy" not in histories          # failed series dropped, not raised
+    histories, _, n_fresh = eng.fetch_gold_drivers()
+    # With NO prior cache, a failed driver cannot be filled → it is absent.
+    assert "dxy" not in histories
     assert "vix" in histories
+    assert n_fresh == len(gm.GOLD_DRIVERS) - 1     # three of four fresh
+
+
+def test_fetch_gold_drivers_falls_back_to_cached_driver_on_partial_failure(monkeypatch, tmp_path):
+    """A transient single-driver failure must NOT drop that driver if a prior
+    good history is cached — it falls back to the cache so the composite stays
+    on all four drivers (no score swing)."""
+    import requests
+    from analyzer import gold_macro as gm
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+
+    # First call: every driver succeeds → cache now holds all four.
+    monkeypatch.setattr(eng, "_fred_get",
+                        lambda series_id, limit=6: _fred_series_body([1.0, 2.0, 3.0]))
+    first, _, n_fresh_1 = eng.fetch_gold_drivers()
+    assert n_fresh_1 == len(gm.GOLD_DRIVERS)
+    assert first["dxy"] == [1.0, 2.0, 3.0]
+
+    # Second call: DXY now fails. It must be served from cache, not dropped.
+    def flaky(series_id, limit=6):
+        if series_id == cfg_dxy():
+            raise requests.RequestException("429")
+        return _fred_series_body([4.0, 5.0, 6.0])
+    monkeypatch.setattr(eng, "_fred_get", flaky)
+
+    second, _, n_fresh_2 = eng.fetch_gold_drivers()
+    assert "dxy" in second                          # NOT dropped
+    assert second["dxy"] == [1.0, 2.0, 3.0]         # served from the first call's cache
+    assert second["vix"] == [4.0, 5.0, 6.0]         # the fresh ones updated
+    assert n_fresh_2 == len(gm.GOLD_DRIVERS) - 1    # only three fetched fresh
+
+
+def test_fetch_gold_drivers_partial_success_does_not_clobber_cache(monkeypatch, tmp_path):
+    """A partial-success fetch must MERGE into the cache, never wholesale
+    replace it (which would discard a previously-good driver)."""
+    import requests
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+
+    monkeypatch.setattr(eng, "_fred_get",
+                        lambda series_id, limit=6: _fred_series_body([1.0, 2.0, 3.0]))
+    eng.fetch_gold_drivers()                         # seed cache with all four
+
+    def only_vix(series_id, limit=6):
+        import config
+        if series_id == config.MACRO_FRED_VIX_SERIES:
+            return _fred_series_body([9.0, 9.0, 9.0])
+        raise requests.RequestException("down")
+    monkeypatch.setattr(eng, "_fred_get", only_vix)
+    eng.fetch_gold_drivers()                         # only VIX fresh; others must persist
+
+    # The on-disk cache must still carry all four drivers (merge, not replace).
+    cached = eng._cached_gold_drivers
+    from analyzer import gold_macro as gm
+    assert set(cached) == {d.key for d in gm.GOLD_DRIVERS}
+    assert cached["vix"] == [9.0, 9.0, 9.0]          # refreshed
+    assert cached["dxy"] == [1.0, 2.0, 3.0]          # preserved from the seed
+
+
+def test_fetch_gold_drivers_total_failure_serves_cache(monkeypatch, tmp_path):
+    """When every driver fails, the merged view falls back entirely to cache and
+    n_fresh is 0 (caller flags stale + retries soon)."""
+    import requests
+    from analyzer import gold_macro as gm
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+
+    monkeypatch.setattr(eng, "_fred_get",
+                        lambda series_id, limit=6: _fred_series_body([1.0, 2.0, 3.0]))
+    eng.fetch_gold_drivers()                         # seed cache
+
+    def all_fail(series_id, limit=6):
+        raise requests.RequestException("FRED down")
+    monkeypatch.setattr(eng, "_fred_get", all_fail)
+    histories, _, n_fresh = eng.fetch_gold_drivers()
+    assert set(histories) == {d.key for d in gm.GOLD_DRIVERS}   # all served from cache
+    assert n_fresh == 0
 
 
 def cfg_dxy():

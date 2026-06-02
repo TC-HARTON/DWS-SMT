@@ -491,12 +491,16 @@ class AnalysisLoop:
 
     def _goldmacro_refresh_worker(self) -> None:
         try:
-            histories, as_of = self._macro_engine.fetch_gold_drivers()
+            histories, as_of, n_fresh = self._macro_engine.fetch_gold_drivers()
+            # stale = at least one driver was served from cache (or all were):
+            # the composite is still produced, but flagged and retried soon so
+            # full fresh coverage returns without waiting a whole interval.
+            stale = n_fresh < len(gold_macro.GOLD_DRIVERS)
             snap = gold_macro.compute_gold_macro_score(
-                histories, as_of=as_of, stale=not histories,
+                histories, as_of=as_of, stale=stale,
             )
             self._state.set_gold_macro(snap)
-            if not histories:       # total fetch failure → retry soon
+            if stale:               # not all drivers fresh → restore coverage soon
                 self._reschedule_soon("goldmacro", config.MACRO_RETRY_SEC)
         except Exception:               # noqa: BLE001 — never reach the loop
             log.exception("goldmacro worker failed")

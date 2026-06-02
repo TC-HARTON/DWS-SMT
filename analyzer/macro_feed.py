@@ -421,21 +421,30 @@ class MacroEngine:
         self._persist_cache()   # survive restart / outage with the last-good value
         return snap
 
-    def fetch_gold_drivers(self) -> tuple[dict[str, list[float]], str]:
+    def fetch_gold_drivers(self) -> tuple[dict[str, list[float]], str, int]:
         """Fetch the GoldMacroScore driver LEVEL histories from FRED.
 
         For each driver in ``gold_macro.GOLD_DRIVERS`` request a long window
         (``GOLD_MACRO_WINDOW`` + buffer) and parse the full chronological level
-        list. A per-series failure omits that driver (logged, redacted) instead
-        of aborting — the composite averages over the present drivers, mirroring
-        the macro layer's "never penalise on bad/absent data" rule. The newest
-        observation date across drivers is returned as ``as_of``. Successful
-        results refresh the on-disk cache; a total failure falls back to it
-        (callers see ``stale`` via the snapshot)."""
+        list. Resilience by per-driver caching:
+
+        * A driver that fails THIS call (logged, redacted) falls back to its
+          last-good cached history, so a transient single-driver outage does
+          NOT swing the composite or drop coverage. A driver with no cache yet
+          is simply absent (cannot be fabricated).
+        * The cache is MERGED, never wholesale-replaced: a partial success keeps
+          every previously-good driver instead of discarding it (which would
+          also undermine the total-failure fallback).
+
+        Returns ``(merged_histories, as_of, n_fresh)`` where *n_fresh* is the
+        number of drivers fetched fresh this call. The caller flags the snapshot
+        ``stale`` and retries soon when ``n_fresh < len(GOLD_DRIVERS)``, so full
+        fresh coverage is restored quickly after a blip rather than waiting a
+        whole refresh interval."""
         from analyzer import gold_macro      # local import avoids a cycle
 
-        histories: dict[str, list[float]] = {}
-        as_of = ""
+        fresh: dict[str, list[float]] = {}
+        fresh_as_of = ""
         limit = config.GOLD_MACRO_WINDOW + 30
         for d in gold_macro.GOLD_DRIVERS:
             try:
@@ -444,13 +453,18 @@ class MacroEngine:
                 log.warning("macro: gold driver %s fetch failed - %s",
                             d.series_id, _redact(exc))
                 continue
-            histories[d.key] = levels
-            as_of = max(as_of, date)
-        if histories:
-            self._cached_gold_drivers = histories
-            self._cached_gold_as_of = as_of
+            fresh[d.key] = levels
+            fresh_as_of = max(fresh_as_of, date)
+        # Per-driver merge by REBIND (GIL-atomic, safe against a concurrent
+        # _persist_cache read on another worker thread): fresh wins, the cache
+        # fills the gaps for drivers that failed this call.
+        merged = {**self._cached_gold_drivers, **fresh}
+        if fresh:
+            self._cached_gold_drivers = merged
+            self._cached_gold_as_of = fresh_as_of or self._cached_gold_as_of
             self._persist_cache()
-        return histories, as_of
+        as_of = fresh_as_of or self._cached_gold_as_of
+        return merged, as_of, len(fresh)
 
     # ------------------------------------------------------- per-source
     def _fetch_rate(self, ccy: str) -> MacroRate:

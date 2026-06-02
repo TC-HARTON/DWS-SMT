@@ -79,12 +79,26 @@ Design choices and their justification:
   (e.g. PCA on the driver matrix) becomes a documented follow-up.
 
 ### Missing-data policy
-- A driver whose series is unavailable/stale or whose window is too short to
-  z-score is **dropped from the mean** (the composite averages over present
-  drivers only), mirroring `pair_macro_bias`'s "never penalise on bad/absent
-  data" rule. The snapshot records which drivers were used (`n_drivers`,
-  `contributions`) so the UI can flag reduced coverage.
-- If **zero** drivers are usable, the score is `None` (UI shows "data pending").
+- **Per-driver cached fallback (resilience, added after P1 integration
+  testing).** A driver that fails a given fetch falls back to its last-good
+  cached history, so a transient single-driver outage (e.g. a FRED 429 on one
+  series) does NOT swing the composite or drop coverage. The driver cache is
+  MERGED on each fetch, never wholesale-replaced — a partial success keeps every
+  previously-good driver. `fetch_gold_drivers` returns `n_fresh` (drivers
+  fetched fresh this call); the loop flags the snapshot `stale` and reschedules
+  soon when `n_fresh < len(GOLD_DRIVERS)`, restoring full fresh coverage quickly
+  rather than after a whole interval.
+- A driver with **no cache yet** (never fetched successfully) and a failed fetch
+  is dropped from the mean (it cannot be fabricated); the composite averages
+  over the present drivers, mirroring `pair_macro_bias`'s "never penalise on
+  bad/absent data" rule. The snapshot records which drivers were used
+  (`n_drivers`, `contributions`) so the UI can flag reduced coverage.
+- If **zero** drivers are usable (no fresh fetch and no cache), the score is
+  `None` (UI shows "data pending").
+- Rationale: a regime gauge must be stable. Integration testing showed a single
+  dropped driver shifting the score materially (e.g. -0.30 → -1.75 when the lone
+  tailwind driver blipped), so per-driver caching keeps the composite on its
+  full driver set across transient outages.
 
 ## 4. Module architecture
 
