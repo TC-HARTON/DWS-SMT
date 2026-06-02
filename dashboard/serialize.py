@@ -75,7 +75,6 @@ from analyzer.macro_feed import (
     MacroSnapshot,
     RealYieldSnapshot,
 )
-from analyzer.gold_macro import GoldMacroSnapshot
 from analyzer.mt5_connector import AccountSnapshot, Tick
 from analyzer.position_sizing import recommended_lot
 from analyzer.price_action import PriceActionEvent
@@ -691,37 +690,6 @@ def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
     }
 
 
-def serialize_gold_macro(s: GoldMacroSnapshot | None) -> dict[str, Any] | None:
-    """Serialise the GoldMacroScore snapshot for the WebSocket payload.
-
-    Rides the FULL snapshot only (daily-moving; must never load the ~2 Hz light
-    path). ``score`` is None when no driver was usable; contributions list every
-    present driver so the UI can show per-driver bars and flag reduced coverage.
-    """
-    if s is None:
-        return None
-    return {
-        "score": _opt_float(s.score),
-        "band": s.band,
-        "n_drivers": int(s.n_drivers),
-        "window": int(s.window),
-        "as_of": s.as_of,
-        "stale": bool(s.stale),
-        "generated_at": float(s.generated_at),
-        "contributions": [
-            {
-                "key": c.key,
-                "label": c.label_ja,
-                "value": _opt_float(c.value),
-                "z": _opt_float(c.z),
-                "signed_z": _opt_float(c.signed_z),
-                "sign": int(c.sign_gold),
-            }
-            for c in s.contributions
-        ],
-    }
-
-
 # --------------------------------------------------------------------------- #
 
 
@@ -783,7 +751,6 @@ def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
-        "gold_macro": serialize_gold_macro(snap.get("gold_macro")),  # type: ignore[arg-type]
         "validation_history": snap.get("validation_history") or {},
         # Persistent live trigger history (per broker): complete year-bucketed
         # record accumulated on disk, so the dashboard shows every live year in

@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 import config
-from analyzer import confluence, gold_macro, price_action, structure_detector, trigger_store
+from analyzer import confluence, price_action, structure_detector, trigger_store
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
 from analyzer.correlation import CorrelationEngine
@@ -96,7 +96,6 @@ class AnalysisLoop:
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
         macro_interval: float = config.MACRO_REFRESH_SEC,
         realyield_interval: float = config.MACRO_REALYIELD_REFRESH_SEC,
-        goldmacro_interval: float = config.GOLD_MACRO_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
         self._connector = connector
@@ -125,9 +124,6 @@ class AnalysisLoop:
         # The real yield moves daily, so it refreshes faster than policy rates
         # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
         self._realyield_inflight = threading.Event()
-        # GoldMacroScore drivers are daily-moving (same cadence as the real
-        # yield); same MacroEngine, separate in-flight guard + schedule.
-        self._goldmacro_inflight = threading.Event()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -156,7 +152,6 @@ class AnalysisLoop:
                       next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
             _Schedule("macro", macro_interval),
             _Schedule("realyield", realyield_interval),
-            _Schedule("goldmacro", goldmacro_interval),
         )
 
     # --------------------------------------------------------------- start
@@ -216,7 +211,6 @@ class AnalysisLoop:
             "validation": self._do_validation_refresh,
             "macro": self._do_macro_refresh,
             "realyield": self._do_realyield_refresh,
-            "goldmacro": self._do_goldmacro_refresh,
         }[name]
         try:
             handler(bases)
@@ -476,37 +470,6 @@ class AnalysisLoop:
             self._reschedule_soon("realyield", config.MACRO_RETRY_SEC)
         finally:
             self._realyield_inflight.clear()
-
-    def _do_goldmacro_refresh(self, bases: list[str]) -> None:
-        """Refresh the GoldMacroScore hourly (its FRED drivers move daily)."""
-        if self._goldmacro_inflight.is_set():
-            log.debug("goldmacro: previous fetch still in flight, skipping tick")
-            return
-        self._goldmacro_inflight.set()
-        worker = threading.Thread(
-            target=self._goldmacro_refresh_worker,
-            name="goldmacro-fetch", daemon=True,
-        )
-        worker.start()
-
-    def _goldmacro_refresh_worker(self) -> None:
-        try:
-            histories, as_of, n_fresh = self._macro_engine.fetch_gold_drivers()
-            # stale = at least one driver was served from cache (or all were):
-            # the composite is still produced, but flagged and retried soon so
-            # full fresh coverage returns without waiting a whole interval.
-            stale = n_fresh < len(gold_macro.GOLD_DRIVERS)
-            snap = gold_macro.compute_gold_macro_score(
-                histories, as_of=as_of, stale=stale,
-            )
-            self._state.set_gold_macro(snap)
-            if stale:               # not all drivers fresh → restore coverage soon
-                self._reschedule_soon("goldmacro", config.MACRO_RETRY_SEC)
-        except Exception:               # noqa: BLE001 — never reach the loop
-            log.exception("goldmacro worker failed")
-            self._reschedule_soon("goldmacro", config.MACRO_RETRY_SEC)
-        finally:
-            self._goldmacro_inflight.clear()
 
     def _reschedule_soon(self, name: str, delay: float) -> None:
         """Pull a schedule's next run forward to ``now + delay`` so a failed
