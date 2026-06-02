@@ -316,3 +316,23 @@ def test_serialize_validation_handles_infinite_pf():
     # inf must serialise to null — json.dumps would otherwise raise.
     out = serialize_validation(snap)
     assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["profit_factor"] is None
+
+
+def test_serialize_dws_smt_includes_flip_norm():
+    import numpy as np
+    from analyzer.dws_smt import DwsSmtWindow, DwsSmtResult
+    from dashboard.serialize import serialize_dws_smt
+    win = DwsSmtWindow(
+        base_tf="M15", rows=("H4", "H1", "M15"),
+        times_ms=np.array([1, 2], dtype=np.int64),
+        colors=np.array([[0, 1, 2], [0, 0, 0]], dtype=np.int8),
+        triggers=(None, "BUY"),
+        trades=(),
+        bias=np.array([0.0, 1.0]),
+        flip_norm=np.array([[0.5, -0.5, 0.0], [1.0, 0.2, -0.9]]),
+    )
+    out = serialize_dws_smt(DwsSmtResult(by_base={"M15": win}))
+    blk = out["by_base"]["M15"]
+    assert "fn" in blk
+    assert blk["fn"] == [[0.5, -0.5, 0.0], [1.0, 0.2, -0.9]]
+    assert serialize_dws_smt(None) is None

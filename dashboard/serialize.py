@@ -154,7 +154,9 @@ def serialize_dws_smt(d: DwsSmtResult | None) -> dict[str, Any] | None:
     Each base window ships parallel arrays: ``t`` = epoch-ms bar times,
     ``c`` = per-bar ``[row, ...]`` colour indices (0 up / 1 down / 2 flat),
     ``g`` = per-bar trigger ("BUY"/"SELL"/"EXIT") or ``None``, ``bias`` = the
-    per-bar composite BIAS score (-10..+10, judged at that bar's own time).
+    per-bar composite BIAS score (-10..+10, judged at that bar's own time),
+    ``fn`` = per-bar ``[row, ...]`` signed distance-to-flip in [-1, 1]
+    (display-only flip-proximity gradient).
     ``trades`` lists paired entry→exit trades — ``i`` entry bar, ``d`` direction
     (+1/-1), ``p`` signed price points, ``m`` max adverse excursion, ``o`` open.
     """
@@ -169,6 +171,7 @@ def serialize_dws_smt(d: DwsSmtResult | None) -> dict[str, Any] | None:
                 "c": w.colors.tolist(),
                 "g": list(w.triggers),
                 "bias": [round(float(x), 2) for x in w.bias],
+                "fn": [[round(float(v), 3) for v in row] for row in w.flip_norm],
                 "trades": [
                     {"i": tr.entry_idx, "d": tr.direction,
                      "p": round(tr.points, 5), "m": round(tr.mae, 5),
