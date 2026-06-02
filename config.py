@@ -350,6 +350,19 @@ MACRO_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD")
 MACRO_FRED_REALYIELD_SERIES: Final[str] = "DFII10"   # 10Y TIPS real yield, daily
 MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
 
+# GoldMacroScore — XAUUSD-specific macro composite (spec
+# docs/superpowers/specs/2026-06-02-gold-macro-score-design.md). Four daily
+# FRED drivers fused into a -10..+10 level-z equal-weight score on the BIAS
+# scale. DFII10 is shared with the real-yield layer above but re-fetched with a
+# long window here for z-scoring.
+MACRO_FRED_BREAKEVEN_SERIES: Final[str] = "T10YIE"     # 10Y breakeven inflation, daily
+MACRO_FRED_VIX_SERIES: Final[str] = "VIXCLS"           # CBOE VIX close, daily
+MACRO_FRED_DXY_SERIES: Final[str] = "DTWEXBGS"         # broad trade-weighted USD index, daily
+GOLD_MACRO_WINDOW: Final[int] = 252                    # ~1Y trading days for z-score
+GOLD_MACRO_Z_CLAMP: Final[float] = 2.5                 # cap per-driver tail leverage
+GOLD_MACRO_BAND_THRESHOLD: Final[float] = 3.0          # |score| >= this → tailwind/headwind band
+GOLD_MACRO_REFRESH_SEC: Final[float] = 3600.0          # 1 hour (drivers are daily-moving)
+
 
 # --------------------------------------------------------------------------- #
 # Composite BIAS — per-TF tfSignal → regime-gated weighted composite
