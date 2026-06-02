@@ -254,3 +254,21 @@ def test_redact_strips_fred_api_key():
     assert "abc123SECRETkey" not in out
     assert "api_key=***" in out
     assert "series_id=DFII10" in out      # non-secret params preserved
+
+
+def test_parse_fred_series_returns_chronological_levels():
+    body = _json.dumps({"observations": [
+        {"date": "2026-05-29", "value": "2.10"},
+        {"date": "2026-05-28", "value": "."},      # missing → skipped
+        {"date": "2026-05-27", "value": "2.00"},
+    ]})
+    as_of, levels = mf.parse_fred_series(body)
+    # Sorted oldest→newest, missing dropped, newest date returned as as_of.
+    assert as_of == "2026-05-29"
+    assert levels == [2.00, 2.10]
+
+
+def test_parse_fred_series_raises_on_empty():
+    body = _json.dumps({"observations": [{"date": "2026-05-29", "value": "."}]})
+    with pytest.raises(ValueError):
+        mf.parse_fred_series(body)

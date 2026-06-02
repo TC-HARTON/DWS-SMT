@@ -190,6 +190,27 @@ def parse_fred_json(body: str) -> tuple[str, float]:
     return max(usable, key=lambda t: t[0])     # ISO dates sort lexically
 
 
+def parse_fred_series(body: str) -> tuple[str, list[float]]:
+    """Parse a FRED ``series/observations`` body → (newest ISO date, levels).
+
+    Returns the full chronological (oldest→newest) list of usable level values
+    plus the most recent observation date. Missing observations (``"."``) are
+    skipped. Raises ``ValueError`` when no usable observation exists. Used by
+    the GoldMacroScore path, which needs a long history to z-score (unlike
+    :func:`parse_fred_json`, which returns only the latest point)."""
+    doc = json.loads(body)
+    usable: list[tuple[str, float]] = []
+    for row in doc.get("observations") or []:
+        date = str(row.get("date") or "")[:10]
+        raw = (row.get("value") or "").strip()
+        if date and raw and raw != ".":
+            usable.append((date, float(raw)))
+    if not usable:
+        raise ValueError("FRED response had no usable observation")
+    usable.sort(key=lambda t: t[0])             # ISO dates sort lexically
+    return usable[-1][0], [v for _, v in usable]
+
+
 def parse_ecb_csv(body: str) -> tuple[str, float]:
     """Parse an ECB SDMX ``csvdata`` body → (latest date, rate).
 
