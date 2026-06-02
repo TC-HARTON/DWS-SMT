@@ -1951,6 +1951,23 @@ const DWS_BASE_LABEL = { H1: '1H', M15: 'M15' };
 // Histogram cell colours by index: 0 up / 1 down / 2 flat.
 const DWS_CELL = ['#00d09c', '#ff5b6b', '#3f4760'];
 
+// Flip-proximity render: a row cell's hue is the sign of its flip_norm and its
+// alpha its magnitude — near the zero-cross (|fn|→0, a flip/trigger imminent)
+// the cell goes pale; firmly aligned (|fn|→1) it is solid, matching the old
+// flat look. DWS_FLIP_IMMINENT gates the current-bar holdout emphasis.
+const DWS_FLIP_IMMINENT = 0.25;
+
+/** Canvas fill for a DWS row cell from its signed flip-norm. Falls back to the
+ *  flat colour index when fn is missing/non-finite (older snapshot). */
+function dwsCellFill(fn, fallbackIdx) {
+    if (fn == null || !isFinite(fn)) return DWS_CELL[fallbackIdx] || DWS_CELL[2];
+    const mag = Math.min(1, Math.abs(fn));
+    const a = (0.20 + 0.80 * mag).toFixed(3);     // pale near a flip, solid when aligned
+    if (fn > 0) return `rgba(0,208,156,${a})`;     // up = green
+    if (fn < 0) return `rgba(255,91,107,${a})`;    // down = red
+    return DWS_CELL[2];                            // exactly flat = neutral grey
+}
+
 function dwsResult(snap, sym) {
     const sa = snap && snap.analysis && snap.analysis.by_symbol
              && snap.analysis.by_symbol[sym];
@@ -2704,17 +2721,51 @@ function drawDwsCanvas(snap, sym) {
     const plotY = 2, plotH = H - axisH - markH - 4;
     const rowH = plotH / rows.length, barW = plotW / N;
 
-    // 3 stacked colour rows
+    // 3 stacked rows — gradient fill: hue = sign(flip_norm), alpha = |flip_norm|
+    // (pale near a flip, solid when firmly aligned). win.c is the fallback for
+    // older snapshots without fn.
+    const fn = win.fn || null;
     for (let r = 0; r < rows.length; r++) {
         const y = plotY + r * rowH;
         for (let j = 0; j < N; j++) {
-            ctx.fillStyle = DWS_CELL[win.c[j][r]] || DWS_CELL[2];
+            const fv = (fn && fn[j]) ? fn[j][r] : null;
+            ctx.fillStyle = dwsCellFill(fv, win.c[j][r]);
             ctx.fillRect(plotX + j * barW, y + 1, Math.max(1, barW - 0.4), rowH - 2);
         }
         ctx.fillStyle = '#f2f4f9';
         ctx.font = '700 11px monospace';
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.fillText(rows[r], 4, y + rowH / 2);
+    }
+
+    // Holdout emphasis on the CURRENT (rightmost) bar: when exactly two rows
+    // share an aligned colour and the third is near its flip, ring that third
+    // cell and label its TF — the literal "2 aligned, 1 about to complete".
+    if (fn && N > 0) {
+        const cj = N - 1, cc = win.c[cj], cf = fn[cj];
+        if (cc && cf) {
+            for (const dir of [0, 1]) {              // 0 = all-up holdout, 1 = all-down
+                const aligned = [];
+                let holdout = -1;
+                for (let r = 0; r < rows.length; r++) {
+                    if (cc[r] === dir) aligned.push(r); else holdout = r;
+                }
+                if (aligned.length === rows.length - 1 && holdout >= 0
+                    && Math.abs(cf[holdout]) < DWS_FLIP_IMMINENT) {
+                    const y = plotY + holdout * rowH;
+                    const x = plotX + cj * barW;
+                    ctx.strokeStyle = dir === 0 ? 'rgba(0,208,156,0.95)'
+                                                : 'rgba(255,91,107,0.95)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x + 0.5, y + 1.5, Math.max(1, barW - 1.4), rowH - 3);
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '700 9px monospace';
+                    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+                    ctx.fillText(rows[holdout] + (dir === 0 ? '▲' : '▼'),
+                                 x - 1, y + rowH / 2);
+                }
+            }
+        }
     }
 
     // Trigger guide lines + markers — BIAS-confirmed triggers are solid with a
