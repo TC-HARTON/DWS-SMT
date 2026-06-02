@@ -66,3 +66,83 @@ GOLD_DRIVERS: tuple[GoldDriver, ...] = (
     GoldDriver("vix", config.MACRO_FRED_VIX_SERIES, +1, "リスク(VIX)"),
     GoldDriver("dxy", config.MACRO_FRED_DXY_SERIES, -1, "米ドル(広義)"),
 )
+
+
+def _zscore_last(history: list[float], window: int) -> tuple[float, float] | None:
+    """Population z-score of the LAST level over the trailing *window*.
+
+    Returns ``(latest_value, z)`` or ``None`` when the trailing window has
+    fewer than 2 points or zero variance (a flat series → z 0 is returned, not
+    None, because a flat driver is informative: it is simply neutral)."""
+    if not history:
+        return None
+    window_vals = history[-window:] if window > 0 else list(history)
+    if len(window_vals) < 2:
+        return None
+    n = len(window_vals)
+    mean = sum(window_vals) / n
+    var = sum((v - mean) ** 2 for v in window_vals) / n      # population variance
+    latest = window_vals[-1]
+    if var <= 0.0:
+        return latest, 0.0
+    return latest, (latest - mean) / math.sqrt(var)
+
+
+def _band_for(score: float | None) -> str:
+    """Map a composite score to its interpretation band."""
+    if score is None:
+        return "データ待ち"
+    thr = config.GOLD_MACRO_BAND_THRESHOLD
+    if score >= thr:
+        return "構造的追風"
+    if score <= -thr:
+        return "構造的逆風"
+    return "中立"
+
+
+def compute_gold_macro_score(
+    histories: dict[str, list[float]],
+    *,
+    window: int = config.GOLD_MACRO_WINDOW,
+    as_of: str,
+    stale: bool,
+) -> GoldMacroSnapshot:
+    """Fuse the driver level histories into a GoldMacroSnapshot.
+
+    Each driver is z-scored over the trailing *window* of its LEVEL, clamped to
+    ``±GOLD_MACRO_Z_CLAMP``, sign-adjusted to gold's direction, then the present
+    drivers are equal-weighted and the mean rescaled from the clamp range onto
+    ``-10..+10``. Drivers with no usable history are dropped from the mean. With
+    zero usable drivers the score is ``None``.
+
+    Args:
+        histories: ``{driver_key: [level, ...]}`` newest-LAST per driver.
+        window: trailing observation count for the z-score.
+        as_of: ISO date of the newest observation (for display).
+        stale: True when served from cache after a fetch failure.
+    """
+    clamp = config.GOLD_MACRO_Z_CLAMP
+    contribs: list[GoldDriverContribution] = []
+    for d in GOLD_DRIVERS:
+        res = _zscore_last(histories.get(d.key) or [], window)
+        if res is None:
+            continue
+        value, z = res
+        signed = d.sign_gold * max(-clamp, min(clamp, z))
+        contribs.append(GoldDriverContribution(
+            key=d.key, label_ja=d.label_ja, value=value, z=z,
+            signed_z=signed, sign_gold=d.sign_gold,
+        ))
+
+    if not contribs:
+        return GoldMacroSnapshot(
+            score=None, band=_band_for(None), contributions=(),
+            n_drivers=0, window=window, as_of=as_of, stale=stale,
+        )
+
+    raw = sum(c.signed_z for c in contribs) / len(contribs)
+    score = max(-10.0, min(10.0, raw / clamp * 10.0))
+    return GoldMacroSnapshot(
+        score=score, band=_band_for(score), contributions=tuple(contribs),
+        n_drivers=len(contribs), window=window, as_of=as_of, stale=stale,
+    )
