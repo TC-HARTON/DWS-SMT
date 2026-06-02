@@ -255,3 +255,25 @@ node --check static/app.js
 ### 12.10 現在のライブ状態 / 残課題
 - 稼働サーバ: **新コード反映済み**(セッション中に PID 明示kill→再起動を2回実施)。接続ブローカーは MT5 端末依存(切替はダッシュボードのドロップダウン)。
 - 残(任意): カレンダーの ADP は**時刻21:15で正・ラベルのみ区別**(値ソースは別物)。中銀URLはホスト許可リスト追加済。`Average Hourly Earnings` 等一部は英語ラベルのまま(必要なら和訳追加可)。**Bonferroni/structures撤去**(§7)は据え置き。
+
+---
+
+## 13. 2026-06-02 セッション — ロジック厳密監査 + GoldMacroScore 試作(結論: REJECT)
+
+### 13.1 ロジック厳密監査(5領域並列レビュー)→ 修正 push 済み(コミット `25d24e8`)
+- **最重要: forming sub-TF look-ahead 根治**(`dws_smt.compute_symbol`)。`_diff_series` に `df.iloc[:-1]` を渡し、未確定の高位TF足 close が**確定済 base 足のトリガーへ伝播**するのを遮断(tick毎フリッカ→`trigger_store` への誤値永続化を防止)。回帰テスト `test_forming_subtf_bar_never_changes_confirmed_base_triggers`。
+- 他: `_generate_oos_baseline.py` に schema ダウングレード refuse ガード / `.cal-*` 30 セレクタを `.anlx-triggers` スコープ化 / Welch×scipy 1e-10 一致テスト新規 / `_regimeState` PF=∞ 仕様明記 / `trigger_store.load_by_year` の `path.exists()` ロック内化 / calendar `%p` 大文字化(Windows CRT) / journal `except json.JSONDecodeError` / 他軽微。
+- **誤検知と判定(修正不要)**: `_bar_index_utc` の `ambiguous=True`(pandas は曖昧時刻のみ作用、非曖昧バーは正しい季節別オフセット=実機検証済) / `correlation.bars_available` の NaN 混入(末尾 `dropna()` で intersect 済)。
+
+### 13.2 GoldMacroScore 試作 — **VERDICT: REJECT(ライブ配線は撤去済み・研究資産は保存)**
+- 狙い: XAUUSD 特化マクロ合成指標(実質金利 DFII10 / 期待インフレ T10YIE / VIX VIXCLS / 広義ドル DTWEXBGS を水準z・等加重で -10..+10、BIASスケール)。spec `docs/superpowers/specs/2026-06-02-gold-macro-score-design.md` / plan `docs/superpowers/plans/2026-06-02-gold-macro-score.md`。
+- **検証(`scripts/_validate_gold_macro.py`、look-ahead無し)**: IC 5d=+0.002 / 20d=−0.026(両方 CI が 0 を跨ぐ)。OOS ゲートも M15/H1 は PF 悪化、H4 のみ小標本で改善=過学習。→ **REJECT**。
+- **探索(`scripts/_experiment_gold_macro.py`、ICマトリクス)**: 4ドライバ×{水準z,変化z}×{5/20/60日} で**理論方向の有意な正 IC はゼロ**。マクロ系の設計反復(変化z/PCA直交化)では救えないと実証。→ 次に意味あるのは COT/GLD(別仮説・別データ)。
+- **ユーザ判断**: 「テクニカルで最重視するのはチャート形状=今のAIの限界領域。現状ロジックは自分のTFと大差ない。一旦終了」→ **ライブ配線除去・研究資産保存**(コミット `00c7910`)。
+- **教訓**: 検証ゲート(IC+OOS)が「もっともらしいがノイズな指標」をUI配信手前で正しく止めた。`16Y OOS で証明する`規律の価値。
+- **再挑戦するなら**: `analyzer/gold_macro.py`(純スコア)+ 上記2ハーネス + config の FRED系列/窓定数 が残置済み。COT(CFTC週次)/ GLD保有高(日次)フェッチャを新設して同ハーネスで再検証する手順から。
+
+### 13.3 コミット状況(2026-06-02 時点)
+- push 済み: `25d24e8`(ロジック監査修正)。
+- **ローカル main のみ・未 push**: GoldMacroScore 関連の commit 群(`00b4a1f`〜`00c7910`)。research 資産 + spec/plan + 検証ハーネス + ライブ配線除去。ユーザが「プッシュ」と言うまで push しない(§3)。
+- pytest: **339 passed**。稼働サーバはライブ配線除去後の新コード反映済み(`gold_macro` は WS 非配信を確認)。
