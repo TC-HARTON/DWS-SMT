@@ -150,6 +150,27 @@ def _colorize(smoothed: np.ndarray) -> np.ndarray:
     return out
 
 
+def _flip_norm(smoothed: np.ndarray, window: int, k: float) -> np.ndarray:
+    """Signed, self-normalised distance of the smoothed diff from its zero-cross.
+
+    ``flip_norm = clamp(smoothed / (k * rolling_std(smoothed, window)), -1, +1)``
+    where ``rolling_std`` is the trailing population std of the row's own
+    smoothed-diff series. The SIGN is the row's current direction; the MAGNITUDE
+    is how firmly aligned it is (``~0`` = at the zero-cross = a colour flip / a
+    trigger is imminent; ``~1`` = firmly in its colour). Returns 0 wherever the
+    scale is undefined (warmup with <2 points, or a flat zero-variance window),
+    never NaN/inf — mirroring ``_colorize`` treating a flat series as neutral."""
+    out = np.zeros(smoothed.size, dtype=np.float64)
+    if smoothed.size == 0:
+        return out
+    std = (pd.Series(smoothed).rolling(window, min_periods=2)
+           .std(ddof=0).to_numpy())
+    denom = k * std
+    ok = np.isfinite(denom) & (denom > 0.0)
+    out[ok] = np.clip(smoothed[ok] / denom[ok], -1.0, 1.0)
+    return out
+
+
 def _detect_triggers(colors_by_row: list[np.ndarray]) -> list[str | None]:
     """Edge-detect BUY/SELL/EXIT over the base bars (the ``.mq5`` OnCalculate loop).
 

@@ -360,3 +360,36 @@ def test_forming_subtf_bar_never_changes_confirmed_base_triggers():
         "forming H4 perturbation altered a confirmed M15 trigger — "
         f"A={confirmed_a} B={confirmed_b}"
     )
+
+
+# ----------------------------------------------------- _flip_norm
+
+def test_flip_norm_shape_and_clamp():
+    sd = np.array([1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 5.0])
+    out = dws_smt._flip_norm(sd, window=4, k=1.0)
+    assert out.shape == sd.shape
+    assert np.all(np.abs(out) <= 1.0)          # clamped to [-1, 1]
+    assert out[-1] > 0.0                        # last value is positive
+
+
+def test_flip_norm_zero_when_flat():
+    # A flat window has zero std → undefined scale → flip_norm 0 (as production
+    # _colorize treats a flat smoothed series as neutral).
+    sd = np.array([3.0, 3.0, 3.0, 3.0, 3.0])
+    out = dws_smt._flip_norm(sd, window=3, k=1.0)
+    np.testing.assert_array_equal(out, np.zeros_like(sd))
+
+
+def test_flip_norm_small_near_zero_cross():
+    # A value tiny relative to its recent volatility is "near the flip" → |.|~0.
+    sd = np.array([10.0, -10.0, 10.0, -10.0, 0.05])
+    out = dws_smt._flip_norm(sd, window=4, k=1.0)
+    assert abs(out[-1]) < 0.05
+
+
+def test_flip_norm_empty_and_single():
+    np.testing.assert_array_equal(dws_smt._flip_norm(np.array([]), 4, 1.0),
+                                  np.array([]))
+    # single point: no std defined → 0, never NaN.
+    out = dws_smt._flip_norm(np.array([7.0]), 4, 1.0)
+    assert out.tolist() == [0.0]
