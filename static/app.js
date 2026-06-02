@@ -1952,20 +1952,34 @@ const DWS_BASE_LABEL = { H1: '1H', M15: 'M15' };
 const DWS_CELL = ['#00d09c', '#ff5b6b', '#3f4760'];
 
 // Flip-proximity render: a row cell's hue is the sign of its flip_norm and its
-// alpha its magnitude — near the zero-cross (|fn|→0, a flip/trigger imminent)
-// the cell goes pale; firmly aligned (|fn|→1) it is solid, matching the old
-// flat look. DWS_FLIP_IMMINENT gates the current-bar holdout emphasis.
+// proximity-to-flip is shown by blending the sign colour toward the neutral
+// grey as |fn|→0. Firmly aligned (|fn|→1) = the solid sign colour (the old
+// clean flat look); near the zero-cross (a flip/trigger imminent) = grey-ish
+// (= "neutral / about to flip"). Blending toward the palette's own neutral
+// grey — OPAQUE, not alpha-on-dark — avoids the muddy dark smears that fading
+// to transparency produced. DWS_FLIP_IMMINENT gates the current-bar holdout
+// emphasis.
 const DWS_FLIP_IMMINENT = 0.25;
+const _DWS_UP = [0, 208, 156], _DWS_DOWN = [255, 91, 107], _DWS_NEUTRAL = [63, 71, 96];
 
-/** Canvas fill for a DWS row cell from its signed flip-norm. Falls back to the
- *  flat colour index when fn is missing/non-finite (older snapshot). */
+/** Canvas fill for a DWS row cell from its signed flip-norm: opaque lerp from
+ *  the neutral grey (at the flip) to the sign colour (firmly aligned). Falls
+ *  back to the flat colour index when fn is missing/non-finite (older snapshot). */
+const _DWS_FLIP_KNEE = 0.45;   // |fn| >= knee → full solid colour (clean bands);
+                               // only genuinely near-flip cells desaturate.
 function dwsCellFill(fn, fallbackIdx) {
     if (fn == null || !isFinite(fn)) return DWS_CELL[fallbackIdx] || DWS_CELL[2];
     const mag = Math.min(1, Math.abs(fn));
-    const a = (0.20 + 0.80 * mag).toFixed(3);     // pale near a flip, solid when aligned
-    if (fn > 0) return `rgba(0,208,156,${a})`;     // up = green
-    if (fn < 0) return `rgba(255,91,107,${a})`;    // down = red
-    return DWS_CELL[2];                            // exactly flat = neutral grey
+    if (mag === 0) return DWS_CELL[2];
+    // Knee: keep aligned/most bars at the full sign colour (crisp bands); only
+    // the near-flip tail ramps toward neutral grey, so the histogram reads as
+    // clean colour blocks with a subtle "about to flip" fade at the edges.
+    const t = Math.min(1, mag / _DWS_FLIP_KNEE);
+    const c = fn > 0 ? _DWS_UP : _DWS_DOWN;
+    const r = Math.round(_DWS_NEUTRAL[0] + (c[0] - _DWS_NEUTRAL[0]) * t);
+    const g = Math.round(_DWS_NEUTRAL[1] + (c[1] - _DWS_NEUTRAL[1]) * t);
+    const b = Math.round(_DWS_NEUTRAL[2] + (c[2] - _DWS_NEUTRAL[2]) * t);
+    return `rgb(${r},${g},${b})`;
 }
 
 function dwsResult(snap, sym) {
