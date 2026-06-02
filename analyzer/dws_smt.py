@@ -85,6 +85,7 @@ class DwsSmtWindow:
     triggers: tuple[str | None, ...]   # "BUY"/"SELL"/"EXIT"/None, one per bar
     trades: tuple[DwsSmtTrade, ...]    # paired entry→exit trades over the window
     bias: np.ndarray                   # composite BIAS score (-10..+10) per bar
+    flip_norm: np.ndarray              # signed (n_bars, n_rows) distance-to-flip
 
 
 @dataclass(frozen=True)
@@ -296,9 +297,12 @@ def _build_window(
     base_df: pd.DataFrame,
     rows: tuple[str, ...],
     row_diffs: dict[str, tuple[np.ndarray, np.ndarray]],
+    row_diffs_live: dict[str, tuple[np.ndarray, np.ndarray]],
     smooth: int,
     out_bars: int,
     bias_contrib: dict[str, tuple[np.ndarray, np.ndarray]] | None,
+    flip_window: int,
+    flip_k: float,
 ) -> DwsSmtWindow | None:
     """Render the DWS-SMT histogram for one base timeframe."""
     base_ns = _epoch_ns(base_df.index)
@@ -309,15 +313,23 @@ def _build_window(
     salpha = 2.0 / (smooth + 1.0)
     # Colour each row over the *full* base history so the zero-seeded smoothing
     # warm-up has fully decayed before the trailing window that gets emitted.
+    # row_diffs is forming-EXCLUDED (look-ahead-safe) — it drives colours and
+    # triggers. row_diffs_live is forming-INCLUDED and drives ONLY the
+    # display-only flip-proximity (the live "almost a trigger" preview); it is
+    # never consulted by _detect_triggers / _pair_trades.
     colors_by_row: list[np.ndarray] = []
+    flip_by_row: list[np.ndarray] = []
     for label in rows:
         rd = row_diffs.get(label)
-        if rd is None:
-            mapped = np.zeros(n, dtype=np.float64)
-        else:
-            sub_ns, sub_diff = rd
-            mapped = _map_onto(base_ns, sub_ns, sub_diff)
+        mapped = (np.zeros(n, dtype=np.float64) if rd is None
+                  else _map_onto(base_ns, rd[0], rd[1]))
         colors_by_row.append(_colorize(_ema(mapped, salpha, seed=0.0)))
+
+        rdl = row_diffs_live.get(label)
+        mapped_live = (np.zeros(n, dtype=np.float64) if rdl is None
+                       else _map_onto(base_ns, rdl[0], rdl[1]))
+        flip_by_row.append(_flip_norm(_ema(mapped_live, salpha, seed=0.0),
+                                      flip_window, flip_k))
 
     triggers = _detect_triggers(colors_by_row)
 
@@ -328,6 +340,7 @@ def _build_window(
 
     start = max(0, n - out_bars)
     colors = np.stack([row[start:] for row in colors_by_row], axis=1)   # (n_out, n_rows)
+    flip = np.stack([row[start:] for row in flip_by_row], axis=1)       # (n_out, n_rows)
     times_ms = base_ns[start:] // 1_000_000                             # ns → ms
     out_triggers = tuple(triggers[start:])
     out_closes = base_df["close"].to_numpy(dtype=np.float64)[start:]
@@ -341,6 +354,7 @@ def _build_window(
         triggers=out_triggers,
         trades=_pair_trades(out_triggers, out_closes, out_highs, out_lows),
         bias=bias[start:],
+        flip_norm=flip,
     )
 
 
@@ -352,6 +366,8 @@ def compute_symbol(
     smooth: int = config.DWS_SMT_SMOOTH,
     out_bars: int = config.DWS_SMT_BARS,
     bias_contrib: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
+    flip_window: int = config.DWS_FLIP_STD_WINDOW,
+    flip_k: float = config.DWS_FLIP_K,
 ) -> DwsSmtResult | None:
     """Compute the DWS-SMT histogram for one symbol across every base timeframe.
 
@@ -385,20 +401,31 @@ def compute_symbol(
     # frame itself is NOT trimmed below: its forming bar is excluded from
     # trigger detection by ``_detect_triggers`` (``state[1:n-1]``) but its
     # latest close is still needed for the open trade's mark-to-market.
+    #
+    # row_diffs_live is the forming-INCLUDED counterpart used ONLY for the
+    # display-only flip-proximity preview (the live "almost a trigger" gauge).
+    # It is never fed to _detect_triggers / _pair_trades, so the look-ahead fix
+    # above is preserved.
     needed = {tf for stack in stacks.values() for tf in stack}
     row_diffs: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    row_diffs_live: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for label in needed:
         df = frames.get(label)
-        if df is not None and not df.empty and len(df) > 2:
+        if df is None or df.empty:
+            continue
+        if len(df) > 2:
             row_diffs[label] = _diff_series(df.iloc[:-1], period)
+        if len(df) > 1:
+            row_diffs_live[label] = _diff_series(df, period)
 
     by_base: dict[str, DwsSmtWindow] = {}
     for base, rows in stacks.items():
         base_df = frames.get(base)
         if base_df is None or base_df.empty or len(base_df) < 2:
             continue
-        window = _build_window(base, base_df, rows, row_diffs, smooth,
-                               out_bars, bias_contrib)
+        window = _build_window(base, base_df, rows, row_diffs, row_diffs_live,
+                               smooth, out_bars, bias_contrib,
+                               flip_window, flip_k)
         if window is not None:
             by_base[base] = window
 

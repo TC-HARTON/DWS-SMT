@@ -393,3 +393,43 @@ def test_flip_norm_empty_and_single():
     # single point: no std defined → 0, never NaN.
     out = dws_smt._flip_norm(np.array([7.0]), 4, 1.0)
     assert out.tolist() == [0.0]
+
+
+def test_window_exposes_flip_norm_matching_colors_shape():
+    df = _df(periods=80, step=1.0)
+    frames = {tf: df for tf in ALL_TFS}
+    res = compute_symbol(frames, period=3, smooth=2, out_bars=40)
+    win = res.by_base["M15"]
+    assert win.flip_norm.shape == win.colors.shape       # (n_out, n_rows)
+    assert np.all(np.abs(win.flip_norm) <= 1.0)
+
+
+def test_flip_norm_forming_inclusive_while_triggers_are_not():
+    """The proximity path sees the forming bar (live preview) even though
+    trigger detection does not. Two variants differing ONLY in the forming H4
+    close must yield identical triggers but a DIFFERENT current-bar flip_norm."""
+    n_m15 = 100
+    m15_idx = pd.date_range("2026-01-01 00:00", periods=n_m15, freq="15min", tz="UTC")
+    m15c = 100.0 + 5.0 * np.sin(np.arange(n_m15) / 8.0)
+    m15_df = pd.DataFrame({"open": m15c, "high": m15c + 0.05,
+                           "low": m15c - 0.05, "close": m15c}, index=m15_idx)
+    h4_idx = pd.date_range("2026-01-01 00:00", periods=7, freq="4h", tz="UTC")
+    h4c = 100.0 + 5.0 * np.sin(np.arange(7) / 2.0)
+    h1_idx = pd.date_range("2026-01-01 00:00", periods=25, freq="1h", tz="UTC")
+    h1c = 100.0 + 5.0 * np.sin(np.arange(25) / 3.0)
+
+    def _ohlc(idx, c):
+        return pd.DataFrame({"open": c, "high": c + 0.05,
+                             "low": c - 0.05, "close": c}, index=idx)
+
+    fa = {"M15": m15_df, "H1": _ohlc(h1_idx, h1c), "H4": _ohlc(h4_idx, h4c)}
+    h4b = h4c.copy(); h4b[-1] += 50.0          # perturb ONLY the forming H4 close
+    fb = {"M15": m15_df, "H1": _ohlc(h1_idx, h1c), "H4": _ohlc(h4_idx, h4b)}
+
+    wa = compute_symbol(fa).by_base["M15"]
+    wb = compute_symbol(fb).by_base["M15"]
+    # Triggers on confirmed bars must be identical (look-ahead-safe).
+    assert wa.triggers[:-1] == wb.triggers[:-1]
+    # The H4 row (index 0) flip_norm on the CURRENT bar must move with the
+    # live forming price (this is the "もう少しで" preview).
+    assert wa.flip_norm[-1][0] != wb.flip_norm[-1][0]
