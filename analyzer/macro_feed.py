@@ -309,6 +309,8 @@ class MacroEngine:
         self._last_fetch_ok = 0.0
         self._cached_rates: dict[str, MacroRate] = {}
         self._cached_real_yield: RealYieldSnapshot | None = None
+        self._cached_gold_drivers: dict[str, list[float]] = {}
+        self._cached_gold_as_of: str = ""
         self._cached_employment: MacroEmployment | None = None
         self._bootstrap_from_cache()
 
@@ -419,6 +421,37 @@ class MacroEngine:
         self._persist_cache()   # survive restart / outage with the last-good value
         return snap
 
+    def fetch_gold_drivers(self) -> tuple[dict[str, list[float]], str]:
+        """Fetch the GoldMacroScore driver LEVEL histories from FRED.
+
+        For each driver in ``gold_macro.GOLD_DRIVERS`` request a long window
+        (``GOLD_MACRO_WINDOW`` + buffer) and parse the full chronological level
+        list. A per-series failure omits that driver (logged, redacted) instead
+        of aborting — the composite averages over the present drivers, mirroring
+        the macro layer's "never penalise on bad/absent data" rule. The newest
+        observation date across drivers is returned as ``as_of``. Successful
+        results refresh the on-disk cache; a total failure falls back to it
+        (callers see ``stale`` via the snapshot)."""
+        from analyzer import gold_macro      # local import avoids a cycle
+
+        histories: dict[str, list[float]] = {}
+        as_of = ""
+        limit = config.GOLD_MACRO_WINDOW + 30
+        for d in gold_macro.GOLD_DRIVERS:
+            try:
+                date, levels = parse_fred_series(self._fred_get(d.series_id, limit=limit))
+            except (requests.RequestException, ValueError, KeyError) as exc:
+                log.warning("macro: gold driver %s fetch failed - %s",
+                            d.series_id, _redact(exc))
+                continue
+            histories[d.key] = levels
+            as_of = max(as_of, date)
+        if histories:
+            self._cached_gold_drivers = histories
+            self._cached_gold_as_of = as_of
+            self._persist_cache()
+        return histories, as_of
+
     # ------------------------------------------------------- per-source
     def _fetch_rate(self, ccy: str) -> MacroRate:
         """Fetch one currency's policy rate from its central-bank source."""
@@ -527,6 +560,13 @@ class MacroEngine:
                     change_1d=ry.get("change_1d"), trend_5d=ry.get("trend_5d"),
                     gold_dir=int(ry.get("gold_dir") or 0), as_of=ry.get("as_of", ""),
                     stale=True, generated_at=time.time())
+            gd = doc.get("gold_drivers")
+            if isinstance(gd, dict):
+                self._cached_gold_drivers = {
+                    k: [float(v) for v in (vals or [])]
+                    for k, vals in (gd.get("histories") or {}).items()
+                }
+                self._cached_gold_as_of = str(gd.get("as_of") or "")
             self._last_fetch_ok = float(doc.get("fetched_at") or 0.0)
         except (OSError, ValueError, KeyError):
             log.exception("macro: cache bootstrap failed")
@@ -559,6 +599,10 @@ class MacroEngine:
                     "change_1d": ry.change_1d, "trend_5d": ry.trend_5d,
                     "gold_dir": ry.gold_dir, "as_of": ry.as_of,
                 }),
+                "gold_drivers": {
+                    "histories": self._cached_gold_drivers,
+                    "as_of": self._cached_gold_as_of,
+                },
             }
             self._cache_file.write_text(json.dumps(payload), encoding="utf-8")
         except OSError:

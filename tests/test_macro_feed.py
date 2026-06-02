@@ -272,3 +272,46 @@ def test_parse_fred_series_raises_on_empty():
     body = _json.dumps({"observations": [{"date": "2026-05-29", "value": "."}]})
     with pytest.raises(ValueError):
         mf.parse_fred_series(body)
+
+
+def _fred_series_body(values: list[float], start="2025-01-01") -> str:
+    import datetime
+    d0 = datetime.date.fromisoformat(start)
+    obs = [{"date": (d0 + datetime.timedelta(days=i)).isoformat(),
+            "value": f"{v}"} for i, v in enumerate(values)]
+    # FRED is fetched sort_order=desc; emulate newest-first.
+    return _json.dumps({"observations": list(reversed(obs))})
+
+
+def test_fetch_gold_drivers_returns_all_present(monkeypatch, tmp_path):
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+
+    def fake_fred_get(series_id, limit=6):
+        return _fred_series_body([1.0, 2.0, 3.0])
+    monkeypatch.setattr(eng, "_fred_get", fake_fred_get)
+
+    histories, as_of = eng.fetch_gold_drivers()
+    from analyzer import gold_macro as gm
+    assert set(histories) == {d.key for d in gm.GOLD_DRIVERS}
+    assert histories["vix"] == [1.0, 2.0, 3.0]
+    assert as_of == "2025-01-03"
+
+
+def test_fetch_gold_drivers_omits_failed_series(monkeypatch, tmp_path):
+    import requests
+    eng = mf.MacroEngine(cache_file=tmp_path / "c.json")
+
+    def fake_fred_get(series_id, limit=6):
+        if series_id == cfg_dxy():
+            raise requests.RequestException("boom")
+        return _fred_series_body([1.0, 2.0, 3.0])
+    monkeypatch.setattr(eng, "_fred_get", fake_fred_get)
+
+    histories, _ = eng.fetch_gold_drivers()
+    assert "dxy" not in histories          # failed series dropped, not raised
+    assert "vix" in histories
+
+
+def cfg_dxy():
+    import config
+    return config.MACRO_FRED_DXY_SERIES
