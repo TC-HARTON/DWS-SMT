@@ -331,3 +331,33 @@ def test_state_set_and_read_gold_macro():
     # It must ride the FULL snapshot, never the light one.
     assert st.snapshot()["gold_macro"] is snap
     assert "gold_macro" not in st.light_snapshot()
+
+
+def test_serialize_gold_macro_shape():
+    from dashboard.serialize import serialize_gold_macro
+    from analyzer.gold_macro import GoldMacroSnapshot, GoldDriverContribution
+    snap = GoldMacroSnapshot(
+        score=2.5, band="中立",
+        contributions=(GoldDriverContribution(
+            key="vix", label_ja="リスク(VIX)", value=18.0, z=0.5,
+            signed_z=0.5, sign_gold=1),),
+        n_drivers=4, window=252, as_of="2026-06-01", stale=False,
+        generated_at=1.0)
+    out = serialize_gold_macro(snap)
+    assert out["score"] == 2.5
+    assert out["band"] == "中立"
+    assert out["n_drivers"] == 4
+    assert out["contributions"][0]["key"] == "vix"
+    assert out["contributions"][0]["sign"] == 1
+    assert serialize_gold_macro(None) is None
+
+
+def test_serialize_gold_macro_none_score():
+    from dashboard.serialize import serialize_gold_macro
+    from analyzer.gold_macro import GoldMacroSnapshot
+    snap = GoldMacroSnapshot(score=None, band="データ待ち", contributions=(),
+                             n_drivers=0, window=252, as_of="", stale=True,
+                             generated_at=1.0)
+    out = serialize_gold_macro(snap)
+    assert out["score"] is None
+    assert out["band"] == "データ待ち"
