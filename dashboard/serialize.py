@@ -48,12 +48,6 @@ def load_oos_baseline() -> dict[str, Any]:
 from analyzer.account_monitor import PerformanceSnapshot, RangeStats, SymbolStats
 from analyzer.calendar_feed import CalendarEvent, CalendarSnapshot
 from analyzer.confluence import ConfluenceCluster
-from analyzer.correlation import CorrelationMatrix, CorrelationSnapshot
-from analyzer.currency_strength import (
-    CurrencyScore,
-    StrengthSnapshot,
-    StrengthWindowResult,
-)
 from analyzer.dws_smt import DwsSmtResult
 from analyzer.indicator_engine import (
     AnalysisSnapshot,
@@ -334,74 +328,8 @@ def serialize_structures(s: StructuresSnapshot | None) -> dict[str, Any] | None:
 
 
 # --------------------------------------------------------------------------- #
-# Phase 3: currency strength / correlation / performance
+# Phase 3: performance
 # --------------------------------------------------------------------------- #
-
-def serialize_score(s: CurrencyScore) -> dict[str, Any]:
-    return {
-        "currency": s.currency,
-        "score": _opt_float(s.score),
-        "raw_avg": _opt_float(s.raw_avg),
-        "n_pairs": int(s.n_pairs),
-        "is_reference": bool(s.is_reference),
-    }
-
-
-def serialize_strength_window(w: StrengthWindowResult) -> dict[str, Any]:
-    # pair_biases is intentionally NOT serialised: its only consumer was the
-    # removed paintBias() front-end function (dead). The dataclass still
-    # computes it for any future use.
-    return {
-        "window": w.window,
-        "scores": {ccy: serialize_score(sc) for ccy, sc in w.scores.items()},
-    }
-
-
-def serialize_strength(s: StrengthSnapshot | None) -> dict[str, Any] | None:
-    if s is None:
-        return None
-    return {
-        "generated_at": float(s.generated_at),
-        "compute_ms": float(s.compute_ms),
-        "default_window": config.STRENGTH_DEFAULT_WINDOW,
-        "windows": [w.label for w in config.STRENGTH_WINDOWS],
-        "display_currencies": list(config.FIAT_CURRENCIES),
-        "by_window": {
-            label: serialize_strength_window(w) for label, w in s.by_window.items()
-        },
-    }
-
-
-def serialize_correlation_matrix(m: CorrelationMatrix) -> dict[str, Any]:
-    # numpy.ndarray → list-of-lists; round to 3 dp to keep the WS payload
-    # small (10x10 = 100 floats per window × 3 windows = 300 floats, but
-    # at 3 dp they compress nicely).
-    mat = m.matrix.tolist() if hasattr(m.matrix, "tolist") else m.matrix
-    return {
-        "bars": int(m.bars),
-        "symbols": list(m.symbols),
-        "matrix": [[round(_opt_float(v) if v is not None else 0.0, 4)
-                    for v in row]
-                   for row in mat],
-    }
-
-
-def serialize_correlation(s: CorrelationSnapshot | None) -> dict[str, Any] | None:
-    if s is None:
-        return None
-    return {
-        "generated_at": float(s.generated_at),
-        "compute_ms": float(s.compute_ms),
-        "timeframe": s.timeframe,
-        "default_window": config.CORRELATION_DEFAULT_BARS,
-        "windows": list(config.CORRELATION_WINDOWS_BARS),
-        "bars_available": int(s.bars_available),
-        "by_window": {
-            str(bars): serialize_correlation_matrix(m)
-            for bars, m in s.by_window.items()
-        },
-    }
-
 
 def serialize_symbol_stats(s: SymbolStats) -> dict[str, Any]:
     return {
@@ -747,8 +675,6 @@ def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[
         "analysis": serialize_analysis(snap["analysis"]),  # type: ignore[arg-type]
         "account": serialize_account(snap["account"]),  # type: ignore[arg-type]
         "structures": serialize_structures(snap["structures"]),  # type: ignore[arg-type]
-        "strength": serialize_strength(snap["strength"]),  # type: ignore[arg-type]
-        "correlation": serialize_correlation(snap["correlation"]),  # type: ignore[arg-type]
         "performance": serialize_performance(snap["performance"]),  # type: ignore[arg-type]
         "calendar": serialize_calendar(snap["calendar"]),  # type: ignore[arg-type]
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]

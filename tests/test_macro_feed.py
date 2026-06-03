@@ -111,9 +111,13 @@ def test_macro_engine_compute_with_stub(monkeypatch, tmp_path):
     snap = eng.compute()
 
     assert isinstance(snap, mf.MacroSnapshot)
+    # Rates panel still surfaces every MACRO_CURRENCIES rate (unchanged by the
+    # XAUUSD specialisation — it is hardcoded, not derived from SYMBOLS).
     assert set(snap.rates) == {"USD", "EUR", "GBP", "JPY", "AUD"}
-    assert "USDJPY" in snap.by_pair
-    assert snap.by_pair["USDJPY"].macro_dir == 1          # 4.50 > 0.50
+    # by_pair iterates config.SYMBOLS, now XAUUSD-only. Gold's macro_dir is the
+    # US-rate TREND; with no prior USD rate (prev_rate None) it is neutral.
+    assert set(snap.by_pair) == {"XAUUSD"}
+    assert snap.by_pair["XAUUSD"].macro_dir == 0
     assert snap.consecutive_failures == 0
 
 
@@ -126,10 +130,12 @@ def test_macro_engine_one_source_failure_is_isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(eng, "_fetch_rate", flaky)
     monkeypatch.setattr(eng, "_fetch_employment", lambda: None)
     snap = eng.compute()
-    # JPY missing → pairs with JPY neutral; the other currencies unaffected.
-    assert snap.by_pair["USDJPY"].macro_dir == 0
-    # Same-rate non-JPY pair: differential = 0 → macro_dir 0 (deadband).
-    assert snap.by_pair["EURUSD"].macro_dir == 0          # 4.0 - 4.0 == 0
+    # JPY source failed but the snapshot still builds (per-source isolation):
+    # the other currencies' rates are unaffected.
+    assert {"USD", "EUR", "GBP", "AUD"}.issubset(set(snap.rates))
+    # by_pair is XAUUSD-only now; gold bias is neutral (USD prev_rate None).
+    assert set(snap.by_pair) == {"XAUUSD"}
+    assert snap.by_pair["XAUUSD"].macro_dir == 0
     assert "USD" in snap.rates
     # A partial failure yields a usable snapshot — it is NOT a failure cycle,
     # so the consecutive-failure counter stays 0; the error is still recorded.

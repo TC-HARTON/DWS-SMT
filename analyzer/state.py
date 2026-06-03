@@ -23,8 +23,6 @@ from analyzer.calendar_feed import CalendarSnapshot
 from analyzer.signal_validator import ValidationSnapshot
 from analyzer.macro_feed import MacroSnapshot, RealYieldSnapshot
 from analyzer.confluence import ConfluenceCluster
-from analyzer.correlation import CorrelationSnapshot
-from analyzer.currency_strength import StrengthSnapshot
 from analyzer.indicator_engine import AnalysisSnapshot
 from analyzer.mt5_connector import AccountSnapshot, Tick
 from analyzer.price_action import PriceActionEvent
@@ -85,8 +83,6 @@ class LatestState:
         self._analysis: Optional[AnalysisSnapshot] = None
         self._account: Optional[AccountSnapshot] = None
         self._structures: Optional[StructuresSnapshot] = None
-        self._strength: Optional[StrengthSnapshot] = None
-        self._correlation: Optional[CorrelationSnapshot] = None
         self._performance: Optional[PerformanceSnapshot] = None
         self._calendar: Optional[CalendarSnapshot] = None
         self._validation: Optional[ValidationSnapshot] = None
@@ -106,8 +102,8 @@ class LatestState:
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
-        # Bumped only by the heavy domains (analysis / structures / strength /
-        # correlation / performance / calendar). Lets the WS broadcaster send
+        # Bumped only by the heavy domains (analysis / structures /
+        # performance / calendar). Lets the WS broadcaster send
         # a light price-only message when only ticks changed, instead of
         # re-shipping the whole ~169 KB snapshot at the 2 Hz price cadence.
         self._analysis_version = 0
@@ -153,20 +149,6 @@ class LatestState:
     def set_structures(self, snapshot: StructuresSnapshot) -> None:
         with self._cond:
             self._structures = snapshot
-            self._monotonic_version += 1
-            self._analysis_version += 1
-            self._cond.notify_all()
-
-    def set_strength(self, snapshot: StrengthSnapshot) -> None:
-        with self._cond:
-            self._strength = snapshot
-            self._monotonic_version += 1
-            self._analysis_version += 1
-            self._cond.notify_all()
-
-    def set_correlation(self, snapshot: CorrelationSnapshot) -> None:
-        with self._cond:
-            self._correlation = snapshot
             self._monotonic_version += 1
             self._analysis_version += 1
             self._cond.notify_all()
@@ -283,16 +265,6 @@ class LatestState:
             return self._structures
 
     @property
-    def strength(self) -> StrengthSnapshot | None:
-        with self._lock:
-            return self._strength
-
-    @property
-    def correlation(self) -> CorrelationSnapshot | None:
-        with self._lock:
-            return self._correlation
-
-    @property
     def performance(self) -> PerformanceSnapshot | None:
         with self._lock:
             return self._performance
@@ -348,8 +320,6 @@ class LatestState:
                 "analysis": self._analysis,
                 "account": self._account,
                 "structures": self._structures,
-                "strength": self._strength,
-                "correlation": self._correlation,
                 "performance": self._performance,
                 "calendar": self._calendar,
                 "validation": self._validation,

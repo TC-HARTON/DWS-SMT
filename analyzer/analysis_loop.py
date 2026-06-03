@@ -1,12 +1,10 @@
 """Background loop that polls MT5, computes indicators, and updates shared state.
 
-The loop runs on its own daemon thread and drives three independent
+The loop runs on its own daemon thread and drives several independent
 schedules sourced from :mod:`config`:
 
 * ``PRICE_REFRESH_SEC`` (1 s): tick + account refresh (SPEC §14.4).
 * ``ANALYSIS_REFRESH_SEC`` (5 s): full indicator recomputation (SPEC §19).
-* ``HEAVY_REFRESH_SEC`` (30 s): currency strength / heavy passes
-  (placeholder hook; Phase 3 logic plugs in here).
 
 Cold-cache mitigation
 ---------------------
@@ -38,8 +36,6 @@ import config
 from analyzer import confluence, price_action, structure_detector, trigger_store
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
-from analyzer.correlation import CorrelationEngine
-from analyzer.currency_strength import CurrencyStrengthEngine
 from analyzer.indicator_engine import IndicatorEngine
 from analyzer.line_reader import LINES, LinesState, LinesWatcher
 from analyzer.signal_validator import SignalValidator
@@ -73,7 +69,7 @@ class _Schedule:
 
 
 class AnalysisLoop:
-    """Drive three periodic schedules from a single daemon thread."""
+    """Drive several periodic schedules from a single daemon thread."""
 
     def __init__(
         self,
@@ -82,15 +78,12 @@ class AnalysisLoop:
         state: LatestState = STATE,
         lines_state: LinesState = LINES,
         lines_watcher: LinesWatcher | None = None,
-        strength_engine: CurrencyStrengthEngine | None = None,
-        correlation_engine: CorrelationEngine | None = None,
         performance_engine: PerformanceEngine | None = None,
         calendar_engine: CalendarEngine | None = None,
         signal_validator: SignalValidator | None = None,
         macro_engine: MacroEngine | None = None,
         price_interval: float = config.PRICE_REFRESH_SEC,
         analysis_interval: float = config.ANALYSIS_REFRESH_SEC,
-        heavy_interval: float = config.HEAVY_REFRESH_SEC,
         history_interval: float = config.HISTORY_REFRESH_SEC,
         calendar_interval: float = config.CALENDAR_REFRESH_SEC,
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
@@ -103,8 +96,6 @@ class AnalysisLoop:
         self._state = state
         self._lines_state = lines_state
         self._lines_watcher = lines_watcher or LinesWatcher(state=lines_state)
-        self._strength_engine = strength_engine or CurrencyStrengthEngine(connector)
-        self._correlation_engine = correlation_engine or CorrelationEngine(connector)
         self._performance_engine = performance_engine or PerformanceEngine(connector)
         self._calendar_engine = calendar_engine or CalendarEngine()
         # Calendar HTTP fetch runs off-thread because the upstream timeout
@@ -143,7 +134,6 @@ class AnalysisLoop:
         self._schedules = (
             _Schedule("price", price_interval),
             _Schedule("analysis", analysis_interval),
-            _Schedule("heavy", heavy_interval),
             _Schedule("history", history_interval),
             _Schedule("calendar", calendar_interval),
             # Delay the first validation pass: its deep-history fetch is heavy,
@@ -160,8 +150,6 @@ class AnalysisLoop:
         self._connector.initialize()
         self._mark_status(connected=True, error=None)
         self._lines_watcher.start()
-        # Resolve Phase-3 currency-strength crosses (skips broker-missing ones).
-        self._strength_engine.resolve_pairs()
         self._warmup()
         self._thread = threading.Thread(
             target=self._run, name="mt5-analysis-loop", daemon=True
@@ -205,7 +193,6 @@ class AnalysisLoop:
         handler = {
             "price": self._do_price_refresh,
             "analysis": self._do_analysis_refresh,
-            "heavy": self._do_heavy_refresh,
             "history": self._do_history_refresh,
             "calendar": self._do_calendar_refresh,
             "validation": self._do_validation_refresh,
@@ -320,15 +307,6 @@ class AnalysisLoop:
         h4 = sym_ind.by_tf.get("H4")
         return h4.atr if h4 is not None else None
 
-    def _do_heavy_refresh(self, bases: list[str]) -> None:
-        """SPEC Phase 3: currency strength (§12) + correlation matrix (§13)."""
-        strength = self._strength_engine.compute()
-        if strength.by_window:
-            self._state.set_strength(strength)
-        correlation = self._correlation_engine.compute()
-        if correlation.by_window:
-            self._state.set_correlation(correlation)
-
     def _do_history_refresh(self, bases: list[str]) -> None:
         """SPEC §14.4: trade-history refresh every 60 s → performance stats."""
         performance = self._performance_engine.compute()
@@ -367,9 +345,9 @@ class AnalysisLoop:
         too slow to run inside the loop without starving the 0.5 s price tick.
         At most one validation runs at a time; overlapping cycles are skipped.
 
-        Validation covers only the DWS-SMT display symbols (``config.SYMBOLS``):
-        *bases* also carries the currency-strength cross pairs, but those have
-        no DWS panel — validating them is pure wasted fetch + compute load.
+        Validation covers only the DWS-SMT display symbols (``config.SYMBOLS``)
+        — any other resolved symbol has no DWS panel, so validating it would be
+        pure wasted fetch + compute load.
         """
         if self._validation_inflight.is_set():
             log.debug("validation: previous pass still in flight, skipping tick")

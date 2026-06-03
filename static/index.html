@@ -26,14 +26,6 @@
   </div>
 </header>
 
-<details class="summary-bar" data-bind="summary" open>
-  <summary class="sb-head">
-    <span class="sb-title">サマリー</span>
-    <span class="sb-sub">全8銘柄 · BIAS総合 · 4TF一致 · 直近劣化</span>
-  </summary>
-  <div class="sb-cells" data-bind="summary-cells"></div>
-</details>
-
 <main class="grid">
   <section class="symbols" data-bind="symbols-grid"></section>
 </main>
@@ -83,17 +75,6 @@
       <div class="journal-list" data-bind="journal"><div class="empty mute">発注すると、その時の3TF状況つきで自動記録されます</div></div>
     </div>
   </aside>
-
-<footer class="bottom">
-  <section class="card strength-card">
-    <div class="card-title">
-      <span class="title-accent">Currency Strength</span>
-      <span class="pill-group" data-bind="strength-windows"></span>
-    </div>
-    <div class="strength-rows" data-bind="strength-rows"></div>
-  </section>
-
-</footer>
 
 <!-- Discretionary order confirmation (mandatory before any live order). -->
 <div id="order-confirm" class="order-confirm" hidden>

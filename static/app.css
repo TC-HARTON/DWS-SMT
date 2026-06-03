@@ -101,15 +101,10 @@ body {
        correlation row stays under the main column, lining up exactly with the
        expanded panel's two halves (①②). */
     grid-template-columns: 1fr var(--side-w);
-    /* Row 2 (auto) is the collapsible summary bar: full width, content-height
-       (≈ a single cell row when open, just its header when collapsed). It eats
-       into main's 1fr only by what it actually occupies. */
-    grid-template-rows: 56px auto 1fr 280px;
+    grid-template-rows: 56px 1fr;
     grid-template-areas:
         "header  header"
-        "summary summary"
-        "main    side"
-        "bottom  side";
+        "main    side";
     gap:var(--gap);
     padding:var(--gap);
     /* Pre-JS fallback so the page is not broken if the script is slow;
@@ -256,118 +251,8 @@ body {
 
 /* Body-level grid placement (areas defined on <body>). */
 .hdr         { grid-area: header; }
-.summary-bar { grid-area: summary; }
 .grid        { grid-area: main; }
 .side        { grid-area: side; }
-.bottom      { grid-area: bottom; }
-
-/* ============================================================
-   Summary bar (#5) — collapsible, full-width decision strip above the grid.
-   One cell per symbol: BIAS composite + 4-TF EMA alignment + 様子見 flag, so
-   the order-relevant facts are legible at the top without scanning 8 panels.
-   Complements the header's ACTIVE SETUPS (which is high-conviction-only).
-   ============================================================ */
-.summary-bar {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    min-width: 0; overflow: hidden;
-}
-.sb-head {
-    display: flex; align-items: baseline; gap:var(--space-4);
-    padding:4px var(--space-5);
-    cursor: pointer; user-select: none;
-    list-style: none;                 /* Firefox default marker */
-}
-.sb-head::-webkit-details-marker { display: none; }   /* Chrome/Safari marker */
-.sb-head::before {
-    content: '▾'; color: var(--fg-3); font-size: var(--text-xs);
-}
-.summary-bar:not([open]) .sb-head::before { content: '▸'; }
-.sb-title {
-    font-family: var(--mono); font-weight: var(--weight-bold);
-    letter-spacing: var(--track-loose); text-transform: uppercase;
-    font-size: var(--text-sm); color: var(--fg);
-}
-.sb-sub { color: var(--fg-3); font-size: var(--text-2xs); }
-.sb-cells {
-    display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    gap:var(--space-3);
-    padding:2px var(--space-3) var(--space-3);
-}
-.sb-cell {
-    display: flex; flex-direction: column; align-items: center; gap:3px;
-    padding:7px 8px 8px; min-width: 0;
-    text-align: center;
-    background: var(--panel-2);
-    border-radius: var(--radius);
-    border-top: 3px solid var(--fg-dim);   /* posture accent runs across the top */
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
-}
-.sb-cell:hover { box-shadow: inset 0 0 0 1px var(--border-hover); }
-/* Direction tint + top accent — read the whole board's bullish/bearish posture
-   at a glance (greener = more bullish, redder = more bearish). */
-.sb-cell.buy         { border-top-color: var(--buy);  background: rgba(0,208,156,0.07); }
-.sb-cell.strong-buy  { border-top-color: var(--buy);  background: rgba(0,208,156,0.15); }
-.sb-cell.sell        { border-top-color: var(--sell); background: rgba(255,91,107,0.07); }
-.sb-cell.strong-sell { border-top-color: var(--sell); background: rgba(255,91,107,0.15); }
-.sb-cell.neutral, .sb-cell.na { border-top-color: var(--fg-dim); }
-.sb-cell.degraded {
-    border-top-color: var(--warning); border-top-style: dashed;
-    background: rgba(255,183,77,0.10);
-}
-.sb-sym {
-    display: flex; align-items: center; justify-content: center; gap:4px;
-    min-width: 0;
-}
-.sb-sym-txt {
-    font-family: var(--mono); font-weight: var(--weight-bold);
-    font-size: var(--text-sm); letter-spacing: 0.06em;
-    color: var(--fg-2);
-}
-/* Inline currency flags flanking the pair name. */
-.ccy-flag { display: inline-flex; flex: none; line-height: 0; }
-.ccy-flag svg {
-    width: 21px; height: auto; display: block;
-    border-radius: 2px;
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.4);
-}
-/* BIAS score is the hero: large, vivid direction colour, centred. The arrow
-   doubles (▲▲ / ▼▼) on STRONG so strength reads without a text label. */
-.sb-bias {
-    display: flex; align-items: baseline; justify-content: center; gap:4px;
-    font-family: var(--mono); font-weight: 900;
-    font-size: 23px; line-height: 1.0;
-    font-variant-numeric: tabular-nums;
-}
-.sb-arrow { font-size: 15px; }
-.sb-bias.pos { color: var(--buy); }    /* + → green */
-.sb-bias.neg { color: var(--sell); }   /* − → red   */
-.sb-bias.zero, .sb-bias.na { color: var(--fg-3); }
-/* 4-TF alignment chips D1/H4/H1/M15 — green=above EMA, red=below. The colour
-   pattern (how many green) IS the "TF一致" read at a glance. */
-.sb-tfs { display: flex; gap:3px; }
-.sb-tf {
-    font-family: var(--mono); font-size: var(--text-2xs); font-weight: 800;
-    padding:1px 4px; border-radius:3px;
-    color: var(--fg-3); background: rgba(255,255,255,0.04);
-}
-.sb-tf.up { color: var(--buy);  background: rgba(0,208,156,0.16); }
-.sb-tf.dn { color: var(--sell); background: rgba(255,91,107,0.16); }
-.sb-nodata { color: var(--fg-dim); font-size: var(--text-2xs); }
-/* 様子見 — amber pill, the regime caution flag. */
-.sb-flag {
-    margin-top:1px;
-    font-size: var(--text-2xs); font-weight: 800; color: var(--warning);
-    background: rgba(255,183,77,0.16); border-radius:4px;
-    padding:1px 8px; letter-spacing: var(--track-tight); white-space: nowrap;
-}
-/* Reserved-but-invisible: keeps the cell height constant whether or not the
-   flag shows, so the bar never reflows and the app never jumps vertically. */
-.sb-flag-off { visibility: hidden; }
-.sb-empty { padding:6px var(--space-5) 10px; color: var(--fg-3); font-size: var(--text-2xs); }
 
 .grid {
     display: grid;
@@ -424,7 +309,6 @@ body {
 .account-card   { border-left-color: var(--accent); }
 .calendar-card  { border-left-color: var(--warning); }
 .macro-card     { border-left-color: var(--buy); }
-.strength-card  { border-left-color: var(--accent); }
 .card-title {
     display: flex; justify-content: space-between; align-items: baseline;
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
@@ -1277,58 +1161,6 @@ body {
 .cal-row.today    { background: rgba(255, 183, 77, 0.10); }
 .cal-row.today .cal-date { color: var(--warning); }
 .cal-row.tomorrow .cal-date { color: var(--fg); }
-
-/* ============================================================
-   Bottom: strength + correlation
-   ============================================================ */
-
-.bottom {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap:var(--gap);
-    min-height: 0;
-}
-.strength-card { min-height: 0; }
-.strength-rows {
-    display: flex; flex-direction: column; gap:var(--space-2);
-    overflow-y: auto;
-    flex: 1;
-}
-.s-row {
-    display: grid;
-    grid-template-columns: 50px 1fr 56px;
-    gap:var(--space-4); align-items: center;
-    font-family: var(--mono); font-size: var(--text-md);
-}
-.s-row .ccy { color: var(--fg); font-weight: var(--weight-bold); text-align: right;
-              display: inline-flex; align-items: baseline; justify-content: flex-end; gap:var(--space-3); }
-.s-row .val { color: var(--fg); text-align: right; }
-/* Coverage flag — amber ⚠ when a currency is scored over fewer than 7 pairs
-   (broker missing crosses). :empty → display:none so it adds no gap normally. */
-.s-row .s-cov { color: var(--warning); font-size: var(--text-2xs); line-height: 1; }
-.s-row .s-cov:empty { display: none; }
-.s-row.low-cov { opacity: 0.62; }
-.s-row.low-cov .val { color: var(--warning); }
-.s-row .bar-track {
-    position: relative; height: 20px;
-    background: var(--panel-2); border-radius: 10px; overflow: hidden;
-}
-.s-row .bar-mid {
-    position: absolute; left: 50%; top: 0; bottom: 0;
-    width: 1px; background: var(--border);
-}
-.s-row .bar {
-    position: absolute; top: 0; bottom: 0;
-    transition: width 0.25s, left 0.25s;
-}
-.s-row .bar.pos { background: var(--buy); }
-.s-row .bar.neg { background: var(--sell); }
-.s-row .bar.ref {
-    background: var(--warning);
-    background-image: repeating-linear-gradient(45deg,
-        transparent, transparent 4px,
-        rgba(0,0,0,0.25) 4px, rgba(0,0,0,0.25) 8px);
-}
 
 canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 

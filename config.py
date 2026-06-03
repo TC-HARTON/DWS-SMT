@@ -83,20 +83,12 @@ class SymbolSpec:
             raise ValueError(f"display_size must be xl|md|sm, got {self.display_size!r}")
 
 
-# Order matters — drives the 4×2 panel grid layout in static/app.css:
-#   row 1 (top)    = gold + USD majors  → reads as "USD strength view"
-#   row 2 (bottom) = JPY crosses        → reads as "JPY weakness view"
+# XAUUSD-specialised dashboard: gold only. The whole indicator / validation /
+# DWS / trigger-store pipeline iterates this tuple, so reducing it to XAUUSD
+# alone confines every per-symbol computation to gold (the other majors and
+# their panels are gone). DXY is tracked separately as dollar context.
 SYMBOLS: Final[tuple[SymbolSpec, ...]] = (
-    # --- Row 1: 金 + ＄ ----------------------------------------------------
     SymbolSpec("XAUUSD", "xl", 50.0),       # SPEC 10.2: $50
-    SymbolSpec("EURUSD", "md", 0.01000),    # SPEC 10.2: 100pips
-    SymbolSpec("GBPUSD", "md", 0.01000),
-    SymbolSpec("AUDUSD", "md", 0.01000),
-    # --- Row 2: 円 ---------------------------------------------------------
-    SymbolSpec("USDJPY", "md", 0.500),      # SPEC 10.2: 50pips
-    SymbolSpec("EURJPY", "sm", 0.500),
-    SymbolSpec("GBPJPY", "sm", 0.500),
-    SymbolSpec("AUDJPY", "sm", 0.500),
 )
 
 
@@ -401,61 +393,12 @@ TARGET_ANALYSIS_BUDGET_MS: Final[int] = 50  # SPEC 19 計算 50ms 以内
 
 
 # --------------------------------------------------------------------------- #
-# Currency strength (SPEC §12)
+# Fiat currency universe
 # --------------------------------------------------------------------------- #
 
-# SPEC §12.1 fiat universe + XAU shown for reference only (XAU is *not*
-# included in the cross-pair averaging because there are no XAU/EUR etc.).
+# The fiat universe used as the economic-calendar currency filter
+# (CALENDAR_CURRENCIES = FIAT_CURRENCIES).
 FIAT_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD", "CHF", "NZD")
-
-# SPEC §12.2 the full 28-pair compute set (C(8, 2) = 28 over the 8-currency
-# universe USD/EUR/GBP/JPY/AUD/CAD/CHF/NZD). Symbols not exposed by the
-# broker are dropped from the calculation with a warning at startup.
-CURRENCY_STRENGTH_PAIRS: Final[tuple[str, ...]] = (
-    "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD",
-    "USDJPY", "USDCHF", "USDCAD",
-    "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
-    "EURGBP", "EURAUD", "EURNZD", "EURCHF", "EURCAD",
-    "GBPAUD", "GBPNZD", "GBPCHF", "GBPCAD",
-    "AUDNZD", "AUDCHF", "AUDCAD",
-    "NZDCHF", "NZDCAD",
-    "CADCHF",
-)
-
-# CAD is required by SPEC §12.2 (USDCAD, CADJPY, etc.) but is not in
-# SPEC §12.1's 7-fiat display list. We still compute its strength so the
-# averaging maths is sound, just hide it from the UI by default.
-ALL_STRENGTH_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD", "CHF", "NZD", "CAD")
-
-
-# SPEC §12.4 switchable strength windows — reused as TimeframeSpec entries so
-# the connector / fetch path needs no adapter type. We fetch 6 bars so the
-# engine can measure a cumulative % change over the last 3 closed bars
-# (endpoint close[-2], reference close[-5]) while ignoring the in-progress
-# bar[-1]. Closed-bar-only = no per-tick wobble; 3-bar span smooths spikes.
-STRENGTH_WINDOWS: Final[tuple[TimeframeSpec, ...]] = (
-    TimeframeSpec("H1", mt5.TIMEFRAME_H1, 0, 6),    # 直近数時間 (H1×3本)
-    TimeframeSpec("H4", mt5.TIMEFRAME_H4, 0, 6),    # 直近半日強 (H4×3本)
-    TimeframeSpec("D1", mt5.TIMEFRAME_D1, 0, 6),    # 直近数日 (D1×3本)
-    TimeframeSpec("W1", mt5.TIMEFRAME_W1, 0, 6),    # 直近数週 (W1×3本)
-)
-STRENGTH_DEFAULT_WINDOW: Final[str] = "H4"
-
-# SPEC §12.6 pair-bias thresholds (Δ = base_strength - quote_strength).
-STRENGTH_PAIR_BIAS_STRONG: Final[float] = 30.0
-STRENGTH_PAIR_BIAS_WEAK: Final[float] = 10.0
-
-
-# --------------------------------------------------------------------------- #
-# Correlation matrix (SPEC §13)
-# --------------------------------------------------------------------------- #
-
-# SPEC §13.4 三段階の本数切替
-CORRELATION_WINDOWS_BARS: Final[tuple[int, ...]] = (20, 100, 500)
-CORRELATION_DEFAULT_BARS: Final[int] = 100
-# SPEC §13.1 uses the 10 monitored symbols. We compute on H1 closes by
-# default — short enough to keep the 500-bar window inside ~20 days.
-CORRELATION_TIMEFRAME: Final[str] = "H1"
 
 
 # --------------------------------------------------------------------------- #
@@ -573,25 +516,12 @@ CALENDAR_IMPACT_ALLOW: Final[frozenset[str]] = frozenset({"High"})
 # SPEC §15.3 発表前後 30 分は警告色 (UI window).
 CALENDAR_WARNING_WINDOW_SEC: Final[int] = 30 * 60
 
-# SPEC §15.3 currencies to surface. Derived directly from the SYMBOLS
-# tuple — every currency that appears in at least one displayed pair is
-# included, anything else (NZD, CHF, CAD, …) is filtered out.
-# Adding/removing a panel in SYMBOLS automatically keeps this in sync.
-# XAU is excluded — gold has no calendar events; its USD leg is covered
-# via XAUUSD → USD anyway.
-def _calendar_currencies_from_symbols() -> frozenset[str]:
-    ccys: set[str] = set()
-    for spec in SYMBOLS:
-        s = spec.base
-        if s.startswith("XAU"):
-            ccys.add(s[3:])      # XAUUSD → USD
-            continue
-        if len(s) == 6:
-            ccys.add(s[:3])
-            ccys.add(s[3:])
-    return frozenset(ccys)
-
-CALENDAR_CURRENCIES: Final[frozenset[str]] = _calendar_currencies_from_symbols()
+# SPEC §15.3 currencies to surface in the economic calendar. The dashboard is
+# XAUUSD-specialised, but gold reacts to GLOBAL macro (FOMC, ECB, BoJ, risk
+# events), so the calendar deliberately keeps the full major-fiat universe
+# rather than narrowing to USD only — USD is the primary driver, the rest give
+# the risk backdrop. Fixed (not derived from the single SYMBOLS entry).
+CALENDAR_CURRENCIES: Final[frozenset[str]] = frozenset(FIAT_CURRENCIES)
 
 # Event-type filter: only central-bank rate decisions and employment releases
 # are surfaced (the two highest-impact macro categories). An event passes if

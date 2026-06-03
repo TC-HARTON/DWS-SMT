@@ -85,10 +85,11 @@ def test_initialize_resolves_symbols_for_exact_match(mt5_stub):
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()
     resolved = c.resolved_symbols
+    # XAUUSD-specialised: config.SYMBOLS is gold-only, so only XAUUSD resolves.
     assert resolved["XAUUSD"] == "XAUUSD"
-    assert resolved["EURUSD"] == "EURUSD"
-    # symbol_select was called once per resolved symbol
-    assert mt5_stub.symbol_select.call_count == 8
+    assert "EURUSD" not in resolved
+    # symbol_select was called once per resolved symbol (XAUUSD only).
+    assert mt5_stub.symbol_select.call_count == 1
 
 
 def test_initialize_resolves_symbols_with_broker_suffix(mt5_stub):
@@ -104,8 +105,8 @@ def test_initialize_resolves_symbols_with_broker_suffix(mt5_stub):
     ]
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()
+    # XAUUSD-specialised: only the gold symbol is resolved (suffix-matched).
     assert c.broker_name("XAUUSD") == "XAUUSDm"
-    assert c.broker_name("USDJPY") == "USDJPYm"
 
 
 def test_initialize_prefers_exact_over_suffixed(mt5_stub):

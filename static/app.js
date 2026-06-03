@@ -10,20 +10,8 @@
 // 4×2 grid order — mirrors config.SYMBOLS:
 //   row 1 (top)    : gold + USD majors  (金 + ＄)
 //   row 2 (bottom) : JPY crosses        (円)
-const SYMBOL_ORDER = ["XAUUSD", "EURUSD", "GBPUSD", "AUDUSD",
-                      "USDJPY", "EURJPY", "GBPJPY", "AUDJPY"];
-// Strength is a pure 7-fiat metric; XAU is excluded entirely (gold is not
-// a fiat currency). CHF/NZD computed backend-side but not displayed.
-// Displayed strength currencies. The engine scores all 8 majors; we now show 7
-// (CAD/CHF added — both top-8 by BIS turnover), leaving only minor NZD hidden.
-// Order ≈ descending FX turnover.
-const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF"];
-// Full strength coverage = a currency paired with the other 7 of the 8 majors.
-// A displayed currency reporting fewer means the broker is missing some cross
-// pairs, so its score is computed over fewer pairs and is less reliable — the
-// meter flags it so "is the strength accurate right now?" is auditable live.
-const STRENGTH_FULL_PAIRS = 7;
-const STRENGTH_WINDOWS = ["H1", "H4", "D1", "W1"];
+// XAUUSD-specialised dashboard: gold only (matches backend config.SYMBOLS).
+const SYMBOL_ORDER = ["XAUUSD"];
 // Min samples for an hourly-heatmap cell to be treated as signal (not noise).
 const HM_MIN_N = 30;
 // Regime flags fire on TWO conditions together: (1) recent rolling PF is below
@@ -49,7 +37,6 @@ function changed(key, stamp) {
 
 // Selected windows (clientside state only).
 const UI = {
-    strengthWindow: 'H4',
     dwsBase:        'M15',  // DWS-SMT trigger base (x-axis): H1 / M15 (H4 hidden here only)
     calYear:        null,   // trigger-calendar selected year (null → newest in data)
     calMonth:       null,   // trigger-calendar selected month 1-12 (JST), or null = whole year
@@ -149,11 +136,23 @@ function fmtJSTdate(epochSec) {
 function buildSymbolGrid() {
     const grid = $bind('symbols-grid');
     grid.innerHTML = '';
+    // XAUUSD-specialised: with a single symbol the panel is permanently
+    // expanded and fills the main area (no collapse). With more than one it
+    // keeps the click-to-expand grid behaviour.
+    const single = SYMBOL_ORDER.length === 1;
     for (const sym of SYMBOL_ORDER) {
         const panel = buildPanel(sym);
-        panel.addEventListener('click', (ev) => onPanelClick(ev, panel, grid));
+        if (single) {
+            panel.classList.add('expanded');
+            panel.classList.remove('quiet');
+            const cb = panel.querySelector('.panel-close');
+            if (cb) cb.remove();            // nothing to collapse back to
+        } else {
+            panel.addEventListener('click', (ev) => onPanelClick(ev, panel, grid));
+        }
         grid.appendChild(panel);
     }
+    if (single) grid.classList.add('has-expanded');
 }
 
 function buildPanel(sym) {
@@ -245,39 +244,6 @@ document.addEventListener('keydown', (e) => {
     if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
 });
 
-function buildStrengthRows() {
-    const root = $bind('strength-rows');
-    for (const c of STRENGTH_CCYS) {
-        const row = document.createElement('div');
-        row.className = 's-row';
-        row.innerHTML = `
-            <span class="ccy"><span class="s-cov" data-bind="scov-${c}"></span>${c}</span>
-            <div class="bar-track">
-                <div class="bar-mid"></div>
-                <div class="bar" data-bind="bar-${c}" style="width:0;left:50%"></div>
-            </div>
-            <span class="val" data-bind="sval-${c}">--</span>
-        `;
-        root.appendChild(row);
-    }
-    const wins = $bind('strength-windows');
-    for (const w of STRENGTH_WINDOWS) {
-        const b = document.createElement('button');
-        b.className = 'pill' + (w === UI.strengthWindow ? ' on' : '');
-        b.dataset.win = w;
-        b.textContent = w;
-        b.onclick = () => {
-            UI.strengthWindow = w;
-            wins.querySelectorAll('.pill').forEach(p =>
-                p.classList.toggle('on', p.dataset.win === w));
-            // Force re-render of strength on next snapshot.
-            for (const c of STRENGTH_CCYS) delete STAMPS[`strength:${c}`];
-            if (latestSnap) paintStrength(latestSnap.strength, true);
-        };
-        wins.appendChild(b);
-    }
-}
-
 // ------------------------------------------------------------
 // Render functions (called from snapshot handler)
 // ------------------------------------------------------------
@@ -354,105 +320,6 @@ function paintActiveSetups(snap) {
         </span>`;
     }).join('');
 }
-
-// Per-currency flags as inline SVG — Windows has no emoji-flag glyphs (it shows
-// the 2-letter code), so we draw simplified-but-recognisable flags that render
-// identically everywhere and offline. XAU = a gold coin (no nation). A little
-// personality on each pair: [base flag] SYMBOL [quote flag].
-const CCY_FLAGS = {
-    USD: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#b22234"/><g fill="#fff"><rect y="1.23" width="24" height="1.23"/><rect y="3.69" width="24" height="1.23"/><rect y="6.15" width="24" height="1.23"/><rect y="8.62" width="24" height="1.23"/><rect y="11.08" width="24" height="1.23"/><rect y="13.54" width="24" height="1.23"/></g><rect width="10" height="8.62" fill="#3c3b6e"/><g fill="#fff"><circle cx="2" cy="1.7" r=".55"/><circle cx="5" cy="1.7" r=".55"/><circle cx="8" cy="1.7" r=".55"/><circle cx="3.5" cy="3.4" r=".55"/><circle cx="6.5" cy="3.4" r=".55"/><circle cx="2" cy="5.1" r=".55"/><circle cx="5" cy="5.1" r=".55"/><circle cx="8" cy="5.1" r=".55"/><circle cx="3.5" cy="6.8" r=".55"/><circle cx="6.5" cy="6.8" r=".55"/></g></svg>',
-    EUR: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#039"/><g fill="#fc0"><circle cx="12" cy="3" r=".82"/><circle cx="14.5" cy="3.67" r=".82"/><circle cx="16.33" cy="5.5" r=".82"/><circle cx="17" cy="8" r=".82"/><circle cx="16.33" cy="10.5" r=".82"/><circle cx="14.5" cy="12.33" r=".82"/><circle cx="12" cy="13" r=".82"/><circle cx="9.5" cy="12.33" r=".82"/><circle cx="7.67" cy="10.5" r=".82"/><circle cx="7" cy="8" r=".82"/><circle cx="7.67" cy="5.5" r=".82"/><circle cx="9.5" cy="3.67" r=".82"/></g></svg>',
-    GBP: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#012169"/><path d="M0,0 L24,16 M24,0 L0,16" stroke="#fff" stroke-width="3.2"/><path d="M0,0 L24,16 M24,0 L0,16" stroke="#c8102e" stroke-width="1.3"/><rect x="9.6" width="4.8" height="16" fill="#fff"/><rect y="5.6" width="24" height="4.8" fill="#fff"/><rect x="10.8" width="2.4" height="16" fill="#c8102e"/><rect y="6.8" width="24" height="2.4" fill="#c8102e"/></svg>',
-    AUD: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#012169"/><g><rect width="11" height="8" fill="#012169"/><path d="M0,0 L11,8 M11,0 L0,8" stroke="#fff" stroke-width="1.6"/><path d="M0,0 L11,8 M11,0 L0,8" stroke="#c8102e" stroke-width=".7"/><rect x="4.4" width="2.2" height="8" fill="#fff"/><rect y="2.9" width="11" height="2.2" fill="#fff"/><rect x="4.95" width="1.1" height="8" fill="#c8102e"/><rect y="3.45" width="11" height="1.1" fill="#c8102e"/></g><g fill="#fff"><circle cx="5.5" cy="12.7" r="1.1"/><circle cx="18.5" cy="3.8" r=".62"/><circle cx="20.5" cy="6.5" r=".62"/><circle cx="17.5" cy="8.8" r=".62"/><circle cx="19.6" cy="11" r=".62"/><circle cx="18.8" cy="7.3" r=".4"/></g></svg>',
-    JPY: '<svg viewBox="0 0 24 16"><rect width="24" height="16" fill="#fff"/><circle cx="12" cy="8" r="4.4" fill="#bc002d"/></svg>',
-    XAU: '<svg viewBox="0 0 24 16"><rect width="24" height="16" rx="2" fill="#2b2b2b"/><circle cx="12" cy="8" r="6.2" fill="#f3c344"/><circle cx="12" cy="8" r="6.2" fill="none" stroke="#b8860b" stroke-width="1"/><circle cx="9.8" cy="5.9" r="1.5" fill="#fce08a"/></svg>',
-};
-/** Inline flag for a 3-letter currency code (empty string if unknown). */
-function flagSvg(ccy) {
-    const s = CCY_FLAGS[ccy];
-    return s ? `<span class="ccy-flag" title="${ccy}">${s}</span>` : '';
-}
-
-/** Collapsible summary bar (#5): one cell per symbol with the order-relevant
- *  read — BIAS composite, 4-TF EMA alignment, and the 様子見 regime flag — so a
- *  glance at the top replaces scanning 8 dense panels. It complements the
- *  header's ACTIVE SETUPS (high-conviction only) by covering ALL symbols.
- *  Repaints only when the analysis advances; a cell click focuses that panel. */
-function paintSummaryBar(snap) {
-    const root = $bind('summary-cells');
-    if (!root) return;
-    const analysis = snap.analysis;
-    if (!analysis || !analysis.by_symbol) {
-        if (!root.innerHTML) root.innerHTML = '<div class="sb-empty">分析待ち…</div>';
-        return;
-    }
-    if (!changed('summary', analysis.generated_at)) return;
-    root.innerHTML = SYMBOL_ORDER.map(sym => {
-        // [base flag] SYMBOL [quote flag] — all 6-char (base=0..3, quote=3..6).
-        const symHtml = `${flagSvg(sym.slice(0, 3))}`
-            + `<span class="sb-sym-txt">${sym}</span>${flagSvg(sym.slice(3))}`;
-        const sa = analysis.by_symbol[sym];
-        if (!sa || !sa.by_tf) {
-            return `<div class="sb-cell na" data-sb-sym="${sym}">
-                <div class="sb-sym">${symHtml}</div>
-                <div class="sb-bias na">--</div>
-                <div class="sb-tfs sb-nodata">データ無</div>
-                <div class="sb-flag sb-flag-off" aria-hidden="true">⚠ 様子見</div>
-            </div>`;
-        }
-        const c = compositeSignal(sa.by_tf);
-        const st = _regimeState(sym, snap);
-        const degraded = _regimeGated(st);
-        const drift = st ? st.drift : null;
-        const scoreStr = c.cls === 'na' ? '--'
-            : (c.score > 0 ? '+' : '') + c.score.toFixed(1);
-        // 4-TF EMA side as colour chips (D1/H4/H1/M15): green=above, red=below.
-        const tfHtml = TF_LABELS.map(lab => {
-            const tf = sa.by_tf[lab];
-            if (!tf || tf.last_close == null || tf.ema == null) {
-                return `<span class="sb-tf">${lab}</span>`;
-            }
-            const up = tf.last_close >= tf.ema;
-            return `<span class="sb-tf ${up ? 'up' : 'dn'}">${lab}</span>`;
-        }).join('');
-        // BIAS stays direction-coloured (the signal); the amber cell frame +
-        // 様子見 pill carry the regime caution when gated. The pill is ALWAYS in
-        // the DOM (hidden when not gated) so a cell's height never changes when a
-        // flag appears/disappears — otherwise the whole bar reflowed and the app
-        // jumped vertically each snapshot.
-        const flag = degraded
-            ? `<div class="sb-flag" title="直近地合い悪化: 16Y比 ${Math.round(drift * 100)}% → 様子見 (執行は裁量)">⚠ 様子見</div>`
-            : `<div class="sb-flag sb-flag-off" aria-hidden="true">⚠ 様子見</div>`;
-        const cellCls = degraded ? 'degraded' : c.cls;
-        // BIAS number coloured by SIGN: + green, − red, 0 grey.
-        const signCls = c.score > 0 ? 'pos' : c.score < 0 ? 'neg' : 'zero';
-        return `<div class="sb-cell ${cellCls}" data-sb-sym="${sym}" title="${sym} · BIAS ${scoreStr} (${c.label})">
-            <div class="sb-sym">${symHtml}</div>
-            <div class="sb-bias ${signCls}"><span class="sb-arrow">${c.arrow}</span>${scoreStr}</div>
-            <div class="sb-tfs">${tfHtml}</div>
-            ${flag}
-        </div>`;
-    }).join('');
-}
-
-/** Focus a symbol's panel (expand it) — used by the summary-bar cells. */
-function focusPanel(sym) {
-    const grid = document.querySelector('.symbols');
-    const panel = document.getElementById('panel-' + sym);
-    if (!grid || !panel) return;
-    grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
-    panel.classList.add('expanded');
-    grid.classList.add('has-expanded');
-    if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
-}
-
-// Summary-bar cell → focus that symbol's panel. Cells live in the <details>
-// BODY (not <summary>), so this never toggles the bar's open/closed state.
-document.addEventListener('click', (ev) => {
-    const cell = ev.target.closest('.sb-cell');
-    if (!cell || !cell.dataset.sbSym) return;
-    focusPanel(cell.dataset.sbSym);
-});
 
 /* ============================================================
    High-conviction setup ALERTS. Browser-notify the moment a NEW
@@ -826,53 +693,6 @@ function setupOrderModal() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !ov.hidden) ov.hidden = true;
     });
-}
-
-function paintStrength(strength, force) {
-    if (!strength) return;
-    if (!force && !changed('strength:meter:' + UI.strengthWindow,
-                            strength.generated_at + ':' + UI.strengthWindow)) return;
-    const w = (strength.by_window || {})[UI.strengthWindow];
-    if (!w) return;
-    for (const c of STRENGTH_CCYS) {
-        const sc = (w.scores || {})[c];
-        const bar = $bind('bar-' + c);
-        const val = $bind('sval-' + c);
-        if (!bar || !val) continue;
-        const cov = $bind('scov-' + c);
-        const setCov = (low, np) => {
-            if (!cov) return;
-            cov.textContent = low ? '⚠' : '';
-            cov.title = low
-                ? `${np}/${STRENGTH_FULL_PAIRS} ペアのみ — 精度低下（ブローカーに一部クロスペアが無い）`
-                : '';
-            const r = cov.closest('.s-row');
-            if (r) r.classList.toggle('low-cov', !!low);
-        };
-        if (!sc || sc.score == null) {
-            bar.style.width = '0%'; bar.style.left = '50%';
-            val.textContent = '--';
-            setCov(false);
-            continue;
-        }
-        // Coverage flag: fewer than the full 7 pairs ⇒ less reliable score.
-        setCov(sc.n_pairs != null && sc.n_pairs < STRENGTH_FULL_PAIRS, sc.n_pairs);
-        const score = sc.score;
-        const offset = Math.abs(score - 50) * 2;
-        const width = Math.min(offset, 100);
-        let left, mod;
-        if (score >= 50) {
-            left = '50%';
-            mod = 'pos';
-        } else {
-            left = (50 - width) + '%';
-            mod = 'neg';
-        }
-        bar.style.width = width + '%';
-        bar.style.left = left;
-        bar.className = 'bar ' + mod + (sc.is_reference ? ' ref' : '');
-        val.textContent = score.toFixed(1);
-    }
 }
 
 // Currencies that have at least one panel in the display SYMBOLS. DERIVED
@@ -2656,11 +2476,9 @@ function paintAll() {
     pendingFrame = null;
     if (!latestSnap) return;
     paintHeader(latestSnap);
-    paintSummaryBar(latestSnap);
     paintPrices(latestSnap);
     paintSignals(latestSnap);
     paintAccount(latestSnap);
-    paintStrength(latestSnap.strength);
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
     paintDws(latestSnap);
@@ -2783,19 +2601,10 @@ function applyDisplayFit() {
 document.addEventListener('DOMContentLoaded', () => {
     applyDisplayFit();
     buildSymbolGrid();
-    buildStrengthRows();
     startTickers();
     setupBrokerSwitcher();
     setupOrderModal();
     paintAlertBell();                 // reflect the saved high-conviction-alert state
-    // Summary bar: restore + persist its open/closed state (default open).
-    const sb = document.querySelector('.summary-bar');
-    if (sb) {
-        try { if (localStorage.getItem('mt5-summary') === '0') sb.open = false; } catch (e) {}
-        sb.addEventListener('toggle', () => {
-            try { localStorage.setItem('mt5-summary', sb.open ? '1' : '0'); } catch (e) {}
-        });
-    }
     connect();
     // NB: the journal is seeded by maybeRefreshJournal() on the first snapshot
     // that carries account.server (the broker-scoped store key) — NOT here. A
