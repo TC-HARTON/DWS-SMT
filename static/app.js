@@ -24,7 +24,6 @@ const STRENGTH_CCYS = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF"];
 // meter flags it so "is the strength accurate right now?" is auditable live.
 const STRENGTH_FULL_PAIRS = 7;
 const STRENGTH_WINDOWS = ["H1", "H4", "D1", "W1"];
-const CORR_WINDOWS = [20, 100, 500];
 // Min samples for an hourly-heatmap cell to be treated as signal (not noise).
 const HM_MIN_N = 30;
 // Regime flags fire on TWO conditions together: (1) recent rolling PF is below
@@ -51,7 +50,6 @@ function changed(key, stamp) {
 // Selected windows (clientside state only).
 const UI = {
     strengthWindow: 'H4',
-    corrWindow:     100,
     dwsBase:        'M15',  // DWS-SMT trigger base (x-axis): H1 / M15 (H4 hidden here only)
     calYear:        null,   // trigger-calendar selected year (null → newest in data)
     calMonth:       null,   // trigger-calendar selected month 1-12 (JST), or null = whole year
@@ -277,24 +275,6 @@ function buildStrengthRows() {
             if (latestSnap) paintStrength(latestSnap.strength, true);
         };
         wins.appendChild(b);
-    }
-}
-
-function buildCorrelationButtons() {
-    const wins = $bind('corr-windows');
-    for (const b of CORR_WINDOWS) {
-        const btn = document.createElement('button');
-        btn.className = 'pill' + (b === UI.corrWindow ? ' on' : '');
-        btn.dataset.win = b;
-        btn.textContent = b;
-        btn.onclick = () => {
-            UI.corrWindow = b;
-            wins.querySelectorAll('.pill').forEach(p =>
-                p.classList.toggle('on', Number(p.dataset.win) === b));
-            delete STAMPS['corr-list'];
-            if (latestSnap) paintCorrelationList(latestSnap.correlation, true);
-        };
-        wins.appendChild(btn);
     }
 }
 
@@ -1731,213 +1711,6 @@ function paintSignals(snap) {
 }
 
 // ------------------------------------------------------------
-// Correlation insights — rank noteworthy pairs instead of a heatmap.
-// The 10x10 grid was illegible; this picks the absolute strongest
-// correlations and flags divergence (current vs the longest window).
-// ------------------------------------------------------------
-
-function _strengthLabel(abs) {
-    if (abs >= 0.85) return { kind: 'very-strong', txt: '極強' };
-    if (abs >= 0.7)  return { kind: 'strong',      txt: '強'   };
-    if (abs >= 0.5)  return { kind: 'moderate',    txt: '中'   };
-    return              { kind: 'weak',        txt: '弱'   };
-}
-
-// Effective correlation ≥ this links two positions into one bet. 0.6 catches
-// meaningful overlap (≈36% shared variance); H1-window correlations sit lower
-// than daily, so a 0.7 cutoff would miss real concentration.
-const CONCENTRATION_THRESHOLD = 0.6;
-
-/** Concentration warning (recommendation 5): cluster directional BIAS signals
- *  by effective correlation so correlated positions are counted as one bet, not
- *  several. Two positions are the same bet when corr × dirA × dirB is high —
- *  that also catches opposite-labelled pairs (e.g. EURUSD-short ≈ USDCHF-long). */
-function paintConcentration(snap) {
-    const el = $bind('concentration');
-    if (!el) return;
-    const analysis = snap.analysis, corr = snap.correlation;
-    if (!analysis || !analysis.by_symbol || !corr || !corr.by_window) {
-        el.innerHTML = ''; return;
-    }
-    // Skip on price-only frames (analysis + correlation drive this).
-    if (!changed('conc', analysis.generated_at + ':' + UI.corrWindow)) return;
-    const cw = corr.by_window[String(UI.corrWindow)]
-            || corr.by_window[String(corr.default_window)];
-    if (!cw || !cw.symbols || !cw.matrix) { el.innerHTML = ''; return; }
-    const idx = {};
-    cw.symbols.forEach((s, i) => { idx[s] = i; });
-
-    // Directional BIAS signals that exist in the correlation matrix.
-    const sigs = [];
-    for (const sym of SYMBOL_ORDER) {
-        const sa = analysis.by_symbol[sym];
-        if (!sa || !sa.by_tf || idx[sym] == null) continue;
-        const c = compositeSignal(sa.by_tf);
-        if (Math.abs(c.score) < 3) continue;          // non-NEUTRAL only
-        sigs.push({ sym, dir: c.score > 0 ? 1 : -1 });
-    }
-    if (sigs.length < 2) { el.innerHTML = ''; return; }
-
-    // Union-find: link positions whose P/L moves together.
-    const parent = sigs.map((_, i) => i);
-    const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-    for (let a = 0; a < sigs.length; a++) {
-        for (let b = a + 1; b < sigs.length; b++) {
-            const r = cw.matrix[idx[sigs[a].sym]][idx[sigs[b].sym]];
-            if (r == null) continue;
-            if (r * sigs[a].dir * sigs[b].dir >= CONCENTRATION_THRESHOLD)
-                parent[find(a)] = find(b);
-        }
-    }
-    const groups = {};
-    sigs.forEach((s, i) => {
-        const root = find(i);
-        (groups[root] = groups[root] || []).push(s);
-    });
-    const allGroups = Object.values(groups);
-    const clusters = allGroups.filter(g => g.length >= 2);
-    if (clusters.length === 0) { el.innerHTML = ''; return; }
-
-    const arrow = d => d > 0 ? '▲' : '▼';
-    const head = `<div class="conc-head">⚠ 相関集中 — 方向シグナル ${sigs.length} 件 `
-        + `≒ 独立 ${allGroups.length} ベット</div>`;
-    const rows = clusters.map(g => {
-        // Average effective correlation across the cluster's pairs.
-        let sum = 0, cnt = 0;
-        for (let a = 0; a < g.length; a++)
-            for (let b = a + 1; b < g.length; b++) {
-                const r = cw.matrix[idx[g[a].sym]][idx[g[b].sym]];
-                if (r != null) { sum += r * g[a].dir * g[b].dir; cnt++; }
-            }
-        const avg = cnt ? sum / cnt : 0;
-        const items = g.map(s =>
-            `<span class="conc-sym ${s.dir > 0 ? 'buy' : 'sell'}">`
-            + `${s.sym}${arrow(s.dir)}</span>`).join(' ');
-        return `<div class="conc-row">${items} `
-            + `<span class="conc-tag">≒ 1ベット（相関 ${avg >= 0 ? '+' : ''}`
-            + `${avg.toFixed(2)}）</span></div>`;
-    }).join('');
-    el.innerHTML = head + rows;
-}
-
-/** Enable/disable the window pills by how many bars are actually loaded: a
- *  window of N bars needs ≥ N return rows. Without this, a window beyond the
- *  loaded history (e.g. 500 on a fresh terminal) is silently skipped by the
- *  backend and the list hangs on "waiting for data..." forever. Pills re-enable
- *  on their own as bars accumulate (this runs on every correlation update). */
-function _paintCorrWindowAvail(corr) {
-    const avail = Number((corr && corr.bars_available) || 0);
-    const wins = $bind('corr-windows');
-    if (!wins) return;
-    const tf = (corr && corr.timeframe) || 'H1';
-    wins.querySelectorAll('.pill').forEach(p => {
-        const win = Number(p.dataset.win);
-        const ok = avail >= win;
-        p.classList.toggle('pill-disabled', !ok);
-        p.disabled = !ok;          // a disabled <button> can't be clicked
-        p.title = ok ? '' : `${tf} ${win}本ぶんの履歴が必要 (現在 ${avail}本)`;
-    });
-}
-
-function paintCorrelationList(corr, force) {
-    if (!corr) return;
-    if (!force && !changed('corr-list', corr.generated_at + ':' + UI.corrWindow)) return;
-    const root = $bind('corr-list');
-    if (!root) return;
-    _paintCorrWindowAvail(corr);
-    const w = (corr.by_window || {})[String(UI.corrWindow)];
-    if (!w || !w.matrix || !w.symbols || w.symbols.length === 0) {
-        // Distinguish "not enough history for THIS window" (a permanent state
-        // until more bars load) from a genuine pre-first-data wait, so the panel
-        // never sits on an unexplained "waiting…".
-        const avail = Number(corr.bars_available || 0);
-        const need = Number(UI.corrWindow) || 0;
-        const tf = esc(corr.timeframe || 'H1');
-        if (avail > 0 && need > avail) {
-            const usable = CORR_WINDOWS.filter(x => x <= avail);
-            const hint = usable.length
-                ? `より短い窓 (${usable.join(' / ')}本) を選択してください`
-                : `データ蓄積をお待ちください`;
-            root.innerHTML = `<div class="empty mute">データ不足: ${tf} ${need}本必要 ・ `
-                + `取得 ${avail}本<br>${hint}</div>`;
-        } else {
-            root.innerHTML = '<div class="empty mute">データ取得中…</div>';
-        }
-        return;
-    }
-    const syms = w.symbols;
-    const m = w.matrix;
-    // Reference window for divergence detection = the longest configured window.
-    const longestKey = String(
-        (corr.windows || []).reduce((a, b) => (b > a ? b : a), 0));
-    const refW = (corr.by_window || {})[longestKey];
-    const refM = refW && refW.matrix;
-
-    // Collect unique pairs (upper triangle).
-    const pairs = [];
-    for (let i = 0; i < syms.length; i++) {
-        for (let j = i + 1; j < syms.length; j++) {
-            const v = m[i][j];
-            if (v == null || !isFinite(v)) continue;
-            let refV = null;
-            if (refM && refM[i] && refM[i][j] != null && isFinite(refM[i][j])) {
-                refV = refM[i][j];
-            }
-            pairs.push({ a: syms[i], b: syms[j], v, refV });
-        }
-    }
-    // Sort by abs(corr) desc — surface what's actually significant.
-    pairs.sort((p, q) => Math.abs(q.v) - Math.abs(p.v));
-
-    // Top 10 strongest.
-    const top = pairs.slice(0, 10);
-
-    // Divergence picks: pairs whose current correlation differs from the
-    // reference by ≥ 0.35 and the reference is itself ≥ 0.6 (so we only
-    // flag breaks of a *normally* strong relationship).
-    const divergent = pairs
-        .filter(p => p.refV != null && Math.abs(p.refV) >= 0.6 &&
-                     Math.abs(p.v - p.refV) >= 0.35)
-        .slice(0, 4);
-
-    const rowHtml = (p) => {
-        const abs = Math.abs(p.v);
-        const strength = _strengthLabel(abs);
-        const sign = p.v >= 0 ? 'pos' : 'neg';
-        const arrow = p.v >= 0 ? '⟷' : '⇄';
-        const dirTxt = p.v >= 0 ? '同調' : '逆相関';
-        const barWidth = Math.round(abs * 100);
-        const valStr = (p.v >= 0 ? '+' : '') + p.v.toFixed(2);
-        return `
-            <div class="corr-row ${sign} ${strength.kind}">
-                <span class="pair"><b>${esc(p.a)}</b> ${arrow} <b>${esc(p.b)}</b></span>
-                <span class="bar"><i style="width:${barWidth}%"></i></span>
-                <span class="val">${valStr}</span>
-                <span class="lbl">${strength.txt}${dirTxt}</span>
-            </div>`;
-    };
-
-    let html = '<div class="corr-section-title">強い相関 TOP 10</div>';
-    html += top.map(rowHtml).join('');
-    if (divergent.length) {
-        html += '<div class="corr-section-title warn">ダイバージェンス警告</div>';
-        html += divergent.map(p => {
-            const sign = p.v >= 0 ? 'pos' : 'neg';
-            const dirTxt = p.v >= 0 ? '同調' : '逆相関';
-            const refStr = (p.refV >= 0 ? '+' : '') + p.refV.toFixed(2);
-            const curStr = (p.v    >= 0 ? '+' : '') + p.v.toFixed(2);
-            return `
-                <div class="corr-row diverge ${sign}">
-                    <span class="pair"><b>${esc(p.a)}</b> ⚠ <b>${esc(p.b)}</b></span>
-                    <span class="div-detail">通常 ${refStr} → 現在 ${curStr}</span>
-                    <span class="lbl warn">${dirTxt}崩れ</span>
-                </div>`;
-        }).join('');
-    }
-    root.innerHTML = html;
-}
-
-// ------------------------------------------------------------
 // DWS-SMT panel — 3-TF trend histogram + triggers (port of DWS_SMT.mq5)
 // Backend computes the colours/triggers; this just renders them on a
 // Canvas and lets the user switch the base timeframe (x-axis).
@@ -2888,8 +2661,6 @@ function paintAll() {
     paintSignals(latestSnap);
     paintAccount(latestSnap);
     paintStrength(latestSnap.strength);
-    paintCorrelationList(latestSnap.correlation);
-    paintConcentration(latestSnap);
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
     paintDws(latestSnap);
@@ -3013,7 +2784,6 @@ document.addEventListener('DOMContentLoaded', () => {
     applyDisplayFit();
     buildSymbolGrid();
     buildStrengthRows();
-    buildCorrelationButtons();
     startTickers();
     setupBrokerSwitcher();
     setupOrderModal();
