@@ -22,12 +22,9 @@ from analyzer.account_monitor import PerformanceSnapshot
 from analyzer.calendar_feed import CalendarSnapshot
 from analyzer.signal_validator import ValidationSnapshot
 from analyzer.macro_feed import MacroSnapshot, RealYieldSnapshot
-from analyzer.confluence import ConfluenceCluster
 from analyzer.dxy_feed import DxySnapshot
 from analyzer.indicator_engine import AnalysisSnapshot
 from analyzer.mt5_connector import AccountSnapshot, Tick
-from analyzer.price_action import PriceActionEvent
-from analyzer.structure_types import StructureLevel
 
 
 @dataclass(frozen=True)
@@ -43,23 +40,6 @@ class ConnectionStatus:
     connected: bool
     last_error: str | None
     last_connect_ts: float | None        # epoch seconds
-
-
-@dataclass(frozen=True)
-class SymbolStructures:
-    """Per-symbol Phase 2 bundle: structure levels + PA events + confluences."""
-
-    levels: tuple[StructureLevel, ...]
-    price_action: tuple[PriceActionEvent, ...]
-    confluences: tuple[ConfluenceCluster, ...]
-
-
-@dataclass(frozen=True)
-class StructuresSnapshot:
-    """Per-cycle Phase 2 output keyed by base symbol."""
-
-    generated_at: float                          # epoch seconds (UTC)
-    by_symbol: dict[str, SymbolStructures]
 
 
 class LatestState:
@@ -83,7 +63,6 @@ class LatestState:
         self._price: Optional[PriceSnapshot] = None
         self._analysis: Optional[AnalysisSnapshot] = None
         self._account: Optional[AccountSnapshot] = None
-        self._structures: Optional[StructuresSnapshot] = None
         self._performance: Optional[PerformanceSnapshot] = None
         self._calendar: Optional[CalendarSnapshot] = None
         self._validation: Optional[ValidationSnapshot] = None
@@ -104,8 +83,8 @@ class LatestState:
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
-        # Bumped only by the heavy domains (analysis / structures /
-        # performance / calendar). Lets the WS broadcaster send
+        # Bumped only by the heavy domains (analysis / performance /
+        # calendar). Lets the WS broadcaster send
         # a light price-only message when only ticks changed, instead of
         # re-shipping the whole ~169 KB snapshot at the 2 Hz price cadence.
         self._analysis_version = 0
@@ -146,13 +125,6 @@ class LatestState:
         with self._cond:
             self._status = status
             self._monotonic_version += 1
-            self._cond.notify_all()
-
-    def set_structures(self, snapshot: StructuresSnapshot) -> None:
-        with self._cond:
-            self._structures = snapshot
-            self._monotonic_version += 1
-            self._analysis_version += 1
             self._cond.notify_all()
 
     def set_performance(self, snapshot: PerformanceSnapshot) -> None:
@@ -271,11 +243,6 @@ class LatestState:
             return self._status
 
     @property
-    def structures(self) -> StructuresSnapshot | None:
-        with self._lock:
-            return self._structures
-
-    @property
     def performance(self) -> PerformanceSnapshot | None:
         with self._lock:
             return self._performance
@@ -335,7 +302,6 @@ class LatestState:
                 "price": self._price,
                 "analysis": self._analysis,
                 "account": self._account,
-                "structures": self._structures,
                 "performance": self._performance,
                 "calendar": self._calendar,
                 "validation": self._validation,

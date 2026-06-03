@@ -30,10 +30,8 @@ import threading
 import time
 from dataclasses import dataclass
 
-import pandas as pd
-
 import config
-from analyzer import confluence, dxy_feed, price_action, structure_detector, trigger_store
+from analyzer import dxy_feed, trigger_store
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
 from analyzer.indicator_engine import IndicatorEngine
@@ -52,8 +50,6 @@ from analyzer.state import (
     LatestState,
     PriceSnapshot,
     STATE,
-    StructuresSnapshot,
-    SymbolStructures,
 )
 
 log = logging.getLogger(__name__)
@@ -225,7 +221,7 @@ class AnalysisLoop:
         self._run_analysis_pass(bases)
 
     def _run_analysis_pass(self, bases: list[str]) -> int:
-        """Fetch rates, compute indicators + structure + PA + confluence.
+        """Fetch rates and compute the indicator snapshot.
 
         Returns the number of ``(symbol, TF)`` pairs that produced an
         indicator snapshot (useful for warm-up logging).
@@ -246,73 +242,7 @@ class AnalysisLoop:
         except Exception:  # noqa: BLE001
             log.exception("dxy compute failed")
 
-        self._publish_structures(bases, rates, snap)
         return len(rates)
-
-    # ---------------------------------------------------- structure pass
-    def _publish_structures(
-        self,
-        bases: list[str],
-        rates: dict[tuple[str, str], pd.DataFrame],
-        snap,
-    ) -> None:
-        """Build a :class:`StructuresSnapshot` and publish it to shared state."""
-        price_snapshot = self._state.price
-        ticks = price_snapshot.ticks if price_snapshot else {}
-        by_symbol: dict[str, SymbolStructures] = {}
-
-        for base in bases:
-            sym_rates = {
-                tf_label: df for (b, tf_label), df in rates.items() if b == base
-            }
-            if not sym_rates:
-                continue
-
-            current_price = self._current_price(base, ticks, sym_rates)
-
-            ea_levels = self._lines_state.levels_for(base)
-            auto_levels = structure_detector.detect_all(
-                base, sym_rates, current_price=current_price,
-            )
-            all_levels = tuple(ea_levels + auto_levels)
-
-            m15 = sym_rates.get("M15")
-            pa_events = (tuple(price_action.detect_all(m15))
-                         if m15 is not None and not m15.empty else ())
-
-            atr_h4 = self._h4_atr(snap, base)
-            clusters = tuple(confluence.detect(
-                list(all_levels), atr_h4=atr_h4, current_price=current_price,
-            ))
-
-            by_symbol[base] = SymbolStructures(
-                levels=all_levels,
-                price_action=pa_events,
-                confluences=clusters,
-            )
-
-        self._state.set_structures(StructuresSnapshot(
-            generated_at=time.time(),
-            by_symbol=by_symbol,
-        ))
-
-    @staticmethod
-    def _current_price(base, ticks, sym_rates) -> float | None:
-        tick = ticks.get(base)
-        if tick is not None and tick.bid:
-            return tick.bid
-        m15 = sym_rates.get("M15")
-        if m15 is not None and not m15.empty:
-            return float(m15["close"].iloc[-1])
-        return None
-
-    @staticmethod
-    def _h4_atr(snap, base: str) -> float | None:
-        sym_ind = snap.by_symbol.get(base)
-        if sym_ind is None:
-            return None
-        h4 = sym_ind.by_tf.get("H4")
-        return h4.atr if h4 is not None else None
 
     def _do_history_refresh(self, bases: list[str]) -> None:
         """SPEC §14.4: trade-history refresh every 60 s → performance stats."""

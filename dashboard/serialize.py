@@ -47,7 +47,6 @@ def load_oos_baseline() -> dict[str, Any]:
     return _OOS_BASELINE_CACHE
 from analyzer.account_monitor import PerformanceSnapshot, RangeStats, SymbolStats
 from analyzer.calendar_feed import CalendarEvent, CalendarSnapshot
-from analyzer.confluence import ConfluenceCluster
 from analyzer.dws_smt import DwsSmtResult
 from analyzer.dxy_feed import DxySnapshot
 from analyzer.indicator_engine import (
@@ -72,14 +71,11 @@ from analyzer.macro_feed import (
 )
 from analyzer.mt5_connector import AccountSnapshot, Tick
 from analyzer.position_sizing import recommended_lot
-from analyzer.price_action import PriceActionEvent
 from analyzer.state import (
     ConnectionStatus,
     LatestState,
     PriceSnapshot,
-    StructuresSnapshot,
 )
-from analyzer.structure_types import StructureLevel
 
 
 def _opt_float(v: float | None) -> float | None:
@@ -252,79 +248,6 @@ def serialize_status(s: ConnectionStatus) -> dict[str, Any]:
         "connected": bool(s.connected),
         "last_error": s.last_error,
         "last_connect_ts": s.last_connect_ts,
-    }
-
-
-# --------------------------------------------------------------------------- #
-# Phase 2: structures / price action / confluence
-# --------------------------------------------------------------------------- #
-
-def serialize_level(lv: StructureLevel) -> dict[str, Any]:
-    return {
-        "name": lv.name,
-        "kind": lv.kind.value,
-        "category": lv.category,
-        "source": lv.source.value,
-        "price": _opt_float(lv.price),
-        "importance": int(lv.importance),
-        "color": lv.color,
-        "tf": lv.tf,
-        # meta may contain nested datetimes etc.; we coerce known sub-types
-        # rather than dumping arbitrary content to avoid silent json errors.
-        "meta": _safe_meta(lv.meta),
-    }
-
-
-def serialize_price_action(ev: PriceActionEvent) -> dict[str, Any]:
-    return {
-        "kind": ev.kind.value,
-        "bar_time": ev.bar_time.isoformat() if ev.bar_time is not None else None,
-        "bar_index_from_end": int(ev.bar_index_from_end),
-        "direction": int(ev.direction),
-        "close": _opt_float(ev.close),
-        "extreme": _opt_float(ev.extreme),
-        "body": _opt_float(ev.body),
-        "note": ev.note,
-        "meta": _safe_meta(ev.meta),
-    }
-
-
-def serialize_confluence(c: ConfluenceCluster) -> dict[str, Any]:
-    return {
-        "center": _opt_float(c.center),
-        "price_low": _opt_float(c.price_low),
-        "price_high": _opt_float(c.price_high),
-        "width": _opt_float(c.width),
-        "distance": _opt_float(c.distance),
-        "score": int(c.score),
-        "importance_label": c.importance_label,
-        "level_names": [lv.name for lv in c.levels],
-        "level_categories": [lv.category for lv in c.levels],
-        "level_sources": [lv.source.value for lv in c.levels],
-    }
-
-
-def serialize_structures(s: StructuresSnapshot | None) -> dict[str, Any] | None:
-    if s is None:
-        return None
-    # The flattened wire shape keeps the existing per-domain keys at the top
-    # level for the front end — the only change is that the backend now
-    # builds them in a single loop from one source dict.
-    by_sym = s.by_symbol
-    return {
-        "generated_at": float(s.generated_at),
-        "levels_by_symbol": {
-            base: [serialize_level(lv) for lv in sym.levels]
-            for base, sym in by_sym.items()
-        },
-        "price_action_by_symbol": {
-            base: [serialize_price_action(ev) for ev in sym.price_action]
-            for base, sym in by_sym.items()
-        },
-        "confluences_by_symbol": {
-            base: [serialize_confluence(c) for c in sym.confluences]
-            for base, sym in by_sym.items()
-        },
     }
 
 
@@ -647,38 +570,6 @@ def serialize_dxy(s: DxySnapshot | None) -> dict[str, Any] | None:
 # --------------------------------------------------------------------------- #
 
 
-def _safe_meta(
-    meta: dict[str, Any], _visited: set[int] | None = None
-) -> dict[str, Any]:
-    """Best-effort JSON-safe coercion for level/PA meta dicts.
-
-    A ``_visited`` set guards against self-referential or cyclic dicts; the
-    EA parser is defensive but a hand-crafted ``lines_*.json`` could in
-    theory smuggle one in, and infinite recursion here would crash the WS
-    broadcaster for every connected client.
-    """
-    if _visited is None:
-        _visited = set()
-    out: dict[str, Any] = {}
-    for k, v in meta.items():
-        if v is None or isinstance(v, (bool, int, str)):
-            out[k] = v
-        elif isinstance(v, float):
-            out[k] = _opt_float(v)
-        elif isinstance(v, (list, tuple)):
-            out[k] = list(v)  # ISO-time strings & numbers pass through
-        elif isinstance(v, dict):
-            if id(v) in _visited:
-                out[k] = "<cycle>"
-                continue
-            _visited.add(id(v))
-            out[k] = _safe_meta(v, _visited)
-            _visited.discard(id(v))
-        else:
-            out[k] = str(v)
-    return out
-
-
 def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[str, Any]:
     """Render the entire :class:`LatestState` into a flat JSON-ready dict.
 
@@ -697,7 +588,6 @@ def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[
         "price": serialize_price(snap["price"]),  # type: ignore[arg-type]
         "analysis": serialize_analysis(snap["analysis"]),  # type: ignore[arg-type]
         "account": serialize_account(snap["account"]),  # type: ignore[arg-type]
-        "structures": serialize_structures(snap["structures"]),  # type: ignore[arg-type]
         "performance": serialize_performance(snap["performance"]),  # type: ignore[arg-type]
         "calendar": serialize_calendar(snap["calendar"]),  # type: ignore[arg-type]
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]

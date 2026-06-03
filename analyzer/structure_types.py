@@ -1,15 +1,8 @@
-"""Shared dataclasses for structure levels (SPEC §8 + §10).
+"""Shared dataclasses for structure levels (SPEC §8).
 
-These types are produced by two collaborating modules:
-
-* ``analyzer.line_reader`` — parses MT5 EA JSON output (user-drawn TL/SR,
-  rectangles, channels, fibonacci, text annotations). SPEC §8.1 calls these
-  *primary* signals.
-* ``analyzer.structure_detector`` — derives PDH/PDL, round numbers, swing
-  H/L, session H/L, VWAP from rate data (SPEC §10). These are *secondary*
-  by SPEC §8.1, surfaced visually with thinner lines / smaller markers.
-
-Confluence detection (SPEC §10.4) and the UI both work off these levels.
+These types are produced by ``analyzer.line_reader``, which parses MT5 EA
+JSON output (user-drawn TL/SR, rectangles, channels, fibonacci, text
+annotations). SPEC §8.1 calls these *primary* signals.
 """
 
 from __future__ import annotations

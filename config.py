@@ -363,20 +363,6 @@ MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
 DWS_FLIP_STD_WINDOW: Final[int] = 96    # trailing bars for the smoothed-diff std
 DWS_FLIP_K: Final[float] = 1.0          # scale: |sd| = k*std maps to |flip_norm| = 1
 
-# GoldMacroScore — XAUUSD-specific macro composite (spec
-# docs/superpowers/specs/2026-06-02-gold-macro-score-design.md). Four daily
-# FRED drivers fused into a -10..+10 level-z equal-weight score. The live
-# wiring was REMOVED after validation (IC ~ 0, VERDICT REJECT — see
-# scripts/_validate_gold_macro.py); these constants remain because the research
-# module (analyzer/gold_macro.py) and the offline validation / experiment
-# harnesses still use them for any future re-attempt.
-MACRO_FRED_BREAKEVEN_SERIES: Final[str] = "T10YIE"     # 10Y breakeven inflation, daily
-MACRO_FRED_VIX_SERIES: Final[str] = "VIXCLS"           # CBOE VIX close, daily
-MACRO_FRED_DXY_SERIES: Final[str] = "DTWEXBGS"         # broad trade-weighted USD index, daily
-GOLD_MACRO_WINDOW: Final[int] = 252                    # ~1Y trading days for z-score
-GOLD_MACRO_Z_CLAMP: Final[float] = 2.5                 # cap per-driver tail leverage
-GOLD_MACRO_BAND_THRESHOLD: Final[float] = 3.0          # |score| >= this -> tailwind/headwind band
-
 
 # --------------------------------------------------------------------------- #
 # Composite BIAS — per-TF tfSignal → regime-gated weighted composite
