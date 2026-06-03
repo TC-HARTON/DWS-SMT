@@ -399,7 +399,6 @@ BIAS_REGIME_ADX_HIGH: Final[float] = 25.0   #              ADX ≥ high → fact
 
 PRICE_REFRESH_SEC: Final[float] = 0.5       # ticks + account at 2 Hz. SPEC §14.4 was 1s; we tightened for XAUUSD freshness but 250ms over-loaded the browser. 500ms keeps XAUUSD within half a second of MT5 with half the CPU cost.
 ANALYSIS_REFRESH_SEC: Final[float] = 5.0    # SPEC 19 ダッシュボード更新 5s
-HEAVY_REFRESH_SEC: Final[float] = 30.0      # SPEC 12.5 通貨強弱 30s (Phase 3 で使う土台)
 HISTORY_REFRESH_SEC: Final[float] = 60.0    # SPEC 14.4 取引履歴 60s (Phase 3)
 
 TARGET_ANALYSIS_BUDGET_MS: Final[int] = 50  # SPEC 19 計算 50ms 以内

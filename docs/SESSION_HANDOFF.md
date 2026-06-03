@@ -303,3 +303,33 @@ node --check static/app.js
 - **pytest 346 passed**(look-ahead 回帰ガード red-green 実証済 / flip_norm も forming除外で安全と assert)。`node --check` OK。
 - 実機: 全8銘柄でグラデ描画、holdout `▲` ラベル描画(GBPUSD M15 で確認)、コンソールエラー0、`fn` 配信確認。
 - 調整ダイヤル: `_DWS_FLIP_KNEE`(クリスプ↔グラデ量)/ `DWS_FLIP_IMMINENT`(holdout閾値)/ `config.DWS_FLIP_K`,`DWS_FLIP_STD_WINDOW`(正規化)。
+
+---
+
+## 15. 2026-06-03 — XAUUSD 完全特化 + DXY 追加
+
+ユーザ指示「XAUUSDに完全特化。XAUUSD以外の計算は全て除去。金利パネルは残す」+「DXY追加・経済カレンダーは残す」。
+
+### 15.1 特化(銘柄8→XAUUSD単独)
+- `config.SYMBOLS = (XAUUSD,)` のみ。指標/検証/DWS/トリガーストア/パネルは SYMBOLS を走査するので、これだけで**全 per-symbol 計算が XAUUSD に限定**。
+- frontend `SYMBOL_ORDER = ["XAUUSD"]`。`buildSymbolGrid` は単独銘柄時に**パネルを常時展開(`has-expanded`)・メイン全域・折りたたみボタン除去**。
+- **除去**: 通貨強弱(`analyzer/currency_strength.py`)+ 通貨相関(`analyzer/correlation.py`)を engine/state/serialize/loop/config/test ごと削除、サマリーバー、強弱パネル。`_do_heavy_refresh`+heavy schedule も撤去。obsolete スクリプト `export_for_fx_site.py`/`_profile_dispatch.py` 削除。`HEAVY_REFRESH_SEC` 剪定。
+- **残置**: XAUUSDパネル / ヘッダ / 金利(Macro Rates) / 実質金利 / 経済カレンダー / Account / トレード日誌。
+- カレンダー通貨は SYMBOLS 派生をやめ `CALENDAR_CURRENCIES = frozenset(FIAT_CURRENCIES)` 固定(金は世界マクロに反応するため USD 単独に狭めない)。
+- テスト更新: macro `by_pair` は XAUUSD のみ / connector 解決は XAUUSD のみ、を反映(改竄でなく新挙動)。
+
+### 15.2 DXY(ドル指数)= ドル地合いコンテキスト
+- ブローカーは **DXY 先物のみ**(連続スポット無し): `DXY_M6`(6月限)/`DXY_U6`(9月限)等の四半期限月。
+- **フロント限月オートロール**(`mt5_connector.resolve_dxy`): ① live(bid≠0)の限月だけ残す(満了限月は bid 0 で自動脱落)→ ② 残った中で**限月コード(M=6月/U=9月…)で最寄り月=フロント**を選択。両限月は同一フィードで同時ティックするため tick 時刻では front/back を区別できない=月コードで判定。`_resolved["DXY"]` に登録し既存 `latest_tick/copy_rates` を再利用。
+- `analyzer/dxy_feed.py`: `DxySnapshot`(price/change/EMA/確定足 closes)。analysis ワーカーで `set_dxy`。serialize `dxy` ブロック(full スナップ)。
+- frontend: side の DXY カード。**金への影響を主役**に(ドル↑=「金に逆風」赤 / ↓=「金に追風」緑)+ level + 変化 + EMA トレンド + スパークライン。`paintDxy`。
+- 定数: `config.DXY_SYMBOL_PREFIX/DXY_CHART_TF/DXY_CHART_BARS/DXY_EMA_PERIOD`。
+
+### 15.3 検証 / コミット
+- pytest **327 passed**(通貨強弱/相関テスト削除・DXY +5)。`node --check` OK。
+- 実機: サーバ XAUUSD単独起動・`DXY_M6` フロント月解決ログ・WS `dxy` 配信・単独XAUUSDパネル全域+DXYカード描画・コンソールエラー0。
+- コミット: `985125b`(XAUUSD特化)→ DXY コミット →(本剪定+本節)。**未 push**(ユーザ「プッシュ」指示待ち)。
+
+### 15.4 残注記
+- DXY 先物は限月交代する。`resolve_dxy` は起動時に1回解決(再起動 or 再接続で再解決)。長時間無停止運用で限月跨ぎが心配なら定期再解決を足す余地あり(現状は起動時解決で実用十分)。
+- 相関削除に伴い「ポジション集中(同一ベット)警告」も同カード内だったため消滅(相関依存のため)。
