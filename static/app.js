@@ -795,6 +795,52 @@ function calendarCategory(title) {
     return {cls: 'oth', label: '指標'};
 }
 
+/** Paint the DXY (US Dollar Index) context panel. Gold is inverse-USD, so a
+ *  rising dollar is a HEADWIND for gold and a falling dollar a TAILWIND — the
+ *  panel leads with that gold-impact read, then the level / change / trend.
+ *  A small SVG sparkline shows the recent dollar path. */
+function paintDxy(snap) {
+    const el = $bind('dxy');
+    const symEl = $bind('dxy-sym');
+    const d = snap.dxy;
+    if (!d || d.price == null || d.stale) {
+        if (symEl) symEl.textContent = (d && d.symbol) ? esc(d.symbol) : '--';
+        if (el) el.innerHTML = `<div class="empty mute">${d && d.symbol ? 'データ取得待ち' : 'DXY シンボル未取得'}</div>`;
+        return;
+    }
+    if (symEl) symEl.textContent = esc(d.symbol || '--');
+    const chg = d.change != null ? d.change : 0;
+    const chgPct = d.change_pct != null ? d.change_pct : 0;
+    const up = chg > 0, dn = chg < 0;
+    // Gold impact (inverse): dollar up = headwind (red for gold), down = tailwind.
+    const goldCls = up ? 'neg' : dn ? 'pos' : '';
+    const goldTxt = up ? '金に逆風' : dn ? '金に追風' : '中立';
+    const arrow = up ? '▲' : dn ? '▼' : '·';
+    // Sparkline over the recent closes.
+    const cs = (d.closes || []).filter(v => isFinite(v));
+    let spark = '';
+    if (cs.length >= 2) {
+        const W = 240, H = 34, pad = 2;
+        const lo = Math.min(...cs), hi = Math.max(...cs), span = (hi - lo) || 1;
+        const xO = i => pad + (i / (cs.length - 1)) * (W - 2 * pad);
+        const yO = v => pad + (1 - (v - lo) / span) * (H - 2 * pad);
+        const path = 'M' + cs.map((v, i) => `${xO(i).toFixed(1)},${yO(v).toFixed(1)}`).join(' L');
+        const col = up ? '#00d09c' : dn ? '#ff5b6b' : '#8a93a6';   // dollar's own direction
+        spark = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="dxy-spark" role="img">`
+              + `<path d="${path}" fill="none" stroke="${col}" stroke-width="1.4"/></svg>`;
+    }
+    const trendTxt = d.above_ema == null ? '' :
+        (d.above_ema ? `EMA上(ドル堅調)` : `EMA下(ドル軟調)`);
+    el.innerHTML =
+        `<div class="dxy-top">`
+      + `<span class="dxy-price">${d.price.toFixed(3)}</span>`
+      + `<span class="dxy-chg ${up ? 'pos' : dn ? 'neg' : ''}">${chg >= 0 ? '+' : ''}${chg.toFixed(3)} (${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%) ${arrow}</span>`
+      + `</div>`
+      + spark
+      + `<div class="dxy-foot"><span class="dxy-gold ${goldCls}">${goldTxt}</span>`
+      + `<span class="dxy-trend mute">${trendTxt}</span></div>`;
+}
+
 /** Paint the macro / rate-differential reference panel.
  *  One row per pair: base rate, quote rate, differential, macro direction. */
 function paintMacro(snap) {
@@ -2479,6 +2525,7 @@ function paintAll() {
     paintPrices(latestSnap);
     paintSignals(latestSnap);
     paintAccount(latestSnap);
+    paintDxy(latestSnap);
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
     paintDws(latestSnap);

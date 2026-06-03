@@ -33,7 +33,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 import config
-from analyzer import confluence, price_action, structure_detector, trigger_store
+from analyzer import confluence, dxy_feed, price_action, structure_detector, trigger_store
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
 from analyzer.indicator_engine import IndicatorEngine
@@ -238,6 +238,13 @@ class AnalysisLoop:
         snap = self._engine.compute(rates)
         snap = IndicatorEngine.with_broker_names(snap, self._connector.resolved_symbols)
         self._state.set_analysis(snap)
+
+        # DXY dollar-context: light (one copy_rates), so piggyback the analysis
+        # cadence. Guarded so a DXY failure never reaches the loop dispatcher.
+        try:
+            self._state.set_dxy(dxy_feed.compute_dxy(self._connector))
+        except Exception:  # noqa: BLE001
+            log.exception("dxy compute failed")
 
         self._publish_structures(bases, rates, snap)
         return len(rates)

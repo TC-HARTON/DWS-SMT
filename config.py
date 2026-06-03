@@ -163,6 +163,19 @@ DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
 
 
 # --------------------------------------------------------------------------- #
+# DXY (US Dollar Index) — dollar context for gold
+# --------------------------------------------------------------------------- #
+# DXY (US Dollar Index) — dollar context for gold (gold is inverse-USD). The
+# broker exposes quarterly DXY_* index futures; the active front-month contract
+# is auto-resolved at startup (it rolls, so picking by live bid + freshest tick,
+# not alphabetically). Display-only context, not a tradeable symbol.
+DXY_SYMBOL_PREFIX: Final[str] = "DXY"   # broker contract names: DXY_M6, DXY_U6, ...
+DXY_CHART_TF: Final[str] = "H1"          # timeframe for the trend/sparkline
+DXY_CHART_BARS: Final[int] = 120         # bars to fetch (sparkline + change)
+DXY_EMA_PERIOD: Final[int] = 20          # trend EMA on DXY closes
+
+
+# --------------------------------------------------------------------------- #
 # Position sizing — recommended lot (fixed-fractional "lot ladder")
 # --------------------------------------------------------------------------- #
 # Add LOT_BASE lots for every LOT_EQUITY_STEP of account equity, floored to the

@@ -49,6 +49,7 @@ from analyzer.account_monitor import PerformanceSnapshot, RangeStats, SymbolStat
 from analyzer.calendar_feed import CalendarEvent, CalendarSnapshot
 from analyzer.confluence import ConfluenceCluster
 from analyzer.dws_smt import DwsSmtResult
+from analyzer.dxy_feed import DxySnapshot
 from analyzer.indicator_engine import (
     AnalysisSnapshot,
     ChartBars,
@@ -621,6 +622,28 @@ def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
     }
 
 
+def serialize_dxy(s: DxySnapshot | None) -> dict[str, Any] | None:
+    """Serialise the DXY (dollar-index) context snapshot for the WS payload.
+
+    NaN/Inf floats coerce to ``null`` via ``_opt_float``; ``closes`` ships as a
+    plain list of floats; ``symbol``/``above_ema``/``stale`` pass through.
+    """
+    if s is None:
+        return None
+    return {
+        "symbol": s.symbol,
+        "price": _opt_float(s.price),
+        "prev_close": _opt_float(s.prev_close),
+        "change": _opt_float(s.change),
+        "change_pct": _opt_float(s.change_pct),
+        "ema": _opt_float(s.ema),
+        "above_ema": s.above_ema,
+        "closes": [float(v) for v in s.closes],
+        "as_of": float(s.as_of),
+        "stale": bool(s.stale),
+    }
+
+
 # --------------------------------------------------------------------------- #
 
 
@@ -680,6 +703,7 @@ def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[
         "validation": serialize_validation(snap["validation"]),  # type: ignore[arg-type]
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
+        "dxy": serialize_dxy(snap.get("dxy")),  # type: ignore[arg-type]
         "validation_history": snap.get("validation_history") or {},
         # Persistent live trigger history (per broker): complete year-bucketed
         # record accumulated on disk, so the dashboard shows every live year in

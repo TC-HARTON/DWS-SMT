@@ -230,6 +230,13 @@ class MT5Connector:
         # symbol resolution happens after we release the init lock so further
         # callers see a consistent state.
         self._resolve_symbols([s.base for s in config.SYMBOLS])
+        # DXY dollar-context: resolve the active front-month index future and
+        # register it under base "DXY". Wrapped so a DXY miss/failure NEVER
+        # blocks startup — XAUUSD must still come up (DXY then degrades).
+        try:
+            self.resolve_dxy()
+        except Exception:  # noqa: BLE001 — DXY is optional context, never fatal
+            log.exception("resolve_dxy failed at startup; DXY context disabled")
 
     def shutdown(self) -> None:
         """Close the IPC connection and tear down the worker pool."""
@@ -300,6 +307,92 @@ class MT5Connector:
         with self._lock:
             self._resolved = resolved
         log.info("Resolved %d symbols: %s", len(resolved), resolved)
+
+    def resolve_dxy(self, prefix: str = config.DXY_SYMBOL_PREFIX) -> str | None:
+        """Resolve the ACTIVE FRONT-MONTH dollar-index futures contract and
+        register it under base 'DXY' in self._resolved, so latest_tick('DXY') /
+        copy_rates('DXY', ...) work.
+
+        The broker lists quarterly DXY_* contracts (e.g. DXY_M6 = Jun-2026,
+        DXY_U6 = Sep-2026). Selection is roll-safe in two stages:
+          1. keep only contracts with a LIVE (non-zero) bid — an expired
+             front month stops quoting, so it drops out automatically;
+          2. among the live ones pick the NEAREST contract month (front month)
+             via the futures month-code in the name — both the front and back
+             month tick simultaneously off the same feed, so tick recency
+             cannot tell them apart; the month code can. Falls back to the
+             freshest tick only when no name parses.
+        Returns the chosen broker symbol, or None if no live DXY contract
+        exists (the feature then degrades gracefully)."""
+        import re
+        import datetime as _dt
+        # CME/ICE futures month codes F..Z = Jan..Dec.
+        month_code = {"F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
+                      "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12}
+        now = _dt.datetime.now(_dt.timezone.utc)
+
+        def _contract_key(name: str) -> tuple[int, int] | None:
+            """(year, month) expiry key from a '<prefix>_<code><yeardigit>' name."""
+            m = re.search(r"_([FGHJKMNQUVXZ])(\d{1,2})$", name.upper())
+            if not m:
+                return None
+            month = month_code[m.group(1)]
+            yd = m.group(2)
+            if len(yd) == 1:
+                year = (now.year // 10) * 10 + int(yd)
+                if year < now.year - 1:        # single digit rolled into next decade
+                    year += 10
+            else:
+                year = 2000 + int(yd)
+            return (year, month)
+
+        with self._lock:
+            all_syms = mt5.symbols_get()
+        if not all_syms:
+            log.warning("resolve_dxy: mt5.symbols_get returned no symbols")
+            return None
+        key = prefix.upper()
+        candidates = [s.name for s in all_syms if s.name.upper().startswith(key)]
+        if not candidates:
+            log.warning("resolve_dxy: no DXY_* contracts found (prefix=%r)", prefix)
+            return None
+
+        # (name, expiry_key|None, tick_time) for every LIVE-bid contract.
+        live: list[tuple[str, tuple[int, int] | None, int]] = []
+        with self._lock:
+            for name in candidates:
+                if not mt5.symbol_select(name, True):
+                    code, msg = mt5.last_error()
+                    log.warning("resolve_dxy: symbol_select failed for %s: code=%s msg=%r",
+                                name, code, msg)
+                    continue
+                tick = mt5.symbol_info_tick(name)
+                if tick is None:
+                    continue
+                bid = getattr(tick, "bid", 0.0) or 0.0
+                if bid <= 0:
+                    continue                              # expired / forward contract
+                live.append((name, _contract_key(name),
+                             int(getattr(tick, "time", 0) or 0)))
+        if not live:
+            log.warning("resolve_dxy: no live DXY contract (all bids 0) among %s", candidates)
+            return None
+
+        cur = (now.year, now.month)
+        keyed = [x for x in live if x[1] is not None]
+        upcoming = [x for x in keyed if x[1] >= cur]
+        if upcoming:                       # nearest non-past contract month = front
+            best = min(upcoming, key=lambda x: x[1])[0]
+        elif keyed:                        # degenerate (all parsed months past): earliest
+            best = min(keyed, key=lambda x: x[1])[0]
+        else:                              # no parseable codes → freshest live tick
+            best = max(live, key=lambda x: x[2])[0]
+
+        with self._lock:
+            self._resolved["DXY"] = best
+        log.info("Resolved DXY front-month contract: %s (from live %s)",
+                 best, [n for n, _, _ in live])
+        return best
 
     @property
     def resolved_symbols(self) -> dict[str, str]:
