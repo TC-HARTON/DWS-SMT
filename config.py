@@ -355,6 +355,35 @@ MACRO_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD")
 MACRO_FRED_REALYIELD_SERIES: Final[str] = "DFII10"   # 10Y TIPS real yield, daily
 MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
 
+
+# --------------------------------------------------------------------------- #
+# CFTC Commitment of Traders (COT) — gold-futures speculative positioning
+# --------------------------------------------------------------------------- #
+# Weekly large-speculator (non-commercial) net positioning in COMEX gold
+# futures, from the CFTC's public Socrata API (Legacy Futures-Only report, no
+# auth). A contrarian / sentiment gauge: an extreme spec net-long is a crowded
+# trade. Display-only context — never feeds trigger / trade / order logic. The
+# fetch is plain HTTP (no MT5 connector lock) and runs off-thread, mirroring the
+# macro feed.
+COT_SOCRATA_URL: Final[str] = (
+    "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
+)
+# Exact market name in the Legacy Futures-Only dataset for COMEX gold. Matched
+# exactly (not LIKE %GOLD%) so micro-gold / other gold contracts never mix in.
+COT_GOLD_MARKET: Final[str] = "GOLD - COMMODITY EXCHANGE INC."
+# Trailing weeks to fetch: ~1 year, enough for a year-context percentile plus a
+# sparkline of the net-position trend.
+COT_HISTORY_WEEKS: Final[int] = 52
+# Weekly data (released Fridays for the prior-Tuesday snapshot); a 6 h refresh
+# catches the new report same-day at negligible cost. Reuses MACRO_RETRY_SEC on
+# a fetch failure so the panel self-heals within minutes.
+COT_REFRESH_SEC: Final[float] = 21600.0            # 6 hours
+COT_FETCH_TIMEOUT_SEC: Final[float] = 20.0
+COT_CACHE_FILE: Final[Path] = PROJECT_ROOT / "external" / "cot" / "cot_cache.json"
+# Percentile thresholds (within the trailing window) that flag a crowded book.
+COT_EXTREME_HIGH_PCT: Final[float] = 90.0
+COT_EXTREME_LOW_PCT: Final[float] = 10.0
+
 # DWS histogram flip-proximity gradient (spec
 # docs/superpowers/specs/2026-06-02-dws-flip-proximity-design.md). Each stack
 # row's smoothed-diff magnitude is normalised by its own trailing volatility so

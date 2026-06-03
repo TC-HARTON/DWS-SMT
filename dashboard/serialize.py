@@ -47,6 +47,7 @@ def load_oos_baseline() -> dict[str, Any]:
     return _OOS_BASELINE_CACHE
 from analyzer.account_monitor import PerformanceSnapshot, RangeStats, SymbolStats
 from analyzer.calendar_feed import CalendarEvent, CalendarSnapshot
+from analyzer.cot_feed import CotSnapshot
 from analyzer.dws_smt import DwsSmtResult
 from analyzer.dxy_feed import DxySnapshot
 from analyzer.indicator_engine import (
@@ -567,6 +568,41 @@ def serialize_dxy(s: DxySnapshot | None) -> dict[str, Any] | None:
     }
 
 
+def serialize_cot(s: CotSnapshot | None) -> dict[str, Any] | None:
+    """Serialise the CFTC COT (gold-positioning) snapshot for the WS payload.
+
+    Integer counts pass through as-is (or ``null`` during warm-up); the
+    percentage / percentile floats coerce NaN/Inf to ``null`` via ``_opt_float``;
+    ``net_history`` / ``history_dates`` ship as parallel arrays for a sparkline.
+    """
+    if s is None:
+        return None
+    return {
+        "market": s.market,
+        "report_date": s.report_date,
+        "noncomm_long": s.noncomm_long,
+        "noncomm_short": s.noncomm_short,
+        "net": s.net,
+        "net_prev": s.net_prev,
+        "net_change": s.net_change,
+        "comm_long": s.comm_long,
+        "comm_short": s.comm_short,
+        "comm_net": s.comm_net,
+        "open_interest": s.open_interest,
+        "net_pct_oi": _opt_float(s.net_pct_oi),
+        "long_share": _opt_float(s.long_share),
+        "pctile_1y": _opt_float(s.pctile_1y),
+        "direction": int(s.direction),
+        "extreme": int(s.extreme),
+        "net_history": [int(v) for v in s.net_history],
+        "history_dates": list(s.history_dates),
+        "fetched_at": float(s.fetched_at) if s.fetched_at > 0 else None,
+        "generated_at": float(s.generated_at),
+        "stale": bool(s.stale),
+        "last_error": s.last_error,
+    }
+
+
 # --------------------------------------------------------------------------- #
 
 
@@ -594,6 +630,7 @@ def snapshot_to_json(state: LatestState, include_baseline: bool = True) -> dict[
         "macro": serialize_macro(snap["macro"]),  # type: ignore[arg-type]
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
         "dxy": serialize_dxy(snap.get("dxy")),  # type: ignore[arg-type]
+        "cot": serialize_cot(snap.get("cot")),  # type: ignore[arg-type]
         "validation_history": snap.get("validation_history") or {},
         # Persistent live trigger history (per broker): complete year-bucketed
         # record accumulated on disk, so the dashboard shows every live year in

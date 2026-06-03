@@ -841,6 +841,86 @@ function paintDxy(snap) {
       + `<span class="dxy-trend mute">${trendTxt}</span></div>`;
 }
 
+/** Paint the CFTC COT (gold-futures positioning) panel.
+ *  COT is a weekly *positioning / sentiment* gauge, NOT a directional price
+ *  driver — so the panel reports facts: the large-speculator (fund) net long,
+ *  its week-over-week change, where it sits in its 1-year range (a contrarian
+ *  read — net longs at a 1-year high = a crowded book), the commercial/hedger
+ *  net (the structural mirror), and a 52-week sparkline of the net. */
+function paintCot(snap) {
+    const el = $bind('cot');
+    const dateEl = $bind('cot-date');
+    const c = snap.cot;
+    if (!c || c.net == null) {
+        if (dateEl) dateEl.textContent = '--';
+        if (el) el.innerHTML = `<div class="empty mute">${c && c.last_error ? 'データ取得待ち' : '読み込み中…'}</div>`;
+        return;
+    }
+    const staleTag = c.stale ? ' <span class="cot-stale">stale</span>' : '';
+    if (dateEl) dateEl.innerHTML = `${esc(c.report_date)} 週次${staleTag}`;
+
+    const fmtN = n => (n == null ? '--' : Number(n).toLocaleString('en-US'));
+    const fmtSigned = n => (n == null ? '--' : (n >= 0 ? '+' : '') + Number(n).toLocaleString('en-US'));
+
+    const netLong = c.net > 0;
+    const dirTxt = netLong ? 'ネットロング' : (c.net < 0 ? 'ネットショート' : 'ニュートラル');
+    const dirCls = netLong ? 'pos' : (c.net < 0 ? 'neg' : '');
+    // Week-over-week change in the net (more long / covering).
+    const chg = c.net_change;
+    const chgArrow = chg == null ? '·' : (chg > 0 ? '▲' : chg < 0 ? '▼' : '·');
+    const chgCls = chg == null ? '' : (chg > 0 ? 'pos' : chg < 0 ? 'neg' : '');
+    const chgTxt = chg == null ? '' : `前週比 ${fmtSigned(chg)} ${chgArrow}`;
+
+    // 1-year range gauge: marker at the net's percentile within the window.
+    const hist = (c.net_history || []).filter(v => isFinite(v));
+    let gauge = '';
+    if (c.pctile_1y != null && hist.length >= 2) {
+        const lo = Math.min(...hist), hi = Math.max(...hist);
+        const p = Math.max(0, Math.min(100, c.pctile_1y));
+        gauge =
+            `<div class="cot-gauge" title="現在のネットが過去1年レンジのどこにあるか">`
+          + `<div class="cot-gauge-track"><span class="cot-gauge-mark" style="left:${p.toFixed(1)}%"></span></div>`
+          + `<div class="cot-gauge-scale"><span>安値 ${fmtN(lo)}</span>`
+          + `<span class="mono">1年内 ${p.toFixed(0)}%</span>`
+          + `<span>高値 ${fmtN(hi)}</span></div></div>`;
+    }
+    // Contrarian extreme note (where in the 1-year range, not absolute side).
+    let note = '', noteCls = '';
+    if (c.extreme > 0) { note = '1年来の高水準 — ロング積み上がり(逆張り警戒)'; noteCls = 'hi'; }
+    else if (c.extreme < 0) { note = '1年来の低水準 — 投機筋が手仕舞い'; noteCls = 'lo'; }
+
+    // 52-week sparkline of the net, with a zero baseline when it's in range.
+    let spark = '';
+    if (hist.length >= 2) {
+        const W = 240, H = 34, pad = 2;
+        const lo = Math.min(...hist, 0), hi = Math.max(...hist, 0), span = (hi - lo) || 1;
+        const xO = i => pad + (i / (hist.length - 1)) * (W - 2 * pad);
+        const yO = v => pad + (1 - (v - lo) / span) * (H - 2 * pad);
+        const path = 'M' + hist.map((v, i) => `${xO(i).toFixed(1)},${yO(v).toFixed(1)}`).join(' L');
+        const zeroY = yO(0).toFixed(1);
+        const zeroLine = (lo < 0 && hi > 0)
+            ? `<line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="#3f4760" stroke-width="0.8" stroke-dasharray="3 3"/>` : '';
+        spark = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="cot-spark" role="img">`
+              + zeroLine
+              + `<path d="${path}" fill="none" stroke="#e3b341" stroke-width="1.4"/></svg>`;
+    }
+
+    el.innerHTML =
+        `<div class="cot-top">`
+      + `<span class="cot-net ${dirCls}">${fmtSigned(c.net)}</span>`
+      + `<span class="cot-dir ${dirCls}">投機筋${dirTxt}</span>`
+      + (chgTxt ? `<span class="cot-chg ${chgCls}">${chgTxt}</span>` : '')
+      + `</div>`
+      + gauge
+      + (note ? `<div class="cot-note ${noteCls}">${note}</div>` : '')
+      + spark
+      + `<div class="cot-foot mute">`
+      + `<span>実需筋(ヘッジ) <span class="mono">${fmtSigned(c.comm_net)}</span></span>`
+      + `<span>OI <span class="mono">${fmtN(c.open_interest)}</span></span>`
+      + (c.net_pct_oi != null ? `<span>net/OI <span class="mono">${c.net_pct_oi.toFixed(1)}%</span></span>` : '')
+      + `</div>`;
+}
+
 /** Paint the macro / rate-differential reference panel.
  *  One row per pair: base rate, quote rate, differential, macro direction. */
 function paintMacro(snap) {
@@ -2526,6 +2606,7 @@ function paintAll() {
     paintSignals(latestSnap);
     paintAccount(latestSnap);
     paintDxy(latestSnap);
+    paintCot(latestSnap);
     paintCalendar(latestSnap);
     paintMacro(latestSnap);
     paintDws(latestSnap);

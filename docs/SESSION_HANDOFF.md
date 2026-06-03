@@ -333,3 +333,31 @@ node --check static/app.js
 ### 15.4 残注記
 - DXY 先物は限月交代する。`resolve_dxy` は起動時に1回解決(再起動 or 再接続で再解決)。長時間無停止運用で限月跨ぎが心配なら定期再解決を足す余地あり(現状は起動時解決で実用十分)。
 - 相関削除に伴い「ポジション集中(同一ベット)警告」も同カード内だったため消滅(相関依存のため)。
+
+
+## 16. 2026-06-04 — ①残骸コード削除 + ②COT(金先物 投機筋建玉)追加
+
+ユーザ指示「①残骸コード死蔵コード厳格検証・不要なものは全て削除。②GOLD先物ポジション残高+ETF残高取得」。
+
+### 16.1 ① 死蔵コード削除(コミット済み)
+- **GoldMacroScore 研究一式**(REJECT 済・再挑戦なし)と **structures パイプライン**(毎サイクル計算するがフロント未消費=旧 §7.1 TODO)を、engine/state/serialize/loop/config/test/spec/plan ごと削除。
+- 削除: `analyzer/gold_macro.py` + `_validate_gold_macro.py`/`_experiment_gold_macro.py` + spec/plan/test、`analyzer/{confluence,price_action,structure_detector}.py` + 各 test + `scripts/_verify_phase2.py`。剪定: config の GoldMacroScore FRED 定数、macro_feed の `fetch_gold_drivers`/`parse_fred_series` + gold-driver キャッシュ、state の structures フィールド/setter/property、serialize の `serialize_structures`、loop の structures publish/import。
+- **残置(使用継続を確認して残した)**: `structure_types.py`(line_reader の EA ライン PMH/PML 依存)、`STRUCTURE_TFS`(W1 が DWS-SMT H4 スタックに必要・validator の TF 定数マップ)、oos_baseline の Welch、実質金利 DFII10、DXY、Macro Rates。
+- 検証: 残骸 grep クリーン(コードは0件・履歴ドキュメントのみ言及)、import OK、pytest 通過、サーバ XAUUSD単独で structures/gold_macro 無しに起動・単独パネル+DXY+macro 描画・コンソールエラー0。
+
+### 16.2 ② COT(CFTC 金先物 投機筋建玉)= 週次ポジショニング/センチメント
+- ② のスコープ確定: **GLD ETF 残高(現物トン数)はクリーンな無料フィードが消滅**(SPDR 公式が Next.js 化し PDF/404、Stooq は要 API キー、Yahoo 純資産は crumb 認証で 401)。脆いスクレイパは「壊れるコード禁止」方針に反するため、ユーザ判断で **COT のみ実装**(GLD は見送り)。
+- データ源: **CFTC 公開 Socrata API**(`publicreporting.cftc.gov/resource/6dca-aqww.json`, Legacy Futures-Only, **無認証**)。COMEX 金は market 完全一致 `GOLD - COMMODITY EXCHANGE INC.`(`LIKE %GOLD%` だとマイクロ金等が混入するため完全一致)。週次(火曜断面・金曜公表)。
+- `analyzer/cot_feed.py`: `CotEngine`(macro/dxy と同型)。`compute()` は HTTP 取得→`parse_cot_rows`(純関数)。投機筋(non-commercial)ネット(long−short)・前週比・実需筋(commercial)ネット・OI・net/OI%・long_share%・**過去52週レンジ内パーセンタイル**(`pctile_1y`)・**extreme フラグ**(±1=1年レンジの上/下限=過熱/手仕舞い)・52週ネット履歴(スパークライン)。失敗時はディスクキャッシュを stale 再利用(`external/cot/cot_cache.json`、`.gitignore` 済)、worker が `MACRO_RETRY_SEC` で早期リトライ。
+- **重要な意味**: `extreme=-1` は「ネットが1年レンジの**下限**」=投機筋が1年来で最も手仕舞い(絶対値はネットロングのまま)。`+1` は「上限」=ロング積み上がり(逆張り警戒)。COT は**逆張り/ポジショニング**指標であり方向ドライバーではないため、フロント文言は中立・事実ベース(DXY のような「追風/逆風」断定はしない)。
+- 配線: state `_cot/set_cot/cot`、serialize `serialize_cot`(full スナップに `cot`)、loop に `_Schedule("cot", COT_REFRESH_SEC=6h)` + off-thread worker(plain HTTP・MT5 ロック非依存)。
+- frontend: side の **COT カード**(DXY の直下、ゴールド枠線)。`paintCot` = ネット大数字+ロング/ショート+前週比矢印 + **1年レンジゲージ**(マーカー位置=pctile)+ extreme ノート + 52週スパークライン(amber、0ライン)+ 実需筋ネット/OI/net%OI フッタ。定数 `config.COT_*`。
+- 定数: `config.COT_SOCRATA_URL/COT_GOLD_MARKET/COT_HISTORY_WEEKS(52)/COT_REFRESH_SEC(6h)/COT_FETCH_TIMEOUT_SEC/COT_CACHE_FILE/COT_EXTREME_HIGH_PCT(90)/COT_EXTREME_LOW_PCT(10)`。
+
+### 16.3 検証
+- pytest **292 passed**(COT +8)。
+- 実機統合: サーバ XAUUSD単独起動・エラー0。**実 WS クライアントで配信スナップを確認** → `cot`: report_date 2026-05-26 / net +154,260(ネットロング)/ 前週比 −5,573 / comm_net −185,766 / OI 353,489 / pctile 1.9%(=1年来低水準)/ 52週履歴。DXY+macro も同時配信(回帰なし)。
+- ブラウザ(preview MCP)実描画: カード順 Account→DXY→**COT**→Calendar→Macro→Journal、本文「+154,260 投機筋ネットロング 前週比 -5,573 ▼ … 1年来の低水準—投機筋が手仕舞い 実需筋(ヘッジ) -185,766 OI 353,489 net/OI 43.6%」、ゲージ 1.9%、スパークライン+ノート描画、**コンソールエラー0**。DWS 反転接近グラデも健在。
+
+### 16.4 コミット状況
+- ① 死蔵削除はコミット済み(本セッション冒頭)。② COT は**未コミット**(ユーザ確認後にコミット/プッシュ)。未 push 群: `4a7d4b9` 以降 + ① + ②。「プッシュ」指示でまとめて push。

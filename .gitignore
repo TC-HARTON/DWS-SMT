@@ -22,6 +22,7 @@ data/live_triggers/
 data/journal/
 external/forex_factory_xml/*
 external/macro/*
+external/cot/*
 !**/.gitkeep
 
 # editor

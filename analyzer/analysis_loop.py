@@ -34,6 +34,7 @@ import config
 from analyzer import dxy_feed, trigger_store
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
+from analyzer.cot_feed import CotEngine
 from analyzer.indicator_engine import IndicatorEngine
 from analyzer.line_reader import LINES, LinesState, LinesWatcher
 from analyzer.signal_validator import SignalValidator
@@ -78,6 +79,7 @@ class AnalysisLoop:
         calendar_engine: CalendarEngine | None = None,
         signal_validator: SignalValidator | None = None,
         macro_engine: MacroEngine | None = None,
+        cot_engine: CotEngine | None = None,
         price_interval: float = config.PRICE_REFRESH_SEC,
         analysis_interval: float = config.ANALYSIS_REFRESH_SEC,
         history_interval: float = config.HISTORY_REFRESH_SEC,
@@ -85,6 +87,7 @@ class AnalysisLoop:
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
         macro_interval: float = config.MACRO_REFRESH_SEC,
         realyield_interval: float = config.MACRO_REALYIELD_REFRESH_SEC,
+        cot_interval: float = config.COT_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
         self._connector = connector
@@ -111,6 +114,11 @@ class AnalysisLoop:
         # The real yield moves daily, so it refreshes faster than policy rates
         # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
         self._realyield_inflight = threading.Event()
+        # COT (gold-positioning) is weekly data over plain HTTP — same off-thread
+        # treatment as macro: it can't starve the price tick, the worker just
+        # keeps a slow network call out of the loop.
+        self._cot_engine = cot_engine or CotEngine()
+        self._cot_inflight = threading.Event()
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -138,6 +146,7 @@ class AnalysisLoop:
                       next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
             _Schedule("macro", macro_interval),
             _Schedule("realyield", realyield_interval),
+            _Schedule("cot", cot_interval),
         )
 
     # --------------------------------------------------------------- start
@@ -194,6 +203,7 @@ class AnalysisLoop:
             "validation": self._do_validation_refresh,
             "macro": self._do_macro_refresh,
             "realyield": self._do_realyield_refresh,
+            "cot": self._do_cot_refresh,
         }[name]
         try:
             handler(bases)
@@ -385,6 +395,34 @@ class AnalysisLoop:
             self._reschedule_soon("realyield", config.MACRO_RETRY_SEC)
         finally:
             self._realyield_inflight.clear()
+
+    def _do_cot_refresh(self, bases: list[str]) -> None:
+        """Refresh the CFTC COT gold-positioning snapshot every 6 h.
+
+        Dispatched to a daemon worker — the fetch is plain HTTP (no MT5 lock),
+        so it cannot starve the price tick; off-thread only keeps a slow network
+        call out of the loop. At most one fetch runs at a time."""
+        if self._cot_inflight.is_set():
+            log.debug("cot: previous fetch still in flight, skipping tick")
+            return
+        self._cot_inflight.set()
+        worker = threading.Thread(
+            target=self._cot_refresh_worker,
+            name="cot-fetch", daemon=True,
+        )
+        worker.start()
+
+    def _cot_refresh_worker(self) -> None:
+        try:
+            snap = self._cot_engine.compute()
+            self._state.set_cot(snap)
+            if snap.stale:          # fetch failed (served stale) → retry soon
+                self._reschedule_soon("cot", config.MACRO_RETRY_SEC)
+        except Exception:               # noqa: BLE001 — never reach the loop
+            log.exception("cot worker failed")
+            self._reschedule_soon("cot", config.MACRO_RETRY_SEC)
+        finally:
+            self._cot_inflight.clear()
 
     def _reschedule_soon(self, name: str, delay: float) -> None:
         """Pull a schedule's next run forward to ``now + delay`` so a failed
