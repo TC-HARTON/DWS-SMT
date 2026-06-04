@@ -337,7 +337,7 @@ class AnalysisLoop:
                 tf_hist[tf] = trigger_store.load_by_year(server, sym, tf)
             history[sym] = tf_hist
         if total_new:
-            log.info("live trigger store: +%d new closed triggers (%s)",
+            log.info("live trigger store: %d new/updated closed triggers (%s)",
                      total_new, server)
         self._state.set_live_trigger_history(history, server)
 

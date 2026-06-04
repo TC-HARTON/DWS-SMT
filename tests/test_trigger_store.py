@@ -15,7 +15,7 @@ from analyzer.signal_validator import RecentTrigger
 def store_dir(tmp_path, monkeypatch):
     """Point the store at an isolated temp dir and clear module caches."""
     monkeypatch.setattr(ts.config, "LIVE_TRIGGER_DIR", tmp_path)
-    ts._seen.clear()
+    ts._records.clear()
     ts._locks.clear()
     ts._by_year_cache.clear()
     return tmp_path
@@ -44,11 +44,41 @@ def test_append_skips_open_and_dedups(store_dir):
 
 
 def test_dedup_survives_cache_reload(store_dir):
-    """Dedup must work even after the in-memory seen-set is dropped (restart)."""
+    """Dedup must work even after the in-memory cache is dropped (restart)."""
     server = "BrokerX"
     ts.append_closed(server, "EURUSD", "H1", [_rt(111, 1, 2.0)])
-    ts._seen.clear()  # simulate a fresh process — seen-set re-read from disk
+    ts._records.clear()  # simulate a fresh process — records re-read from disk
     assert ts.append_closed(server, "EURUSD", "H1", [_rt(111, 1, 2.0)]) == 0
+
+
+def test_append_updates_changed_value_for_same_entry(store_dir):
+    """A recent trade re-reported with a DIFFERENT net_pts — its DWS exit settled
+    to a new value while still inside the live re-evaluation window — must UPDATE
+    the stored row, not freeze the stale first-seen value. This is the bug behind
+    the histogram(+170) vs history(-10.4) mismatch: the append-only store froze a
+    premature close. Trades that age out of the window stay frozen (untouched)."""
+    server = "ICMarketsSC-MT5-3"
+    ems = int(pd.Timestamp("2026-06-01 16:00", tz="Asia/Tokyo").timestamp() * 1000)
+
+    # First report: a premature / transient close.
+    assert ts.append_closed(server, "XAUUSD", "H1", [_rt(ems, -1, -104.0)]) == 1
+    y = ts.load_by_year(server, "XAUUSD", "H1")["by_year"]["2026"]
+    assert y["cum_pts"] == pytest.approx(-104.0)
+
+    # Same entry re-reported with the SETTLED value → the store UPDATES in place.
+    assert ts.append_closed(server, "XAUUSD", "H1", [_rt(ems, -1, 1700.0)]) == 1
+    y = ts.load_by_year(server, "XAUUSD", "H1")["by_year"]["2026"]
+    assert y["n"] == 1                               # still ONE trade — no duplicate
+    assert y["cum_pts"] == pytest.approx(1700.0)     # reflects the corrected value
+
+    # Re-reporting the identical value is a no-op (no spurious rewrite).
+    assert ts.append_closed(server, "XAUUSD", "H1", [_rt(ems, -1, 1700.0)]) == 0
+
+    # The record survives a cache drop (the UPDATE was persisted to disk, not
+    # just held in memory).
+    ts._records.clear()
+    y = ts.load_by_year(server, "XAUUSD", "H1")["by_year"]["2026"]
+    assert y["n"] == 1 and y["cum_pts"] == pytest.approx(1700.0)
 
 
 def test_load_by_year_stats_and_order(store_dir):

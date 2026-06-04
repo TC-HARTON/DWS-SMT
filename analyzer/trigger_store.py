@@ -45,15 +45,16 @@ _JST = "Asia/Tokyo"
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 # One lock per store file (process-wide) so concurrent append/read on the same
-# file are serialised. Plus a cache of the entry-ms already on disk per file so
-# repeated 5-minute cycles append only genuinely new triggers without re-reading
-# the whole file each time. ``_by_year_cache`` memoises the fully-bucketed
-# load_by_year() result keyed by the file's (size, mtime) so an unchanged store
-# is not re-read / re-parsed / re-bucketed every cycle — it grows with years of
-# live history, and append_closed bumps the size so the cache self-invalidates.
+# file are serialised. ``_records`` caches each file's rows keyed by entry_ms
+# (loaded once) so the 5-minute UPSERT cycle runs in memory and only rewrites the
+# file when a row is genuinely added or its value changed. ``_by_year_cache``
+# memoises the fully-bucketed load_by_year() result keyed by the file's
+# (size, mtime) so an unchanged store is not re-read / re-parsed / re-bucketed
+# every cycle — it grows with years of live history, and a rewrite bumps the
+# mtime so the cache self-invalidates.
 _locks_guard = threading.Lock()
 _locks: dict[Path, threading.Lock] = {}
-_seen: dict[Path, set[int]] = {}
+_records: dict[Path, dict[int, dict[str, float]]] = {}
 _by_year_cache: dict[Path, tuple[tuple[int, int], dict[str, Any]]] = {}
 
 
@@ -84,12 +85,16 @@ def _lock_for(path: Path) -> threading.Lock:
         return lk
 
 
-def _seen_set(path: Path) -> set[int]:
-    """The set of entry-ms already persisted to *path* (loaded once, cached)."""
-    cached = _seen.get(path)
+def _records_for(path: Path) -> dict[int, dict[str, float]]:
+    """The rows persisted to *path*, keyed by entry_ms (loaded once, cached).
+
+    Value is ``{"d": direction, "p": net_pts}``. Loading into a dict keyed by
+    entry_ms is inherently de-duplicating (a later row for the same entry wins) —
+    the persistence invariant this store enforces."""
+    cached = _records.get(path)
     if cached is not None:
         return cached
-    seen: set[int] = set()
+    recs: dict[int, dict[str, float]] = {}
     if path.exists():
         with path.open("r", encoding="utf-8") as fh:
             for line in fh:
@@ -97,42 +102,75 @@ def _seen_set(path: Path) -> set[int]:
                 if not line:
                     continue
                 try:
-                    seen.add(int(json.loads(line)["t"]))
+                    r = json.loads(line)
+                    recs[int(r["t"])] = {"d": int(r["d"]), "p": float(r["p"])}
                 except (ValueError, KeyError, TypeError):
                     continue  # skip a corrupt line rather than abort the load
-    _seen[path] = seen
-    return seen
+    _records[path] = recs
+    return recs
+
+
+def _write_all(path: Path, recs: dict[int, dict[str, float]]) -> None:
+    """Atomically (re)write the whole store from *recs*, ordered by entry_ms.
+
+    Written to a temp file then ``os.replace``d in, so a crash mid-write can
+    never truncate or half-write the JSONL (this store has a documented
+    corruption history — an atomic swap is the safe way to mutate it)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        for ems in sorted(recs):
+            r = recs[ems]
+            fh.write(json.dumps(
+                {"t": int(ems), "d": int(r["d"]), "p": round(float(r["p"]), 1)},
+                ensure_ascii=False,
+            ) + "\n")
+    tmp.replace(path)
 
 
 def append_closed(
     server: str | None, symbol: str, tf: str,
     triggers: Iterable[_ClosableTrigger],
 ) -> int:
-    """Append the CLOSED triggers in *triggers* that are not already stored.
+    """Upsert the CLOSED triggers in *triggers* into the store, keyed by entry_ms.
 
     Each trigger needs ``entry_ms`` / ``direction`` / ``net_pts`` / ``is_open``
-    (the ``RecentTrigger`` dataclass). Open triggers are skipped. De-duplicated
-    by ``entry_ms``. Returns the number of newly written rows.
+    (the ``RecentTrigger`` dataclass). Open triggers are skipped.
+
+    Keyed by ``entry_ms``: a new entry is added; an entry already on disk whose
+    ``net_pts`` / ``direction`` CHANGED is UPDATED in place. The update path is
+    essential — a recent trade's DWS exit is not final while it is still inside
+    the live re-evaluation window (a borderline EXIT trigger can shift as later
+    bars confirm), so the first-seen close can be premature. The store must track
+    the SETTLED truth, not freeze a transient value (the histogram +170 vs frozen
+    history −10.4 bug). Trades that have aged out of the window are absent from
+    *triggers* and so are never touched — i.e. settled outcomes stay frozen.
+
+    Returns the number of rows added OR updated (0 ⇒ the store already matched).
     """
     closed = [t for t in triggers if not bool(getattr(t, "is_open", False))]
     if not closed:
         return 0
     path = store_path(server, symbol, tf)
     with _lock_for(path):
-        seen = _seen_set(path)
-        fresh = [t for t in closed if int(t.entry_ms) not in seen]
-        if not fresh:
-            return 0
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            for t in fresh:
-                fh.write(json.dumps(
-                    {"t": int(t.entry_ms), "d": int(t.direction),
-                     "p": round(float(t.net_pts), 1)},
-                    ensure_ascii=False,
-                ) + "\n")
-                seen.add(int(t.entry_ms))
-        return len(fresh)
+        recs = _records_for(path)
+        changed = 0
+        for t in closed:
+            ems = int(t.entry_ms)
+            row = {"d": int(t.direction), "p": round(float(t.net_pts), 1)}
+            cur = recs.get(ems)
+            if cur is None or cur["p"] != row["p"] or cur["d"] != row["d"]:
+                recs[ems] = row
+                changed += 1
+        if changed:
+            _write_all(path, recs)
+            # Invalidate the memoised load_by_year result EXPLICITLY. Its
+            # (size, mtime) key cannot be relied on under upsert: updating a value
+            # to an equal-length string and re-sorting the rows leaves the file
+            # SIZE unchanged, so the size-based self-invalidation the append-only
+            # design assumed no longer fires. Popping here is deterministic.
+            _by_year_cache.pop(path, None)
+        return changed
 
 
 # --- Corruption invariant ------------------------------------------------- #
