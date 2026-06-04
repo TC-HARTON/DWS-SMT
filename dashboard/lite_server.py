@@ -37,7 +37,6 @@ log = logging.getLogger(__name__)
 
 _STATIC_DIR = config.PROJECT_ROOT / "static"
 _ENV_FILE = config.PROJECT_ROOT / ".env"
-_RESTART_SCRIPT = config.PROJECT_ROOT / "Dashboard.bat"
 
 # Hosts that count as "this machine" for the broker-switch same-origin guard.
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
