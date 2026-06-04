@@ -869,7 +869,7 @@ function paintCot(snap) {
     const chg = c.net_change;
     const chgArrow = chg == null ? '·' : (chg > 0 ? '▲' : chg < 0 ? '▼' : '·');
     const chgCls = chg == null ? '' : (chg > 0 ? 'pos' : chg < 0 ? 'neg' : '');
-    const chgTxt = chg == null ? '' : `前週比 ${fmtSigned(chg)} ${chgArrow}`;
+    const chgTxt = chg == null ? '' : `前週比 <span class="mono">${fmtSigned(chg)}</span> ${chgArrow}`;
 
     // 1-year range gauge: marker at the net's percentile within the window.
     const hist = (c.net_history || []).filter(v => isFinite(v));
@@ -1723,7 +1723,11 @@ function ensureDwsSkeleton(sym) {
         <div class="dws-state" data-bind="dws-state-${sym}">--</div>
         <div class="dws-validation" data-bind="dws-validation-${sym}">--</div>
         <div class="dws-sync" data-bind="dws-sync-${sym}">--</div>
-        <div class="dws-canvas-wrap"><canvas data-bind="dws-canvas-${sym}"></canvas></div>
+        <div class="dws-canvas-wrap"><canvas data-bind="dws-canvas-${sym}"></canvas>
+            <div class="dws-hover" data-bind="dws-hover-${sym}" hidden>
+                <div class="dws-hover-line"></div>
+                <div class="dws-hover-time"></div>
+            </div></div>
         <div class="dws-legend">
             <span><i class="sw" style="background:${DWS_CELL[0]}"></i>上</span>
             <span><i class="sw" style="background:${DWS_CELL[1]}"></i>下</span>
@@ -1750,6 +1754,40 @@ function ensureDwsSkeleton(sym) {
             if (latestSnap) { paintDws(latestSnap); paintSignals(latestSnap); }
         };
     });
+
+    // Hover-time readout: the static bottom time-axis labels were removed; the
+    // time for the bar under the cursor now shows in a bottom chip + guide line.
+    // drawDwsCanvas stashes the bar geometry on the canvas as ``_dws`` so this
+    // handler can map a cursor X → bar index → bar time without redrawing.
+    const cvs = $bind('dws-canvas-' + sym);
+    const hover = $bind('dws-hover-' + sym);
+    if (cvs && hover) {
+        const lineEl = hover.querySelector('.dws-hover-line');
+        const timeEl = hover.querySelector('.dws-hover-time');
+        cvs.addEventListener('mousemove', (e) => {
+            const g = cvs._dws;
+            if (!g || !g.t || !g.t.length) { hover.hidden = true; return; }
+            const rect = cvs.getBoundingClientRect();
+            if (rect.width === 0) return;
+            // Map screen px → canvas CSS (design) px — the body is display-fit
+            // scaled, so clientWidth/rect.width = 1/scale undoes the transform.
+            const localX = (e.clientX - rect.left) * (cvs.clientWidth / rect.width);
+            let j = Math.floor((localX - g.plotX) / g.barW);
+            j = Math.max(0, Math.min(g.N - 1, j));
+            const ms = g.t[j];
+            if (ms == null) { hover.hidden = true; return; }
+            const sec = ms / 1000;
+            const cx = g.plotX + j * g.barW + g.barW / 2;
+            hover.hidden = false;
+            lineEl.style.left = cx.toFixed(1) + 'px';
+            timeEl.textContent = `${fmtJSTdate(sec)} ${fmtJSTclockNoSec(sec)}`;
+            // Clamp the chip's centre so it never spills past the canvas edges.
+            const clampedX = Math.max(g.plotX, Math.min(g.W - 4, cx));
+            timeEl.style.left = clampedX.toFixed(1) + 'px';
+        });
+        cvs.addEventListener('mouseleave', () => { hover.hidden = true; });
+    }
+
     host.dataset.built = '1';
     return host;
 }
@@ -1828,23 +1866,6 @@ function buildCompactDws(snap, sym) {
          + `</div>`;
 }
 
-/** Format a base-bar epoch-ms time for the x-axis.
- *  The label must stay unambiguous across the window's span:
- *   - M15 (96 bars ≈ 24h)  → HH:MM
- *   - H1  (96 bars ≈ 4 days) → M/D HH:MM  (HH:MM alone repeats every 24h)
- *   - H4  (96 bars ≈ 16 days) → M/D */
-function dwsAxisLabel(ms, base) {
-    // Render in JST (UTC+9), consistent with the clock, trigger history and
-    // heatmap — getMonth/getHours would use the browser's local tz instead.
-    const dt = new Date(ms + 9 * 3600 * 1000);
-    if (isNaN(dt.getTime())) return '';
-    const p = n => String(n).padStart(2, '0');
-    const md = `${p(dt.getUTCMonth() + 1)}/${p(dt.getUTCDate())}`;
-    const hm = `${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}`;
-    if (base === 'H4') return md;
-    if (base === 'H1') return `${md} ${hm}`;
-    return hm;
-}
 
 /** A BUY/SELL trigger is "tradeable" only when the composite BIAS agrees with
  *  it (BIAS out of the NEUTRAL band, same direction). EXIT is a risk signal,
@@ -2024,8 +2045,9 @@ function _saveDwsDescOpen() {
     catch (_e) { /* private mode etc — non-fatal */ }
 }
 
-// Delegate clicks on the "説明" disclosure toggle. Toggles class on the
-// per-symbol validation block; CSS hides/shows every .dws-vdesc inside.
+// Delegate clicks on the "説明" disclosure toggle. Toggles the .desc-open class
+// on the per-symbol validation block; CSS then reveals the header / verdict /
+// rolling explanation paragraphs (.dws-vhead-desc / .dws-vverdict-desc / .dws-vsec-desc).
 // stopPropagation is critical — the parent .panel has its own click-to-collapse
 // listener (onPanelClick), so without it the panel would fold up underneath us
 // and the user would never get to read the descriptions we just opened.
@@ -2057,19 +2079,12 @@ document.addEventListener('click', (ev) => {
 function updateDwsValidation(sym, snap) {
     const el = $bind('dws-validation-' + sym);
     if (!el) return;
-    const pct = x => (x == null ? '--' : (x * 100).toFixed(2) + '%');
-    const pct0 = x => (x == null ? '--' : Math.round(x * 100) + '%');
     const fmtN = n => (n == null ? '--' : Number(n).toLocaleString('en-US'));
-    const fmtPf = pf => (pf == null ? '∞' : Number(pf).toFixed(2));
 
     // ---- Primary: 16Y deep-history evaluation ----
     const base = snap.oos_baseline && snap.oos_baseline.by_symbol
               && snap.oos_baseline.by_symbol[sym]
               && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
-
-    const histArr = (snap.validation_history
-                  && snap.validation_history[sym]
-                  && snap.validation_history[sym][UI.dwsBase]) || [];
 
     // No 16Y baseline available (CSV missing for this symbol) — fall back to
     // empty state + secondary if any.
@@ -2087,29 +2102,6 @@ function updateDwsValidation(sym, snap) {
     // Period-drift verdict — STABLE / DRIFT / REGIME-CHANGE.
     const ps = base.period_split || null;
     const verdictHtml = _buildPeriodVerdict(ps);
-
-    const wilsonCi = `${(base.ci_low * 100).toFixed(1)}–${(base.ci_high * 100).toFixed(1)}%`;
-    const bootCi = base.bootstrap_ci
-        ? `${(base.bootstrap_ci.ci_low * 100).toFixed(1)}–${(base.bootstrap_ci.ci_high * 100).toFixed(1)}%`
-        : null;
-    // Convert the frozen-baseline points to PIPS for display (gold $1.00=10pips).
-    const pipF = pipsFactor(sym, 'csv');
-    const expPips = base.expectancy * pipF;
-    const ddPips = base.max_drawdown * pipF;
-    const expCls = base.expectancy > 0 ? 'pos' : base.expectancy < 0 ? 'neg' : '';
-    const breakeven = base.breakeven_wr != null
-        ? `${(base.breakeven_wr * 100).toFixed(1)}%` : '--';
-
-    // cell(label, value, valueClass, description)
-    //   description is always visible — full sentence explanation below the row.
-    const cell = (k, v, vcls, desc) =>
-        `<div class="dws-vcell">`
-      + `<div class="dws-vrow">`
-      +   `<span class="dws-vk">${k}</span>`
-      +   `<span class="dws-vv ${vcls || ''}">${v}</span>`
-      + `</div>`
-      + (desc ? `<div class="dws-vdesc">${desc}</div>` : '')
-      + `</div>`;
 
     const verdictDescHtml = (ps && ps.early && ps.late
             && ps.drift_wr_pp != null && ps.p_wr_raw != null) ? `<div class="dws-vverdict-desc">
@@ -2143,59 +2135,16 @@ function updateDwsValidation(sym, snap) {
       + `</div>`
       + verdictDescHtml;
 
-    const DESC = {
-        wr: `<em>16 年間</em> に発出した DWS-SMT シグナル <em>N=${fmtN(base.n_trades)}</em> 回のうち、`
-          + `<b>スプレッドコスト</b>を差し引いた <b>純損益 > 0</b> となった割合。母集団全体の勝率`,
-        wilson: `<b>Wilson Score 95% 信頼区間</b>。各トレードを <b>独立した Bernoulli 試行</b> と仮定した二項分布の信頼区間。`
-              + `小サンプルでも <em>[0%, 100%]</em> 外に出ない頑健な推定。母集団真の WR がこの範囲に <em>95%</em> の確率で存在`,
-        boot: `<b>Moving-Block Bootstrap</b> (<em>block=50 trades, iterations=10,000</em>) 95% 信頼区間。`
-            + `連続するトレードが同じ相場環境を共有することによる <b>自己相関を考慮</b> した CI。`
-            + `Wilson CI と概ね一致 → 自己相関の影響は軽微と確認`,
-        pf: `<b>Profit Factor</b> = 勝ちトレード総利益 ÷ 負けトレード総損失 (絶対値)。<b>> 1 で総合プラス収支</b>、`
-          + `<em>> 2</em> で十分に強いエッジとされる。スプレッドコスト込みの計算`,
-        ev: `1 トレードあたりの平均純損益 (<em>pips 単位 ($1.00=10pips)、スプレッドコスト込み</em>)。<b>期待値 × 取引回数 ≈ 累積損益</b>。`
-          + `これがプラスである限り、長期的にトレードを続ければ利益が積み上がる`,
-        be: `現状の <em>(平均勝ち額 / 平均負け額)</em> 比率で損益をゼロにするのに必要な勝率。<b>実勝率がこれを上回れば長期プラス</b>。`
-          + `現状実勝率 <em>${(base.win_rate*100).toFixed(2)}%</em> は Breakeven <em>${(base.breakeven_wr*100).toFixed(1)}%</em> を `
-          + `<b>+${((base.win_rate-base.breakeven_wr)*100).toFixed(1)}pp 上回る</b>`,
-        dd: `16 年累積損益曲線のピークから谷までの最大下落幅 (<em>pips</em>)。<b>過去最悪のドローダウン</b>。`
-          + `期待値 <em>${fmtPips(expPips)} pips × ${Math.ceil(base.max_drawdown / Math.max(1, base.expectancy))} 回</em> のトレードで回復計算`,
-    };
-
-    // Quality colours so "is this edge good?" reads at a glance:
-    //   勝率 green when it clears Breakeven (an edge exists), red if below.
-    //   PF green ≥2 (strong), amber 1-2 (marginal), red <1 (losing); ∞→green.
-    const wrCls = 'dws-num ' + (base.breakeven_wr != null && base.win_rate < base.breakeven_wr
-        ? 'neg' : 'pos');
-    const pfv = base.profit_factor;
-    const pfCls = 'dws-num ' + (pfv == null || pfv >= 2 ? 'pos' : pfv >= 1 ? 'warn' : 'neg');
-
-    const statsHtml =
-        `<div class="dws-vstats">`
-      + cell('勝率',         pct(base.win_rate),            wrCls,                    DESC.wr)
-      + cell('Wilson 95%CI', esc(wilsonCi),                 '',                       DESC.wilson)
-      + (bootCi ? cell('Bootstrap 95%CI', esc(bootCi),      '',                       DESC.boot) : '')
-      + cell('PF',           esc(fmtPf(base.profit_factor)), pfCls,                   DESC.pf)
-      + cell('期待値',       `${expPips >= 0 ? '+' : ''}${fmtPips(expPips)} pips`,
-             'dws-num ' + expCls,                                                     DESC.ev)
-      + cell('Breakeven WR', esc(breakeven),                '',                       DESC.be)
-      + cell('MaxDD',        `${fmtPips(ddPips)} pips`,
-             '',                                                                      DESC.dd)
-      + `</div>`;
-
     // ---- Secondary: rolling ~7M live validation ----
     const secondaryHtml = _buildSecondaryRolling(sym, snap, base);
 
-    // Sparkline canvas placeholder.
-    const sparkHtml = histArr.length >= 2
-        ? `<canvas class="dws-vspark" data-bind="dws-vspark-${sym}" width="160" height="22"></canvas>`
-        : '';
-
     // Recent regime FIRST (a drawdown banner + the rolling line), THEN the 16Y
-    // deep-eval — so the eye anchors on the CURRENT regime, not the favourable
-    // long-run when conditions have deteriorated.
+    // deep-eval header. The detailed 16Y stats BOX (win-rate / CIs / PF /
+    // expectancy / breakeven / MaxDD grid + its PF sparkline) was removed at the
+    // user's request — the regime banner + rolling line + tier header carry the
+    // at-a-glance read; the per-cell figures were redundant clutter.
     el.innerHTML = _buildRegimeBanner(sym, snap, base)
-                 + secondaryHtml + headerHtml + statsHtml + sparkHtml;
+                 + secondaryHtml + headerHtml;
 
     // Re-apply the persisted "説明" disclosure state for this symbol.
     if (DWS_DESC_OPEN.has(sym)) {
@@ -2206,11 +2155,6 @@ function updateDwsValidation(sym, snap) {
             const icon = btn.querySelector('.dws-vexplain-icon');
             if (icon) icon.textContent = '▼';
         }
-    }
-
-    if (sparkHtml) {
-        drawValidationSparkline(sym, histArr,
-            base ? base.profit_factor : null);
     }
 }
 
@@ -2347,68 +2291,6 @@ function _buildSecondaryRolling(sym, snap, base) {
          + `</div>`;
 }
 
-/** Draw a tiny PF-vs-time sparkline into the validation block's canvas.
- *  Shows the rolling PF trace, a horizontal 16y-baseline reference line,
- *  and a final-point marker so the "current vs trend" gap is glanceable. */
-function drawValidationSparkline(sym, history, baselinePF) {
-    const canvas = $bind('dws-vspark-' + sym);
-    if (!canvas) return;
-    const W = canvas.width, H = canvas.height;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
-    const pad = 2;
-    const pts = history.map(v => (v == null ? null : v));
-    const numeric = pts.filter(v => v != null);
-    if (numeric.length === 0) return;
-    let lo = Math.min(...numeric, baselinePF != null ? baselinePF : Infinity);
-    let hi = Math.max(...numeric, baselinePF != null ? baselinePF : -Infinity);
-    if (lo === hi) { lo -= 0.5; hi += 0.5; }
-    const span = hi - lo;
-    const xStep = (W - pad * 2) / Math.max(1, pts.length - 1);
-    const y = v => pad + (H - pad * 2) * (1 - (v - lo) / span);
-
-    // 16y baseline horizontal line (dashed, muted).
-    if (baselinePF != null && isFinite(baselinePF)) {
-        ctx.strokeStyle = 'rgba(212, 218, 230, 0.45)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 2]);
-        const yb = y(baselinePF);
-        ctx.beginPath();
-        ctx.moveTo(pad, yb);
-        ctx.lineTo(W - pad, yb);
-        ctx.stroke();
-        ctx.setLineDash([]);
-    }
-
-    // History trace.
-    ctx.strokeStyle = '#4d8eff';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    let started = false;
-    pts.forEach((v, i) => {
-        if (v == null) { started = false; return; }
-        const x = pad + i * xStep;
-        const yy = y(v);
-        if (!started) { ctx.moveTo(x, yy); started = true; }
-        else { ctx.lineTo(x, yy); }
-    });
-    ctx.stroke();
-
-    // Final point dot — coloured by drift sign vs baseline (if any).
-    const last = numeric[numeric.length - 1];
-    const lastX = pad + (pts.length - 1) * xStep;
-    const lastY = y(last);
-    let dotCol = '#4d8eff';
-    if (baselinePF != null && baselinePF > 0) {
-        const drift = (last - baselinePF) / baselinePF;
-        dotCol = Math.abs(drift) > 0.20
-            ? (drift > 0 ? '#00d09c' : '#ff5b6b')
-            : '#d0d6e2';
-    }
-    ctx.fillStyle = dotCol;
-    ctx.beginPath(); ctx.arc(lastX, lastY, 2.2, 0, Math.PI * 2); ctx.fill();
-}
-
 function drawDwsCanvas(snap, sym) {
     const canvas = $bind('dws-canvas-' + sym);
     if (!canvas) return;
@@ -2542,16 +2424,11 @@ function drawDwsCanvas(snap, sym) {
         }
     }
 
-    // x-axis time labels
-    ctx.fillStyle = '#f2f4f9';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    const ticks = 4;
-    for (let t = 0; t <= ticks; t++) {
-        const j = Math.min(N - 1, Math.round(t / ticks * (N - 1)));
-        const cx = Math.min(W - 14, Math.max(plotX + 14, plotX + j * barW + barW / 2));
-        ctx.fillText(dwsAxisLabel(win.t[j], UI.dwsBase), cx, markY + markH + 1);
-    }
+    // Static bottom time-axis labels removed — the time now shows on hover only.
+    // Stash the bar geometry so the canvas mousemove handler (wired once in
+    // ensureDwsSkeleton) can map a cursor X → bar index → bar time and render it
+    // in the bottom chip + guide line, without re-drawing the canvas.
+    canvas._dws = { t: win.t, plotX, barW, N, W };
 
     updateDwsState(stateEl, win);
     updateDwsValidation(sym, snap);

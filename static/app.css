@@ -91,7 +91,11 @@ body {
     transform-origin: top left;
     background: var(--bg);
     color: var(--fg);
-    font-family: var(--ui);
+    /* Single base font for the WHOLE dashboard = mono, so every box (titles,
+       labels, numbers, prose) renders in one consistent family. Numbers were
+       already mono; this folds the remaining sans labels/titles/prose into the
+       same family. (--ui kept as the documented sans stack, now unused.) */
+    font-family: var(--mono);
     font-size: var(--text-lg);
     line-height: 1.4;
     overflow: hidden;
@@ -315,8 +319,8 @@ body {
 /* DXY (US Dollar Index) context panel. */
 .dxy-body { display: flex; flex-direction: column; gap:var(--space-2); }
 .dxy-top { display: flex; justify-content: space-between; align-items: baseline; gap:var(--space-2); }
-.dxy-price { font-size: var(--text-xl); font-weight: 800; font-variant-numeric: tabular-nums; }
-.dxy-chg { font-weight: 700; font-variant-numeric: tabular-nums; }
+.dxy-price { font-family: var(--mono); font-size: var(--text-xl); font-weight: 800; font-variant-numeric: tabular-nums; }
+.dxy-chg { font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
 .dxy-chg.pos { color: var(--buy); }
 .dxy-chg.neg { color: var(--sell); }
 .dxy-spark { width: 100%; height: 34px; display: block; }
@@ -329,7 +333,7 @@ body {
 /* CFTC COT (gold-futures positioning) panel. */
 .cot-body { display: flex; flex-direction: column; gap:var(--space-2); }
 .cot-top { display: flex; align-items: baseline; gap:var(--space-2); flex-wrap: wrap; }
-.cot-net { font-size: var(--text-xl); font-weight: 800; font-variant-numeric: tabular-nums; }
+.cot-net { font-family: var(--mono); font-size: var(--text-xl); font-weight: 800; font-variant-numeric: tabular-nums; }
 .cot-net.pos { color: var(--buy); }
 .cot-net.neg { color: var(--sell); }
 .cot-dir { font-weight: 700; }
@@ -357,6 +361,9 @@ body {
 .cot-stale { color: var(--warning); font-weight: 700; }
 .card-title {
     display: flex; justify-content: space-between; align-items: baseline;
+    /* Mono to match every other box title (DWS-SMT etc.) — unifies the per-box
+       title font across the whole dashboard. */
+    font-family: var(--mono);
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
     text-transform: uppercase;
     border-bottom: 1px solid var(--border);
@@ -545,7 +552,16 @@ body {
    scrolls internally (.tcal-scroll) and the heatmap stays below it. */
 .panel.expanded .anlx-triggers { flex: 0 0 auto; min-height: 0; }
 .panel.expanded .anlx-triggers .tcal-scroll { max-height: 240px; }
+/* Column-height alignment: the analytics container stretches to the same bottom
+   as the DWS histogram card on the right, but its content-sized blocks left a
+   slack strip below the last one (the heatmap), so the left card frame stopped
+   ~20px short of the right. Let the hourly-heatmap (the last block) grow to fill
+   that leftover so its card border meets the histogram card's bottom — the two
+   columns now end on the same line. The heatmap's session rows stay top-aligned
+   (the grow lands as bottom padding inside the card, not stretched cells). */
+.panel.expanded .anlx-heatmap { flex: 1 1 auto; }
 .anlx-title {
+    font-family: var(--mono);   /* unified with every other box title */
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
     color: var(--fg); text-transform: uppercase;
     margin-bottom:var(--space-3);
@@ -643,12 +659,28 @@ body {
 .dws-num.neg { color: var(--sell); }
 .dws-num.warn { color: var(--warning); }
 .dws-canvas-wrap {
-    /* #5: floor lowered 200→168 so the histogram compresses vertically when the
-       expanded panel is short, rather than forcing the panel taller. It still
-       flex-fills the available height, so a tall panel is unaffected. */
+    /* Flex-fills the DWS card's leftover height. The histogram is halved not by
+       capping this box (fragile: the panel height varies with the display-fit
+       scale) but by the panel grid reserving the bottom ~0.8fr row as empty
+       space below the DWS card — see .panel.expanded grid-template-rows. */
     flex: 1 1 auto; min-height: 168px; position: relative;
 }
 .dws-canvas-wrap canvas { display: block; }
+/* Hover-time readout (replaces the static bottom time-axis labels): a thin
+   vertical guide line + a bottom time chip following the cursor. pointer-events
+   none so it never blocks the canvas mousemove that drives it. */
+.dws-hover { position: absolute; inset: 0; pointer-events: none; }
+.dws-hover[hidden] { display: none; }
+.dws-hover-line {
+    position: absolute; top: 0; bottom: 13px; width: 1px;
+    background: rgba(242, 244, 249, 0.45);
+    transform: translateX(-0.5px);
+}
+.dws-hover-time {
+    position: absolute; bottom: 0; transform: translateX(-50%);
+    font: 700 10px var(--mono); color: var(--fg); white-space: nowrap;
+    background: rgba(11, 15, 25, 0.85); padding: 0 5px; border-radius: 2px;
+}
 .dws-legend {
     display: flex; flex-wrap: wrap; gap:10px;
     font-family: var(--mono); font-size: var(--text-2xs); color: var(--fg-muted);
@@ -821,15 +853,22 @@ body {
     grid-template-areas:
         "head       head"
         "signals    dws"
-        "analytics  dws";
+        "analytics  dws"
+        ".          .";
     grid-template-columns: 1fr 1fr;
     /* #5 consolidation: BIAS no longer has its own full-width band — it is the
        header INSIDE the signals block now, so the grid drops a row. The signals
        row is min-content (BIAS header + TF table) so no dead gap opens beneath
-       it; the analytics row takes the remaining height (1fr) to sit flush under
-       the table and fill down beside the DWS panel. The trade controls live
-       INSIDE the head row (right of the price), so they add no row. */
-    grid-template-rows: auto min-content 1fr;
+       it; the analytics row takes the remaining height to sit flush under the
+       table and fill down beside the DWS panel. The trade controls live INSIDE
+       the head row (right of the price), so they add no row.
+       Histogram compression (user: the full-height histogram was too tall): the
+       4th row is an EMPTY spacer (`.` — nothing placed there). With the DWS panel
+       spanning only rows 2-3 (min-content + 1fr) and the spacer taking ~0.8fr,
+       the post-head height splits so the histogram fills ~half and the lower
+       band is intentionally left blank. Robust across display-fit scales (a
+       fraction, not a fixed px). */
+    grid-template-rows: auto min-content minmax(0, 1fr) minmax(0, 0.8fr);
     column-gap:var(--space-6);
     row-gap:var(--space-5);
     overflow-y: auto;
@@ -1303,27 +1342,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-size: var(--text-xs); letter-spacing: 0.06em;
     color: var(--fg-muted);
 }
-/* Metric list — one row per figure, label left / value right. The panel
-   column is too narrow to pack two metrics side by side without the old
-   cramped feel, so each gets its own full-width line with a roomy gap. */
-.dws-vstats {
-    display: flex;
-    flex-direction: column;
-    gap:7px;
-}
-.dws-vcell {
-    display: flex;
-    flex-direction: column;
-    gap:3px;
-}
-.dws-vrow {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap:var(--space-4);
-    line-height: 1.4;
-}
-/* Collapsible per-metric / header / verdict / rolling explanations.
+/* Collapsible header / verdict / rolling explanations.
    Default = HIDDEN. The "説明" toggle in the validation header sets a
    .desc-open class on the .dws-validation wrapper which reveals every
    description inside. Per-symbol open state is persisted to localStorage
@@ -1334,7 +1353,6 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
      - <b> keyword: amber  #d4a02a                   — methodology / terms
      - <em>:        cyan   #5fb3ff                   — numeric callouts
      - .dws-sig:    green  var(--buy)                — significance pass */
-.dws-vdesc,
 .dws-vhead-desc,
 .dws-vverdict-desc,
 .dws-vsec-desc {
@@ -1348,14 +1366,12 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     border-radius: 2px;
     margin:var(--space-1) 0 var(--space-2) 0;
 }
-.dws-vdesc b,
 .dws-vhead-desc b,
 .dws-vverdict-desc b,
 .dws-vsec-desc b {
     color: #d4a02a;
     font-weight: 700;
 }
-.dws-vdesc em,
 .dws-vhead-desc em,
 .dws-vverdict-desc em,
 .dws-vsec-desc em {
@@ -1383,14 +1399,10 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 }
 
 /* Reveal every description when the parent .dws-validation has .desc-open. */
-.dws-validation.desc-open .dws-vdesc,
 .dws-validation.desc-open .dws-vhead-desc,
 .dws-validation.desc-open .dws-vverdict-desc,
 .dws-validation.desc-open .dws-vsec-desc {
     display: block;
-}
-.dws-validation.desc-open .dws-vstats .dws-vcell:last-child .dws-vdesc {
-    border-bottom: none;
 }
 
 /* "説明" disclosure toggle — informational button in the validation header.
@@ -1438,21 +1450,6 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     flex-wrap: wrap;
     line-height: 1.4;
 }
-/* Label / value colour split — the label (項目) is muted secondary text, the
-   figure (数字) is bright primary. Never the same colour: the eye should jump
-   straight to the number. */
-.dws-vk {
-    color: var(--fg-3);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-}
-.dws-vv {
-    color: var(--fg);
-    font-weight: 800; white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    font-size: var(--text-md);
-}
 /* PF-vs-baseline drift indicator next to the live PF value. */
 .dws-pf-drift {
     font-weight: 800;
@@ -1467,13 +1464,6 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .dws-pf-drift.warn {
     box-shadow: 0 0 0 1px currentColor;
     background: rgba(255, 255, 255, 0.10);
-}
-/* Rolling PF sparkline at the bottom of the OOS validation block. */
-.dws-vspark {
-    display: block;
-    width: 100%;
-    height: 22px;
-    margin-top:var(--space-3);
 }
 
 /* ============================================================
@@ -1589,7 +1579,9 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .macro-diff.mute, .macro-dir.mute { color: var(--fg-3); }
 /* DWS sync line when the alignment fights the rate differential */
 .dws-sync.macro-counter { color: var(--warning); }
-/* Real-yield daily-change figure in the macro key block */
+/* Real-yield daily-change figure in the macro key block — mono + tabular like
+   every other numeric value in the dashboard (account / dxy / cot / per-pair). */
+.macro-rynum { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .macro-rynum.pos  { color: var(--buy); }
 .macro-rynum.neg  { color: var(--sell); }
 .macro-rynum.mute { color: var(--fg-3); }
@@ -1612,7 +1604,8 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
    right edge so the figures line up with the per-pair rows below. */
 .macro-key-label { color: var(--fg-3); min-width: 96px; font-weight: var(--weight-medium);
                    margin-right: auto; }
-.macro-key-val   { font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--fg);
+.macro-key-val   { font-family: var(--mono); font-variant-numeric: tabular-nums;
+                   font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--fg);
                    text-align: right; }
 .macro-key .macro-rynum { text-align: right; }
 
@@ -1738,7 +1731,7 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.04em;
     color: var(--buy); text-transform: none; margin-left:var(--space-3);
 }
-.anlx-triggers .cal-nav { display:flex; align-items:center; gap:var(--space-3); margin:var(--space-1) 0 var(--space-3) 0; }
+.anlx-triggers .cal-nav { display:flex; align-items:center; gap:var(--space-3); margin:var(--space-1) 0 var(--space-3) 0; font-family: var(--mono); }
 .anlx-triggers .cal-arrow {
     font-size: var(--text-sm); color: var(--fg-2); cursor:pointer; user-select:none;
     padding:0 var(--space-3); border-radius: var(--radius-sm);
@@ -1780,6 +1773,9 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .anlx-triggers .cal-ycell.on { box-shadow: inset 0 0 0 2px rgba(95,179,255,0.95); color:#fff; }
 .anlx-triggers .cal-ycell.is-live { outline:1px solid rgba(95,179,255,0.30); }
 .anlx-triggers .cal-summary {
+    /* mono + tabular like the month cells / trade list — unifies the win-loss /
+       PF / cumulative figures in this block with the rest of the dashboard. */
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
     font-size: var(--text-sm); color: var(--fg-2);
     border-top: 1px dashed rgba(255,255,255,0.10); padding-top:var(--space-3); margin-bottom:var(--space-2);
 }

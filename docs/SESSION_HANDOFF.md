@@ -361,3 +361,28 @@ node --check static/app.js
 
 ### 16.4 コミット状況
 - ① 死蔵削除はコミット済み(本セッション冒頭)。② COT は**未コミット**(ユーザ確認後にコミット/プッシュ)。未 push 群: `4a7d4b9` 以降 + ① + ②。「プッシュ」指示でまとめて push。
+
+
+## 17. 2026-06-04 セッション後半 — DWS UI 整理 + トリガー履歴データ整合修正 + 全体フォント統一
+
+### 17.1 ⚠️ フォント規約(最重要・厳守)
+- **ダッシュボードのフォントは全体 mono に完全統一済み。今後いかなる修正も現行フォント(mono)に完全準拠させること(ユーザ強指示)。**
+- `static/app.css` の `body { font-family: var(--mono) }` が唯一の基底。全テキスト(タイトル/ラベル/数値/本文)はこれを継承して mono。`--mono` = `"JetBrains Mono","Cascadia Mono","Consolas",monospace`。
+- `--ui`(Inter/sans)は**定義は残すが未使用**。**新規 CSS で `var(--ui)`/Inter/sans-serif を指定しないこと。** 個別指定が要るなら必ず `var(--mono)`。数値は `font-variant-numeric: tabular-nums` 併用。
+- 経緯: 当初は数値だけ mono・文字 sans 混在 → ユーザが「箱ごとに不統一」を繰り返し指摘し「Sans に勝手に倒すな」と却下 → body 基底を mono 化して sans の出所を断った。検証で残存 sans 0 件・サイドバー overflow なしを確認。
+- 検証時の罠: preview MCP の既定ビューポートは **幅 87px** と異常に狭く `applyDisplayFit` の scale が 0.034 になる。必ず 1920×1080 に resize + `dispatchEvent(new Event('resize'))` で再フィットしてから計測すること(リロード後は WS 再接続が不安定なので、確実なのは preview 再起動)。
+
+### 17.2 DWS パネル UI 整理(app.js / app.css)
+- **OOS 統計ボックス削除**: 16Y ディープ評価の7セルグリッド(勝率/Wilson CI/Bootstrap CI/PF/期待値/Breakeven WR/MaxDD)+ PF スパークラインを UI から除去(ユーザ「枠内情報は不要」)。見出し(信頼/N/DRIFT/説明)+ 地合いバナー + ローリング行は残置。`cell`/`DESC`/`drawValidationSparkline`/`pct`/`fmtPf` 等の死蔵コード+専用 CSS も一掃。
+- **ヒストグラム圧縮**: グリッドを4行化し最下部に空のスペーサ行(`grid-template-rows: auto min-content minmax(0,1fr) minmax(0,0.8fr)`)。ヒストグラムは flex 充填のまま約半分の高さに。下部空白は意図的(エクイティカーブ案は試作→ユーザ却下で撤去済み)。
+- **時間軸ホバー化**: ヒストグラム下部の静的時間ラベルを削除し、カーソルホバーで該当バーの時刻を下部チップ+縦ガイド線で表示(`drawDwsCanvas` が `canvas._dws` に座標を保存→`ensureDwsSkeleton` のハンドラが参照、canvas 再描画なし)。`dwsAxisLabel` は死蔵化し削除。
+- **カラム高さ整合**: 左 analytics の最終カード(時刻別ヒートマップ)を `flex:1 1 auto` で下端まで伸ばし、右 dws カードと下端を一致(`.panel.expanded .anlx-heatmap`)。
+
+### 17.3 トリガー履歴 データ整合バグ修正(trigger_store.py)— 重要
+- 症状: ヒストグラム(+172 グロス)と履歴表(−10.4)が乖離。**ヒストは正しく、履歴表(永続ストア)が陳腐値**だった。
+- 根本原因: `append_closed` が追記専用・entry_ms 重複排除で**一度書いた値を更新しなかった**。DWS のエグジットは右端付近の最近バーでは未確定(窓スライドで EXIT が移動しうる)→ 早期決済値が凍結された。クロスチェックで古いトレードは全一致・最新1件のみ陳腐と確認(既知の offset/DST バグとは別物)。
+- 修正: `append_closed` を **UPSERT** 化(entry_ms キーで新規追加 + 値変更時は更新、窓外=決済確定済みは不変で凍結)。原子的書き換え(temp→os.replace)。`_seen`→`_records`(全レコードキャッシュ)。**`load_by_year` の (size,mtime) キャッシュは upsert 同値長書換でサイズ不変になり自己無効化しないため、書換時に `_by_year_cache.pop(path)` で明示無効化**(これが無いと配信が陳腐化する第2のバグだった)。
+- 検証: TDD で赤→緑、`trigger_store` 14/14・全体 **293 passed**。実機で 06/01 16:00 が −10.4→+170 に自己修復、配信スナップでヒスト+172 と履歴+170(=差2pip スプレッド)が整合。
+
+### 17.4 コミット状況
+- 本節の作業(17.2/17.3/17.4 フォント)は「プッシュ」指示でコミット&push 済み。トリガーストア修正は独立コミット、UI+フォント+本ハンドオフは別コミット。
