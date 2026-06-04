@@ -386,3 +386,22 @@ node --check static/app.js
 
 ### 17.4 コミット状況
 - 本節の作業(17.2/17.3/17.4 フォント)は「プッシュ」指示でコミット&push 済み。トリガーストア修正は独立コミット、UI+フォント+本ハンドオフは別コミット。
+
+
+## 18. 2026-06-04 セッション終盤 — 右パネル再構成(実質金利リアルタイム化)+ 死蔵コード一掃
+
+### 18.1 右サイドバー再構成
+- 並び順: **Account → 実質金利 → DXY → COT → カレンダー → トレード日誌**。**Macro Rates パネルは削除**(米雇用/NFP 含む)。
+- **実質金利を独立パネルへ昇格 + DXY型チャート + リアルタイム化**: DFII10(FRED・日次・公表1〜2営業日遅延)は intraday 不可なので、**官製 DFII10 を基準に、ライブ名目10年(CBOE `^TNX` via Yahoo・intraday)の日中変化を加算** = `実質金利 = DFII10 + (TNX現在 − 前日終値)`。実質金利の指標性を保ったまま **~30秒更新**(米国市場開時に動く)。`analyzer/macro_feed.py`: `fetch_nominal_10y()` + `fetch_real_yield_live()`(DFII10 アンカー hourly + ^TNX 30秒)、`RealYieldSnapshot` に `series`(スパークライン用)/`nominal_10y`/`nominal_prev`/`is_live` 追加。`analysis_loop` に `realyield_live`(30秒)スケジュール。frontend `paintRealYield`(DXY の `.dxy-*` 再利用)= 値・前日比・スパークライン・金に追風/逆風・`名目 … · 基準 MM-DD`・`● ライブ`。
+- **値は四捨五入せず3桁表示**(`toFixed(3)`)= データ精度の上限(DFII10 2桁 + ^TNX 3桁)。例 `2.106%`(従来 `2.11%`)。
+- 自動更新まとめ: 実質金利=~30秒(ライブ)/ DXY=5秒 / COT=6時間。
+- `paintMacro` 関数 + macro 専用 CSS は除去。**backend の macro は `dwsTriggerMacroAlign` の counter-carry フォールバック用にのみ残置**(real_yield が主、macro.by_pair は予備)。
+
+### 18.2 死蔵コード一掃(「全体検証→クリア」)
+3並列の調査エージェントで全体監査 → 検証して除去:
+- `config.py`: §10/§11/§10.4 の vestigial 定数ブロックを丸ごと削除(`ROUND_NUMBER_*`/`FRACTAL_*`/`SessionSpec`/`SESSIONS`/`JST_OFFSET_HOURS`/`PREV_PERIOD_TFS`/`PIN_*`/`INSIDE_BREAK_LOOKBACK`/`PA_KEEP_RECENT`/`CONFLUENCE_*` — 全て全ファイル0参照を確認。構造/PA/合流/セッション backend 削除後の残骸)。
+- `static/app.css`: 未使用 CSS 変数 `--ui`(body を mono 化した際に未使用化)。
+- `dashboard/lite_server.py`: 未使用定数 `_RESTART_SCRIPT`。
+- `scripts/`: `_verify_phase3.py`(削除済み strength/correlation 参照)/`_verify_running.py`(削除済み Dash layout endpoint 参照)= 破損した orphaned スクリプト削除。
+- **見送り(意図的)**: ① macro の employment + 非USD利率(EUR/GBP/JPY/AUD)— XAUUSD特化後は dormant だが、稼働中フィード+テスト多数に波及する大規模改修のため別途集中対応推奨(employment は消費者ゼロ=真の dead、非USDは tested/汎用で config 再有効化可能)。② `structure_types.py` の未使用 enum 値(無害・line_reader が使う kept モジュール)。③ `pattern_matcher.py`(「将来 walk-forward 検証後に再導入」と明記の意図的アーカイブ)。
+- 検証: 全体 **293 passed**・サーバ XAUUSD単独で正常起動・全パネル描画・順序維持・コンソールエラー0。

@@ -87,6 +87,7 @@ class AnalysisLoop:
         validation_interval: float = config.VALIDATION_REFRESH_SEC,
         macro_interval: float = config.MACRO_REFRESH_SEC,
         realyield_interval: float = config.MACRO_REALYIELD_REFRESH_SEC,
+        realyield_live_interval: float = config.MACRO_REALYIELD_LIVE_REFRESH_SEC,
         cot_interval: float = config.COT_REFRESH_SEC,
         reconnect_interval: float = config.MT5_RECONNECT_INTERVAL_SEC,
     ) -> None:
@@ -114,6 +115,7 @@ class AnalysisLoop:
         # The real yield moves daily, so it refreshes faster than policy rates
         # (spec §B.11). Same MacroEngine, separate in-flight guard + schedule.
         self._realyield_inflight = threading.Event()
+        self._realyield_live_inflight = threading.Event()
         # COT (gold-positioning) is weekly data over plain HTTP — same off-thread
         # treatment as macro: it can't starve the price tick, the worker just
         # keeps a slow network call out of the loop.
@@ -146,6 +148,7 @@ class AnalysisLoop:
                       next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
             _Schedule("macro", macro_interval),
             _Schedule("realyield", realyield_interval),
+            _Schedule("realyield_live", realyield_live_interval),
             _Schedule("cot", cot_interval),
         )
 
@@ -203,6 +206,7 @@ class AnalysisLoop:
             "validation": self._do_validation_refresh,
             "macro": self._do_macro_refresh,
             "realyield": self._do_realyield_refresh,
+            "realyield_live": self._do_realyield_live_refresh,
             "cot": self._do_cot_refresh,
         }[name]
         try:
@@ -395,6 +399,28 @@ class AnalysisLoop:
             self._reschedule_soon("realyield", config.MACRO_RETRY_SEC)
         finally:
             self._realyield_inflight.clear()
+
+    def _do_realyield_live_refresh(self, bases: list[str]) -> None:
+        """Real-time real-yield overlay every ~30 s: the daily DFII10 anchor +
+        the intraday move in the nominal 10Y (^TNX). Plain HTTP, off-thread —
+        gives the panel live movement while the Treasury market is open."""
+        if self._realyield_live_inflight.is_set():
+            return
+        self._realyield_live_inflight.set()
+        worker = threading.Thread(
+            target=self._realyield_live_refresh_worker,
+            name="realyield-live-fetch", daemon=True,
+        )
+        worker.start()
+
+    def _realyield_live_refresh_worker(self) -> None:
+        try:
+            snap = self._macro_engine.fetch_real_yield_live()
+            self._state.set_real_yield(snap)
+        except Exception:               # noqa: BLE001 — never reach the loop
+            log.exception("realyield-live worker failed")
+        finally:
+            self._realyield_live_inflight.clear()
 
     def _do_cot_refresh(self, bases: list[str]) -> None:
         """Refresh the CFTC COT gold-positioning snapshot every 6 h.

@@ -543,6 +543,13 @@ def serialize_real_yield(s: RealYieldSnapshot | None) -> dict[str, Any] | None:
         "as_of": s.as_of,
         "stale": bool(s.stale),
         "generated_at": float(s.generated_at),
+        # Recent daily closes for the sidebar sparkline (DXY-style chart).
+        "series": [float(v) for v in getattr(s, "series", ())],
+        # Real-time overlay: live nominal 10Y (^TNX) + flag that ``value`` carries
+        # the intraday adjustment (anchor + Δnominal).
+        "nominal_10y": _opt_float(getattr(s, "nominal_10y", None)),
+        "nominal_prev": _opt_float(getattr(s, "nominal_prev", None)),
+        "is_live": bool(getattr(s, "is_live", False)),
     }
 
 

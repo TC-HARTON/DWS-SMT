@@ -353,7 +353,19 @@ MACRO_CURRENCIES: Final[tuple[str, ...]] = ("USD", "EUR", "GBP", "JPY", "AUD")
 # meetings); the US 10Y TIPS real yield moves every day, so it gets its own
 # faster schedule than the 6 h policy-rate refresh.
 MACRO_FRED_REALYIELD_SERIES: Final[str] = "DFII10"   # 10Y TIPS real yield, daily
-MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour
+MACRO_REALYIELD_REFRESH_SEC: Final[float] = 3600.0   # 1 hour (the daily anchor)
+# Trailing daily closes shipped for the real-yield sidebar sparkline (the panel
+# mirrors the DXY card's chart). ~3 months of business days.
+MACRO_REALYIELD_CHART_POINTS: Final[int] = 60
+# Real-TIME real yield: DFII10 is daily/lagged, so the panel anchors on the
+# latest official DFII10 and adds the INTRADAY move in the nominal 10Y yield
+# (CBOE ^TNX, live). real ≈ nominal − breakeven, and the breakeven is ≈constant
+# intraday, so Δnominal ≈ Δreal-yield over the day. Updates ~every 30 s for live
+# movement (only moves while the US Treasury market is open; static otherwise).
+MACRO_NOMINAL10Y_URL: Final[str] = (
+    "https://query1.finance.yahoo.com/v8/finance/chart/%5ETNX"
+)
+MACRO_REALYIELD_LIVE_REFRESH_SEC: Final[float] = 30.0
 
 
 # --------------------------------------------------------------------------- #
@@ -601,83 +613,6 @@ LINES_FILE_SUFFIX: Final[str] = ".json"
 # CREATED and a MODIFIED event in rapid succession. We coalesce events
 # arriving within this window per (path) into a single reload.
 LINES_DEBOUNCE_SEC: Final[float] = 0.15
-
-
-# --------------------------------------------------------------------------- #
-# Auto-detected structure levels (SPEC §10)
-# --------------------------------------------------------------------------- #
-
-# SPEC §10.2 ラウンドナンバー刻み。Symbol-keyed override; falls back to a
-# heuristic derived from current price when a symbol is absent.
-ROUND_NUMBER_STEPS: Final[dict[str, float]] = {
-    "XAUUSD": 50.0,        # SPEC §10.2: $50
-    "USDJPY": 0.500,       # SPEC §10.2: 50pips
-    "EURJPY": 0.500,
-    "GBPJPY": 0.500,
-    "AUDJPY": 0.500,
-    "EURUSD": 0.01000,     # SPEC §10.2: 100pips
-    "GBPUSD": 0.01000,
-    "AUDUSD": 0.01000,
-}
-# How many round-number rungs above and below the current price to publish.
-ROUND_NUMBER_RUNGS: Final[int] = 3
-
-# Fractal swing-point lookback (Bill Williams 5-bar fractal). A bar at index
-# i is a swing-high when high[i] > high[i±1..k] for all k in 1..N. M15 is the
-# active TF for trader-relevant swings; H1/H4 also detected for context.
-FRACTAL_LOOKBACK: Final[int] = 2          # 2 bars on each side → 5-bar pattern
-FRACTAL_TFS: Final[tuple[str, ...]] = ("M15", "H1", "H4")
-# How many most-recent swings per TF/side to surface (older ones drop off).
-FRACTAL_KEEP_PER_TF: Final[int] = 3
-
-# Trading sessions, JST-defined per SPEC §10.3 but converted to UTC at use.
-@dataclass(frozen=True)
-class SessionSpec:
-    name: str
-    start_jst: int          # hour, 0-23
-    end_jst: int            # hour, 0-23 (may roll past midnight if < start)
-
-
-SESSIONS: Final[tuple[SessionSpec, ...]] = (
-    SessionSpec("Asia",   7, 16),   # SPEC §10.3 Asian:  07:00 - 16:00 JST
-    SessionSpec("Europe", 16, 22),  # SPEC §10.3 Europe: 16:00 - 22:00 JST
-    SessionSpec("NY",     21,  6),  # SPEC §10.3 NY:     21:00 - 06:00 JST (rolls)
-)
-
-# JST is fixed at UTC+9 with no DST. Defined here so backend (structure
-# detector / account monitor) and the injected clientside JS share one
-# constant — SPEC §23.2 forbids loose magic numbers.
-JST_OFFSET_HOURS: Final[int] = 9
-
-# Previous-period high/low source TFs (high/low of the closed prior bar).
-PREV_PERIOD_TFS: Final[dict[str, str]] = {
-    "PD": "D1",   # PDH/PDL
-    "PW": "W1",   # PWH/PWL
-    "PM": "MN1",  # PMH/PML (MT5 monthly)
-}
-
-# --------------------------------------------------------------------------- #
-# Price action detection (SPEC §11)
-# --------------------------------------------------------------------------- #
-
-# Pin-bar geometry: tail >= body * PIN_TAIL_RATIO and opposite wick <= body * PIN_WICK_MAX.
-PIN_TAIL_RATIO: Final[float] = 2.0
-PIN_WICK_MAX: Final[float] = 0.3
-# Inside-bar break: bars to look back for the inside-bar after which a break
-# in either direction is considered a continuation signal.
-INSIDE_BREAK_LOOKBACK: Final[int] = 5
-# Number of recent M15 patterns retained per symbol (older ones drop off).
-PA_KEEP_RECENT: Final[int] = 6
-
-
-# --------------------------------------------------------------------------- #
-# Confluence detection (SPEC §10.4)
-# --------------------------------------------------------------------------- #
-
-# Cluster width as a multiple of current H4 ATR.
-CONFLUENCE_ATR_MULTIPLE: Final[float] = 0.3       # SPEC §10.4: "ATR×0.3以内"
-# Minimum number of structure levels in a cluster for it to count.
-CONFLUENCE_MIN_ELEMENTS: Final[int] = 3            # SPEC §10.4 "3要素 < 4要素 < 5要素以上"
 
 
 # --------------------------------------------------------------------------- #

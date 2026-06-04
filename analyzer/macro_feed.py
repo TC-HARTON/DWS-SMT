@@ -113,6 +113,18 @@ class RealYieldSnapshot:
     as_of: str
     stale: bool
     generated_at: float
+    # Recent daily closes (chronological) for the sidebar sparkline — the panel
+    # mirrors the DXY card's chart. Empty until the first live fetch / on a
+    # cache-bootstrap from an older payload that predates this field.
+    series: tuple[float, ...] = ()
+    # Real-time overlay. DFII10 is daily, so for live movement the ``value`` is
+    # the official daily anchor adjusted by the INTRADAY move in the nominal 10Y
+    # yield (CBOE ^TNX): value = anchor + (nominal_10y − nominal_prev). ``is_live``
+    # marks that the value carries that intraday adjustment (vs the pure daily
+    # anchor). ``as_of`` stays the DFII10 basis date.
+    nominal_10y: float | None = None
+    nominal_prev: float | None = None
+    is_live: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -359,8 +371,9 @@ class MacroEngine:
         flagged ``stale``.
         """
         try:
-            doc = json.loads(
-                self._fred_get(config.MACRO_FRED_REALYIELD_SERIES, limit=12))
+            doc = json.loads(self._fred_get(
+                config.MACRO_FRED_REALYIELD_SERIES,
+                limit=config.MACRO_REALYIELD_CHART_POINTS))
         except (requests.RequestException, ValueError, KeyError) as exc:
             log.warning("macro: real-yield fetch failed - %s", _redact(exc))
             prev = self._cached_real_yield
@@ -368,7 +381,7 @@ class MacroEngine:
                 return RealYieldSnapshot(
                     prev.value, prev.prev_value, prev.change_1d, prev.trend_5d,
                     prev.gold_dir, prev.as_of, stale=True,
-                    generated_at=time.time())
+                    generated_at=time.time(), series=prev.series)
             return RealYieldSnapshot(None, None, None, None, 0, "",
                                      stale=True, generated_at=time.time())
 
@@ -391,12 +404,60 @@ class MacroEngine:
             gold_dir = 0
         else:
             gold_dir = -1 if trend_5d > 0 else 1
+        # Chronological daily closes for the sidebar sparkline (DXY-style chart).
+        series = tuple(v for _, v in vals[-config.MACRO_REALYIELD_CHART_POINTS:])
         snap = RealYieldSnapshot(value, prev_value, change_1d, trend_5d,
                                  gold_dir, as_of, stale=False,
-                                 generated_at=time.time())
+                                 generated_at=time.time(), series=series)
         self._cached_real_yield = snap
         self._persist_cache()   # survive restart / outage with the last-good value
         return snap
+
+    def fetch_nominal_10y(self) -> tuple[float, float] | None:
+        """Fetch the live 10Y nominal Treasury yield + its prior close (CBOE
+        ``^TNX`` via Yahoo). Returns ``(live_pct, prev_close_pct)`` or ``None`` on
+        failure. Intraday-updating while the US market is open. Plain HTTP."""
+        try:
+            doc = json.loads(self._http_get(config.MACRO_NOMINAL10Y_URL))
+            meta = doc["chart"]["result"][0]["meta"]
+            live = float(meta["regularMarketPrice"])
+            prev = meta.get("chartPreviousClose")
+            if prev is None:
+                prev = meta.get("previousClose")
+            prev = float(prev) if prev is not None else live
+            return (live, prev)
+        except (requests.RequestException, ValueError, KeyError,
+                TypeError, IndexError) as exc:
+            log.warning("macro: nominal-10Y (^TNX) fetch failed - %s", _redact(exc))
+            return None
+
+    def fetch_real_yield_live(self) -> RealYieldSnapshot:
+        """Real-TIME real yield: the latest official daily DFII10 anchor plus the
+        INTRADAY move in the nominal 10Y yield (^TNX), since the breakeven is
+        ≈constant intraday so Δnominal ≈ Δreal-yield. Falls back to the pure daily
+        anchor when ^TNX is unavailable. Run on a fast (~30 s) cadence so the panel
+        moves live while the Treasury market is open.
+
+        Reuses the cached daily DFII10 (refreshed hourly by ``fetch_real_yield``);
+        does a one-off daily fetch first if no anchor is cached yet.
+        """
+        anchor = self._cached_real_yield
+        if anchor is None or anchor.value is None:
+            anchor = self.fetch_real_yield()         # prime the daily anchor
+        if anchor is None or anchor.value is None:
+            return RealYieldSnapshot(None, None, None, None, 0, "",
+                                     stale=True, generated_at=time.time())
+        tnx = self.fetch_nominal_10y()
+        if tnx is None:
+            # No live nominal — publish the daily anchor as-is (not live-adjusted).
+            return replace(anchor, is_live=False, generated_at=time.time())
+        live_val = anchor.value + (tnx[0] - tnx[1])
+        return replace(
+            anchor,
+            value=round(live_val, 3),
+            nominal_10y=tnx[0], nominal_prev=tnx[1], is_live=True,
+            stale=False, generated_at=time.time(),
+        )
 
     # ------------------------------------------------------- per-source
     def _fetch_rate(self, ccy: str) -> MacroRate:
@@ -505,7 +566,8 @@ class MacroEngine:
                     value=ry.get("value"), prev_value=ry.get("prev_value"),
                     change_1d=ry.get("change_1d"), trend_5d=ry.get("trend_5d"),
                     gold_dir=int(ry.get("gold_dir") or 0), as_of=ry.get("as_of", ""),
-                    stale=True, generated_at=time.time())
+                    stale=True, generated_at=time.time(),
+                    series=tuple(ry.get("series") or ()))
             self._last_fetch_ok = float(doc.get("fetched_at") or 0.0)
         except (OSError, ValueError, KeyError):
             log.exception("macro: cache bootstrap failed")
@@ -537,6 +599,7 @@ class MacroEngine:
                     "value": ry.value, "prev_value": ry.prev_value,
                     "change_1d": ry.change_1d, "trend_5d": ry.trend_5d,
                     "gold_dir": ry.gold_dir, "as_of": ry.as_of,
+                    "series": list(ry.series),
                 }),
             }
             self._cache_file.write_text(json.dumps(payload), encoding="utf-8")

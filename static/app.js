@@ -841,6 +841,66 @@ function paintDxy(snap) {
       + `<span class="dxy-trend mute">${trendTxt}</span></div>`;
 }
 
+/** Paint the US 10Y real-yield panel — gold trades inverse to real yields, so a
+ *  rising real yield is a HEADWIND (金に逆風) and a falling one a TAILWIND. Mirrors
+ *  the DXY card exactly: level / daily change / sparkline of recent daily closes
+ *  / gold-impact label / 5-day trend. Data = snap.real_yield (FRED DFII10,
+ *  hourly auto-refresh). */
+function paintRealYield(snap) {
+    const el = $bind('realyield');
+    const stEl = $bind('ry-status');
+    const d = snap.real_yield;
+    if (!d || d.value == null) {
+        if (stEl) stEl.textContent = '--';
+        if (el) el.innerHTML = `<div class="empty mute">読み込み中…</div>`;
+        return;
+    }
+    // Header tag: "ライブ" when the value carries the intraday nominal-10Y move,
+    // otherwise the official DFII10 daily date. (Addresses "what's the date?" —
+    // the value is now real-time; the daily basis date shows in the footer.)
+    if (stEl) stEl.innerHTML = d.stale ? '<span class="ry-stale">stale</span>'
+                             : d.is_live ? '<span class="ry-live">● ライブ</span>'
+                             : esc(d.as_of || '');
+    const ch = d.change_1d;
+    const up = ch != null && ch > 0, dn = ch != null && ch < 0;
+    const arrow = up ? '▲' : dn ? '▼' : '·';
+    const chTxt = ch == null ? '--' : (ch >= 0 ? '+' : '') + ch.toFixed(2);
+    // Gold impact is the INVERSE of the yield move (separate from the change
+    // colour, exactly like the DXY card): rising real yield → headwind (red).
+    const gd = d.gold_dir;
+    const goldCls = gd < 0 ? 'neg' : gd > 0 ? 'pos' : '';
+    const goldTxt = gd < 0 ? '金に逆風' : gd > 0 ? '金に追風' : '中立';
+    // Sparkline over the recent daily closes (same geometry as the DXY chart).
+    const cs = (d.series || []).filter(v => isFinite(v));
+    let spark = '';
+    if (cs.length >= 2) {
+        const W = 240, H = 34, pad = 2;
+        const lo = Math.min(...cs), hi = Math.max(...cs), span = (hi - lo) || 1;
+        const xO = i => pad + (i / (cs.length - 1)) * (W - 2 * pad);
+        const yO = v => pad + (1 - (v - lo) / span) * (H - 2 * pad);
+        const path = 'M' + cs.map((v, i) => `${xO(i).toFixed(1)},${yO(v).toFixed(1)}`).join(' L');
+        const col = up ? '#00d09c' : dn ? '#ff5b6b' : '#8a93a6';   // yield's own direction
+        spark = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="dxy-spark" role="img">`
+              + `<path d="${path}" fill="none" stroke="${col}" stroke-width="1.4"/></svg>`;
+    }
+    const t5 = d.trend_5d;
+    // Footer: 5-day daily trend + (when live) the live nominal 10Y driving the
+    // intraday move + the DFII10 daily basis date.
+    const parts = [];
+    if (t5 != null) parts.push(`5日 ${t5 >= 0 ? '+' : ''}${t5.toFixed(2)}`);
+    if (d.is_live && d.nominal_10y != null) parts.push(`名目 ${d.nominal_10y.toFixed(3)}%`);
+    if (d.as_of) parts.push(`基準 ${esc(d.as_of.slice(5))}`);
+    const trendTxt = parts.join(' · ');
+    el.innerHTML =
+        `<div class="dxy-top">`
+      + `<span class="dxy-price">${d.value.toFixed(3)}%</span>`
+      + `<span class="dxy-chg ${up ? 'pos' : dn ? 'neg' : ''}">前日比 ${chTxt} ${arrow}</span>`
+      + `</div>`
+      + spark
+      + `<div class="dxy-foot"><span class="dxy-gold ${goldCls}">${goldTxt}</span>`
+      + `<span class="dxy-trend mute">${trendTxt}</span></div>`;
+}
+
 /** Paint the CFTC COT (gold-futures positioning) panel.
  *  COT is a weekly *positioning / sentiment* gauge, NOT a directional price
  *  driver — so the panel reports facts: the large-speculator (fund) net long,
@@ -921,117 +981,11 @@ function paintCot(snap) {
       + `</div>`;
 }
 
-/** Paint the macro / rate-differential reference panel.
- *  One row per pair: base rate, quote rate, differential, macro direction. */
-function paintMacro(snap) {
-    const m = snap.macro;
-    const ry = snap.real_yield;
-    const root = $bind('macro');
-    if (!root) return;
-    const statusEl = $bind('macro-status');
-    // --- Heartbeat status — ALWAYS updates, regardless of data freshness.
-    // This is what kills the user-perceived "frozen panel" — the rate data
-    // refreshes hourly but the "Xm前" tag now visibly ticks every WS pass.
-    if (statusEl) {
-        if (!m) {
-            statusEl.textContent = '--';
-            statusEl.className = 'mute';
-        } else if (m.last_error) {
-            statusEl.textContent = '一部ソース障害';
-            statusEl.className = 'neg';
-        } else if (m.fetched_at) {
-            const ageMin = Math.max(0, Math.round((Date.now() / 1000 - m.fetched_at) / 60));
-            statusEl.textContent = ageMin < 1 ? '更新直後'
-                                 : ageMin < 60 ? `${ageMin}分前`
-                                 : `${Math.floor(ageMin / 60)}時間前`;
-            statusEl.className = 'mute';
-        } else {
-            statusEl.textContent = '--';
-            statusEl.className = 'mute';
-        }
-    }
-    // --- Expensive DOM rebuild — gated by stamp so we don't re-render the
-    // grid every 0.5 s tick. Only repaints when generated_at actually advances.
-    const stamp = (m && m.generated_at || 0) + ':' + (ry && ry.generated_at || 0);
-    if (!changed('macro', stamp)) return;
-    if (!m || !m.rates || Object.keys(m.rates).length === 0) {
-        root.innerHTML = '<div class="empty mute">マクロデータ未取得</div>';
-        return;
-    }
-    const rateStr = ccy => {
-        const r = m.rates[ccy];
-        return r && r.rate != null ? (r.rate.toFixed(2) + (r.stale ? '*' : '')) : '--';
-    };
-    const arrow = d => d > 0 ? '▲' : d < 0 ? '▼' : '·';
-    // Shorter direction labels — full text remains accessible via title="" so
-    // hovering still shows the verbose label even on a narrow sidebar.
-    const goldLabel = gd => gd < 0 ? { short: '実質利回り↑/金逆風',  full: '実質利回り上昇 / 金は逆風'  }
-                          : gd > 0 ? { short: '実質利回り↓/金追風',  full: '実質利回り低下 / 金は追い風' }
-                                   : { short: '実質利回り横ばい',    full: '実質利回り横ばい'           };
-    const rows = (SYMBOL_ORDER || []).map(sym => {
-        if (sym === 'XAUUSD') {
-            // Gold's macro direction is the US 10-year real-yield trend
-            // (gold moves inverse to real yields). Row contents: pair tag |
-            // current real-yield % | 5-day trend (as differential) | label.
-            const gd = ry && ry.value != null ? ry.gold_dir : 0;
-            const cls = gd > 0 ? 'pos' : gd < 0 ? 'neg' : 'mute';
-            const rv = ry && ry.value != null ? ry.value.toFixed(2) + '%' : '--';
-            const t5 = ry && ry.trend_5d != null
-                     ? (ry.trend_5d >= 0 ? '+' : '') + ry.trend_5d.toFixed(2) : '--';
-            const lbl = goldLabel(gd);
-            return `<div class="macro-row">
-                <span class="macro-pair">XAUUSD</span>
-                <span class="macro-rates">実利 ${esc(rv)}</span>
-                <span class="macro-diff ${cls}">${esc(t5)}</span>
-                <span class="macro-dir ${cls}" title="${esc(lbl.full)}">${arrow(gd)} ${esc(lbl.short)}</span>
-            </div>`;
-        }
-        const b = m.by_pair && m.by_pair[sym];
-        if (!b) return '';
-        const dirCls = b.macro_dir > 0 ? 'pos' : b.macro_dir < 0 ? 'neg' : 'mute';
-        const diff = b.differential == null ? '--'
-                   : (b.differential >= 0 ? '+' : '') + b.differential.toFixed(2);
-        // Single combined rate string — kills the per-column alignment drift
-        // that the previous base/quote 1fr 1fr layout caused across rows.
-        const base = esc(rateStr(b.base_ccy));
-        const quote = esc(rateStr(b.quote_ccy));
-        return `<div class="macro-row">
-            <span class="macro-pair">${esc(sym)}</span>
-            <span class="macro-rates">${base}<span class="sep">/</span>${quote}</span>
-            <span class="macro-diff ${dirCls}">${esc(diff)}</span>
-            <span class="macro-dir ${dirCls}" title="${esc(b.label)}">${arrow(b.macro_dir)} ${esc(b.label)}</span>
-        </div>`;
-    }).join('');
-    // Key indicators (real yield + US employment) lead the panel — they are
-    // the highest-value macro signals, so they sit above the per-pair table.
-    let keyBlock = '';
-    if (ry && ry.value != null) {
-        const ch = ry.change_1d;
-        const chCls = ch > 0 ? 'pos' : ch < 0 ? 'neg' : 'mute';
-        const chStr = ch == null ? '--' : (ch >= 0 ? '+' : '') + ch.toFixed(2);
-        keyBlock += `<div class="macro-key">`
-              + `<span class="macro-key-label">米10年実質利回り</span>`
-              + `<span class="macro-key-val">${esc(ry.value.toFixed(2))}%</span>`
-              + `<span class="macro-rynum ${chCls}">前日比 ${esc(chStr)}</span>`
-              + `${ry.stale ? ' <span class="mute">*</span>' : ''}</div>`;
-    }
-    if (m.employment) {
-        const e = m.employment;
-        const nfp = e.nonfarm_change == null ? '--'
-                  : (e.nonfarm_change >= 0 ? '+' : '') + Math.round(e.nonfarm_change);
-        const nfpCls = e.nonfarm_change > 0 ? 'pos'
-                     : e.nonfarm_change < 0 ? 'neg' : 'mute';
-        const ur = e.unemployment_rate == null ? '--'
-                 : e.unemployment_rate.toFixed(1) + '%';
-        keyBlock += `<div class="macro-key">`
-              + `<span class="macro-key-label">米雇用</span>`
-              + `<span class="macro-key-val">NFP `
-              + `<span class="macro-rynum ${nfpCls}">${esc(nfp)}k</span></span>`
-              + `<span class="macro-rynum mute">失業率 ${esc(ur)}</span>`
-              + `${e.stale ? ' <span class="mute" title="キャッシュ値 (取得失敗)">*</span>' : ''}</div>`;
-    }
-    root.innerHTML = keyBlock + rows;
-}
+// NOTE: the Macro Rates sidebar panel was removed (real yield promoted to its
+// own card; per-pair policy rates + employment dropped). The macro snapshot is
+// still served + computed because dwsTriggerMacroAlign uses snap.macro.by_pair
+// as the counter-carry fallback when the real yield is unavailable — but there
+// is no longer a paintMacro renderer.
 
 // ------------------------------------------------------------
 // Trade journal (discretionary) — REST-fed, broker-scoped.
@@ -2482,10 +2436,10 @@ function paintAll() {
     paintPrices(latestSnap);
     paintSignals(latestSnap);
     paintAccount(latestSnap);
+    paintRealYield(latestSnap);
     paintDxy(latestSnap);
     paintCot(latestSnap);
     paintCalendar(latestSnap);
-    paintMacro(latestSnap);
     paintDws(latestSnap);
     maybeRefreshJournal(latestSnap);
 }

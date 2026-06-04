@@ -72,9 +72,10 @@
     --radius:       6px;
     --radius-sm:    4px;     /* tags, chips, micro pills */
 
-    /* --- Typefaces ----------------------------------------------------- */
+    /* --- Typeface — single mono family for the whole dashboard (body uses it;
+       see the body rule). The former --ui sans stack was removed when everything
+       went mono. */
     --mono:         "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
-    --ui:           "Inter", "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -312,9 +313,9 @@ body {
 /* Per-card accent colors give each card a glanceable identity bar. */
 .account-card   { border-left-color: var(--accent); }
 .dxy-card       { border-left-color: var(--accent); }
+.ry-card        { border-left-color: #9d8cff; }
 .cot-card       { border-left-color: #e3b341; }
 .calendar-card  { border-left-color: var(--warning); }
-.macro-card     { border-left-color: var(--buy); }
 
 /* DXY (US Dollar Index) context panel. */
 .dxy-body { display: flex; flex-direction: column; gap:var(--space-2); }
@@ -329,6 +330,9 @@ body {
 .dxy-gold.pos { color: var(--buy); }
 .dxy-gold.neg { color: var(--sell); }
 .dxy-trend { font-size: var(--text-xs); }
+/* Real-yield card reuses the .dxy-* body classes; these two are its own tags. */
+.ry-live  { color: var(--buy); font-weight: 700; font-size: var(--text-xs); }
+.ry-stale { color: var(--warning); font-weight: 700; }
 
 /* CFTC COT (gold-futures positioning) panel. */
 .cot-body { display: flex; flex-direction: column; gap:var(--space-2); }
@@ -1177,12 +1181,10 @@ body {
 /* Calendar and Macro share the remaining sidebar height (account is fixed),
    each scrolling internally so neither is clipped when the sidebar is short. */
 .calendar-card { flex: 1 1 0; min-height: 0; }
-.macro-card    { flex: 1 1 0; min-height: 0; }
 .journal-card  { flex: 1 1 0; min-height: 0; }
-/* Calendar + Macro + Journal lists share one identical scroll treatment so the
-   sidebar panels match (and match the trigger-calendar list scroll). */
+/* Calendar + Journal lists share one identical scroll treatment so the sidebar
+   panels match (and match the trigger-calendar list scroll). */
 .cal-list,
-.macro-list,
 .journal-list {
     display: flex; flex-direction: column; gap:var(--space-1);
     overflow-y: auto; min-height: 0; flex: 1;
@@ -1190,10 +1192,8 @@ body {
     scrollbar-color: rgba(255,255,255,0.22) transparent;
 }
 .cal-list::-webkit-scrollbar,
-.macro-list::-webkit-scrollbar,
 .journal-list::-webkit-scrollbar { width: 7px; }
 .cal-list::-webkit-scrollbar-thumb,
-.macro-list::-webkit-scrollbar-thumb,
 .journal-list::-webkit-scrollbar-thumb {
     background: rgba(255,255,255,0.20); border-radius: 4px;
 }
@@ -1530,84 +1530,10 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 }
 
 
-/* ============================================================
-   Macro / rate-differential panel
-   ----------------------------------------------------------------
-   Compact 3-col header + full-width direction label:
-
-     [pair]   [base/quote rates]   [differential]
-     [─────── direction label, allowed to wrap ───────]
-
-   The previous 4-col grid with 1fr 1fr split mis-aligned the two
-   rate cells across rows (right-aligned text in independent cells
-   landed at different X positions). Collapsing base+quote into a
-   SINGLE text element fixes that and frees up the differential to
-   sit as a proper third column.
-
-   Data values render in --fg (white) — the previous --fg-3 dim grey
-   on the rate cells failed the "金利表示は読みやすく" requirement.
-   ============================================================ */
-.macro-row {
-    display: grid;
-    grid-template-columns: 56px 1fr auto;
-    grid-template-areas:
-        "pair rates diff"
-        "dir  dir   dir";
-    column-gap:var(--space-3);
-    row-gap:var(--space-1);
-    font-size: var(--text-xs);
-    padding:var(--space-3) var(--space-2);
-    align-items: baseline;
-    color: var(--fg);
-}
-.macro-row + .macro-row { border-top: 1px solid var(--border); }
-.macro-pair  { grid-area: pair;  font-weight: var(--weight-bold); }
-/* Combined "base / quote" rate string — one text node, one alignment,
-   no per-cell drift across rows. All values render in --fg for readability. */
-.macro-rates { grid-area: rates; color: var(--fg); text-align: right;
-               font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.macro-rates .sep { color: var(--fg-3); margin:0 3px; }
-.macro-diff  { grid-area: diff;  text-align: right; min-width: 48px;
-               font-weight: var(--weight-bold); font-family: var(--mono);
-               font-variant-numeric: tabular-nums; color: var(--fg); }
-.macro-dir   { grid-area: dir;
-               color: var(--fg);
-               font-size: var(--text-2xs);
-               letter-spacing: var(--track-tight); }
-.macro-diff.pos, .macro-dir.pos  { color: var(--buy); }
-.macro-diff.neg, .macro-dir.neg  { color: var(--sell); }
-.macro-diff.mute, .macro-dir.mute { color: var(--fg-3); }
-/* DWS sync line when the alignment fights the rate differential */
+/* The Macro Rates panel was removed (real yield promoted to its own card). Only
+   the DWS-sync counter-carry flag below survives — set by updateDwsSync when an
+   alignment fights the rate carry. */
 .dws-sync.macro-counter { color: var(--warning); }
-/* Real-yield daily-change figure in the macro key block — mono + tabular like
-   every other numeric value in the dashboard (account / dxy / cot / per-pair). */
-.macro-rynum { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.macro-rynum.pos  { color: var(--buy); }
-.macro-rynum.neg  { color: var(--sell); }
-.macro-rynum.mute { color: var(--fg-3); }
-
-/* Key macro indicators (real yield + US employment) — lead the panel,
-   visually heavier than the per-pair rows below. */
-.macro-key {
-    display: flex;
-    gap:var(--space-4);
-    align-items: center;
-    flex-wrap: wrap;
-    font-size: var(--text-sm);
-    padding:var(--space-3) var(--space-4);
-    margin-bottom:var(--space-3);
-    background: rgba(120, 170, 255, 0.10);
-    border-left: 3px solid var(--info);
-    border-radius: var(--radius-sm);
-}
-/* Label hugs the left; margin-right:auto pushes the value + delta to the
-   right edge so the figures line up with the per-pair rows below. */
-.macro-key-label { color: var(--fg-3); min-width: 96px; font-weight: var(--weight-medium);
-                   margin-right: auto; }
-.macro-key-val   { font-family: var(--mono); font-variant-numeric: tabular-nums;
-                   font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--fg);
-                   text-align: right; }
-.macro-key .macro-rynum { text-align: right; }
 
 
 /* ============================================================
