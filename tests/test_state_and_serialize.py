@@ -140,72 +140,6 @@ def test_serialize_coerces_nan_to_none():
     assert blob["analysis"]["by_symbol"]["EURUSD"]["by_tf"]["H1"]["ema"] is None
 
 
-def test_state_set_and_read_validation():
-    from analyzer.state import LatestState
-    from analyzer.signal_validator import ValidationSnapshot
-
-    st = LatestState()
-    assert st.validation is None
-    before = st.analysis_version
-    snap = ValidationSnapshot(generated_at=1.0, compute_ms=2.0, by_symbol={})
-    st.set_validation(snap)
-    assert st.validation is snap
-    # Validation is a heavy domain → it bumps analysis_version.
-    assert st.analysis_version == before + 1
-
-
-def _make_validation_snap(pfs_by_cell):
-    """Build a tiny ValidationSnapshot with the given (sym, tf) → PF mapping."""
-    from analyzer.signal_validator import (
-        RegimeStats, SubPeriodStats, ValidationCore, ValidationStats,
-        ValidationSnapshot,
-    )
-    third = SubPeriodStats(win_rate=0.5, expectancy=1.0, n_trades=10)
-    regime = RegimeStats(win_rate=0.5, expectancy=1.0, n_trades=10)
-    by_sym = {}
-    for (sym, tf), pf in pfs_by_cell.items():
-        core = ValidationCore(
-            n_trades=100, win_rate=0.5, ci_low=0.4, ci_high=0.6,
-            profit_factor=pf, expectancy=1.0, max_drawdown=10.0, avg_mae=5.0,
-            thirds=(third, third, third), regime_trend=regime, regime_range=regime,
-            tier="信頼",
-        )
-        stats = ValidationStats(symbol=sym, base_tf=tf, raw=core, macro_filtered=core)
-        by_sym.setdefault(sym, {})[tf] = stats
-    return ValidationSnapshot(generated_at=1.0, compute_ms=1.0, by_symbol=by_sym)
-
-
-def test_validation_history_appends_per_cell():
-    from analyzer.state import LatestState
-    st = LatestState()
-    st.set_validation(_make_validation_snap({("EURUSD", "M15"): 2.10}))
-    st.set_validation(_make_validation_snap({("EURUSD", "M15"): 2.15}))
-    st.set_validation(_make_validation_snap({("EURUSD", "M15"): 2.20}))
-    hist = st.validation_history
-    assert hist["EURUSD"]["M15"] == [2.10, 2.15, 2.20]
-
-
-def test_validation_history_trims_to_cap():
-    from analyzer.state import LatestState
-    st = LatestState()
-    # Cap is 24; push 30 entries and confirm only the last 24 survive.
-    for i in range(30):
-        st.set_validation(_make_validation_snap({("EURUSD", "M15"): float(i)}))
-    hist = st.validation_history
-    assert len(hist["EURUSD"]["M15"]) == 24
-    assert hist["EURUSD"]["M15"][0] == 6.0    # entries 0..5 trimmed
-    assert hist["EURUSD"]["M15"][-1] == 29.0
-
-
-def test_validation_history_inf_pf_stored_as_none():
-    import math
-    from analyzer.state import LatestState
-    st = LatestState()
-    st.set_validation(_make_validation_snap({("EURUSD", "M15"): math.inf}))
-    hist = st.validation_history
-    assert hist["EURUSD"]["M15"] == [None]
-
-
 def test_state_set_and_read_macro():
     from analyzer.state import LatestState
     from analyzer.macro_feed import MacroSnapshot
@@ -268,71 +202,39 @@ def test_serialize_macro_shape():
     assert serialize_macro(None) is None
 
 
-def test_serialize_validation_shape():
-    from dashboard.serialize import serialize_validation
-    from analyzer.signal_validator import (
-        RegimeStats, SubPeriodStats, ValidationCore, ValidationStats,
-        ValidationSnapshot,
-    )
+# --------------------------------------------------------------------------- #
+# Task 10: serialize_performance includes trades/advanced/edge
+# --------------------------------------------------------------------------- #
 
-    third = SubPeriodStats(win_rate=0.6, expectancy=1.5, n_trades=10)
-    regime = RegimeStats(win_rate=0.5, expectancy=0.5, n_trades=5)
-    core = ValidationCore(
-        n_trades=30, win_rate=0.6, ci_low=0.45, ci_high=0.73,
-        profit_factor=1.8, expectancy=1.2, max_drawdown=8.0, avg_mae=3.0,
-        thirds=(third, third, third), regime_trend=regime, regime_range=regime,
-        tier="信頼",
-    )
-    stats = ValidationStats(symbol="EURUSD", base_tf="M15",
-                            raw=core, macro_filtered=core)
-    snap = ValidationSnapshot(generated_at=1.0, compute_ms=2.0,
-                              by_symbol={"EURUSD": {"M15": stats}})
+def test_serialize_performance_includes_trades_advanced_edge():
+    from analyzer.account_monitor import (
+        PerformanceSnapshot, ClosedTrade, AdvancedStats, EdgeStats)
+    from dashboard.serialize import serialize_performance
 
-    out = serialize_validation(snap)
-    assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["tier"] == "信頼"
-    assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["n_trades"] == 30
-    assert len(out["by_symbol"]["EURUSD"]["M15"]["raw"]["thirds"]) == 3
-    assert serialize_validation(None) is None
+    t = ClosedTrade(position_id=1, symbol="XAUUSD", type="BUY", volume=0.1,
+                    entry_time=100.0, exit_time=200.0, entry_price=4500.0,
+                    exit_price=4520.0, profit=200.0, swap=0.0, commission=0.0,
+                    pips=200.0, mae_pips=-20.0, mfe_pips=250.0, r_multiple=2.0,
+                    sl=4490.0, tp=4560.0, ctx={"M15": {"ae": True}}, env={})
+    adv = AdvancedStats(sharpe=1.5, sortino=2.0, calmar=3.0, recovery_factor=3.0,
+                        ulcer_index=1.1, var_95=-50.0, cvar_95=-80.0,
+                        max_win_streak=3, max_loss_streak=1, current_streak=2,
+                        max_drawdown_abs=50.0, underwater_pct=0.2,
+                        r_distribution={"1~2": 3}, equity_curve=[200.0],
+                        underwater_curve=[0.0])
+    edge = EdgeStats(by_alignment={"M15_above": {"n": 2, "win_rate": 0.5, "pf": 1.2}},
+                     by_adx={}, by_rsi={}, by_weekday_jst={}, by_hold_min={},
+                     by_dxy={}, by_cot_extreme={}, by_real_yield={}, by_flip={})
+    snap = PerformanceSnapshot(
+        generated_at=1.0, compute_ms=1.0, fetched_from_ts=0.0, fetched_to_ts=2.0,
+        by_range={}, open_trade_count=0, today_realised_pnl=0.0,
+        today_floating_pnl=0.0, today_total_pnl=0.0,
+        trades=(t,), advanced=adv, edge=edge)
 
-
-def test_serialize_validation_handles_infinite_pf():
-    from dashboard.serialize import serialize_validation
-    from analyzer.signal_validator import (
-        RegimeStats, SubPeriodStats, ValidationCore, ValidationStats,
-        ValidationSnapshot,
-    )
-    third = SubPeriodStats(win_rate=1.0, expectancy=2.0, n_trades=10)
-    regime = RegimeStats(win_rate=1.0, expectancy=2.0, n_trades=10)
-    core = ValidationCore(
-        n_trades=30, win_rate=1.0, ci_low=0.9, ci_high=1.0,
-        profit_factor=float("inf"), expectancy=2.0, max_drawdown=0.0,
-        avg_mae=0.0, thirds=(third, third, third),
-        regime_trend=regime, regime_range=regime, tier="信頼",
-    )
-    stats = ValidationStats(symbol="EURUSD", base_tf="M15",
-                            raw=core, macro_filtered=core)
-    snap = ValidationSnapshot(generated_at=1.0, compute_ms=2.0,
-                              by_symbol={"EURUSD": {"M15": stats}})
-    # inf must serialise to null — json.dumps would otherwise raise.
-    out = serialize_validation(snap)
-    assert out["by_symbol"]["EURUSD"]["M15"]["raw"]["profit_factor"] is None
-
-
-def test_serialize_dws_smt_includes_flip_norm():
-    import numpy as np
-    from analyzer.dws_smt import DwsSmtWindow, DwsSmtResult
-    from dashboard.serialize import serialize_dws_smt
-    win = DwsSmtWindow(
-        base_tf="M15", rows=("H4", "H1", "M15"),
-        times_ms=np.array([1, 2], dtype=np.int64),
-        colors=np.array([[0, 1, 2], [0, 0, 0]], dtype=np.int8),
-        triggers=(None, "BUY"),
-        trades=(),
-        bias=np.array([0.0, 1.0]),
-        flip_norm=np.array([[0.5, -0.5, 0.0], [1.0, 0.2, -0.9]]),
-    )
-    out = serialize_dws_smt(DwsSmtResult(by_base={"M15": win}))
-    blk = out["by_base"]["M15"]
-    assert "fn" in blk
-    assert blk["fn"] == [[0.5, -0.5, 0.0], [1.0, 0.2, -0.9]]
-    assert serialize_dws_smt(None) is None
+    out = serialize_performance(snap)
+    assert out["trades"][0]["pips"] == 200.0
+    assert out["trades"][0]["r_multiple"] == 2.0
+    assert out["trades"][0]["ctx"] == {"M15": {"ae": True}}
+    assert out["advanced"]["sharpe"] == 1.5
+    assert out["advanced"]["equity_curve"] == [200.0]
+    assert out["edge"]["by_alignment"]["M15_above"]["win_rate"] == 0.5

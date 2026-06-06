@@ -85,3 +85,24 @@ def test_unicode_and_roundtrip_fidelity(journal_dir):
     # And the stored bytes are real UTF-8 (ensure_ascii=False).
     assert "日本語メモ" in js.store_path(server).read_text(encoding="utf-8")
     assert json.loads(js.store_path(server).read_text(encoding="utf-8").strip())["note"] == "日本語メモ"
+
+
+def test_env_from_snapshot_reads_defensively():
+    from dashboard.lite_server import _env_from_snapshot
+    # Real field names verified from the dataclasses:
+    #   DxySnapshot.price (level), DxySnapshot.change (change)
+    #   CotSnapshot.pctile_1y (1-year percentile)
+    #   RealYieldSnapshot.value (level), RealYieldSnapshot.change_1d (1-day change)
+    snap = {
+        "dxy": type("D", (), {"price": 99.4, "change": 0.3})(),
+        "cot": type("C", (), {"pctile_1y": 5.0})(),
+        "real_yield": type("R", (), {"value": 2.1, "change_1d": -0.02})(),
+    }
+    env = _env_from_snapshot(snap)
+    assert env["dxy_level"] == 99.4
+    assert env["dxy_change"] == 0.3
+    assert env["cot_pctile"] == 5.0
+    assert env["real_yield_level"] == 2.1
+    assert env["real_yield_change"] == -0.02
+    # 欠落だらけでも例外を出さず空 dict
+    assert _env_from_snapshot({}) == {}

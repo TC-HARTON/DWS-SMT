@@ -1,5 +1,40 @@
 # セッション申し送り (Session Handoff)
 
+## 0. 2026-06-06 大規模クリーンアップ + EMA-stack へのピボット(最重要・先に読む)
+
+このアプリは **DWS-SMT トリガー駆動**から **M15 EMA-stack 乖離率オシレーター**へピボット済み。
+以下は **削除済み(コードベースに存在しない)**。再導入や「復旧」を試みないこと:
+
+- **DWS パイプライン**: `analyzer/dws_smt.py` / `trigger_store.py` / `signal_validator.py` と、
+  `indicator_engine.with_dws` / `SymbolIndicators.dws` / `serialize.serialize_dws_smt` /
+  `analysis_loop._publish_triggers`。WS スナップから `dws` キー削除。
+- **構造/ライン機能**: `analyzer/pattern_matcher.py` / `line_reader.py` / `structure_types.py`、
+  `config.STRUCTURE_TFS` / `LINES_*` / `LiveTrigger` 系、`data/lines/`、`data/live_triggers/`。
+- **研究/OOS 資産**: `scripts/_*` の研究・診断・バックテスト系一切(`_backtest_*`/`_oos_*`/`_pattern_*`/
+  `_sim_*`/`_m15_*`/`_repro_repaint`/`_verify_*` 等)、`data/oos_*.json|md`(+`*.pre_repaint_fix.*`)、
+  `data/loss_analysis/`、`docs/superpowers/plans|specs/` の旧設計書。関連 config(`DWS_SMT_*`/`BIAS_*`/
+  `LIVE_TRIGGER_DIR`/`LIVE_SPREAD_COST_PIPS`)も除去。
+- 上記に対応する `tests/test_{dws_smt,trigger_store,signal_validator,line_reader,publish_triggers,
+  config_dws,oos_baseline_stats}.py` も削除。
+
+**現行の唯一のチャート機能 = `analyzer/ema_stack.py`**: M15 確定足の EMA20/80/320 を計算し、
+EMA320 を中心線、EMA20/80/価格をその %乖離としてオシレーター描画(リペイント不可・単一系列・因果EMA)。
+配信は WS full スナップ + 深掘り履歴用 HTTP `/api/ema_history`(`dashboard/lite_server.py`)。
+フロントは `static/app.js` の `paintEmaStack`/`_emaRender`/`_emaHover`/`_emaWheel`/`_emaDrag`/`fetchEmaHistory`。
+読み取り値は3本とも **乖離率**(`(price−EMA)/EMA×100`)。BROKER は **TitanFX = UTC+3 (Europe/Athens)**
+(`config.BROKER_TZ_BY_SERVER`)、DXY は連続指数優先(`mt5_connector.resolve_dxy` → `USDX`)。
+
+検証(本クリーンアップ後): **pytest 219 passed** / サーバ再起動クリーン(MT5接続・USDX解決・
+analysis loop 稼働) / ブラウザ実描画で EMA-stack・実質金利・DXY・COT・経済指標・資金パネル全描画、
+console エラー 0。
+
+> ⚠️ **以下 §1〜§18 は本ピボット以前の歴史ログ**。DWS/トリガー/16年OOS/構造ライン/EXNESS/10銘柄
+> 等の記述は**当時の状態**であり現行とは一致しない(特に `docs/ARCHITECTURE.md` はピボット前の
+> Dash/clientside-callback 構成を丸ごと記述した全面陳腐化状態 = 要全面刷新)。環境(§2)・Git(§3)・
+> ハマりどころ等の運用知識は引き続き有効。
+
+---
+
 > 最終更新: 2026-06-01 / 直近コミット: `86e3dbb`(+本申し送り更新) origin/main と同期。
 > §9–§11 は全て**コミット済み**(9070ae5 以降: f509595 / 56aee6b / e151c03 / 9499f04 / 86e3dbb)。
 > **最新の作業は §12 を読む**こと(カレンダー時刻バグ根治・通貨強弱検証・IC較正・縮小DWS 等)。
@@ -405,3 +440,24 @@ node --check static/app.js
 - `scripts/`: `_verify_phase3.py`(削除済み strength/correlation 参照)/`_verify_running.py`(削除済み Dash layout endpoint 参照)= 破損した orphaned スクリプト削除。
 - **見送り(意図的)**: ① macro の employment + 非USD利率(EUR/GBP/JPY/AUD)— XAUUSD特化後は dormant だが、稼働中フィード+テスト多数に波及する大規模改修のため別途集中対応推奨(employment は消費者ゼロ=真の dead、非USDは tested/汎用で config 再有効化可能)。② `structure_types.py` の未使用 enum 値(無害・line_reader が使う kept モジュール)。③ `pattern_matcher.py`(「将来 walk-forward 検証後に再導入」と明記の意図的アーカイブ)。
 - 検証: 全体 **293 passed**・サーバ XAUUSD単独で正常起動・全パネル描画・順序維持・コンソールエラー0。
+
+
+## 19. 次セッション申し送り — ダッシュボード精度向上 & UI/UX(空白エリア活用)
+
+> ⚠️ 2026-06-04 以降、**このプロジェクトは一旦 MQL5 インジ構築へ移行**(下記「進行中」)。本節はダッシュボードに戻る将来セッション向けの TODO。
+
+### 19.1 精度向上(候補)
+- **実質金利(リアルタイム)**: 現状 `DFII10(日次)+ ^TNX intraday 差分` のライブ近似(§18.1)。官製 intraday 実質利回りの無料源が現れたら差し替え検討。proxy 誤差(DFII10 基準日と ^TNX 日付のズレ)は許容範囲だが、市場閉場時は静止する点に注意。
+- **DWS トリガー EMA 精度**: ダッシュボードの EMA は **first-value seeded の再帰EMA**(`y[0]=close[0]`、α=2/(period+1)、平滑は seed=0)で原典 DWS_SMT.mq5 と一致(`analyzer/dws_smt.py:_ema/_diff_series`)。**MT5 標準 `iMA(EMA)` は SMA seeded で値が異なる**ので、チャート系インジを作る場合は同一 seeding を自前実装すること(← ②の核心)。
+- **16Y ベースライン/validation**: Welch/Wilson/Bootstrap 実装済み。再生成は `scripts/_oos_xauusd_16y.py` → `_generate_oos_baseline.py`。
+- **macro 死蔵(未対応・推奨)**: employment(消費者ゼロ=真の dead)+ 非USD利率(EUR/GBP/JPY/AUD、XAUUSD特化後 dormant)。テスト8件超に波及するため集中ターンで除去推奨(employment は安全、非USD は tested/汎用で config 再有効化可能)。
+
+### 19.2 UI/UX — 空白エリア活用(最重要・方向未決)
+- ヒストグラムを約半分に圧縮済み(§17.2)。**下部の全幅エリア + 左下(時刻別ヒートマップ下)が現状ほぼ空白**。
+- 経緯: エクイティカーブ試作→**ユーザ却下**、OOS統計ボックス削除。ユーザは「空白を有効活用したい」意向だが**具体策は未決**。
+- 次セッションの進め方: 空白活用の具体案を**提示してユーザに選ばせる**。候補(**エクイティ曲線は却下済みなので除外**): (a) 価格チャート(ライン/エリア + トリガーEMA + BUY/SELL/EXITマーカー), (b) スペーサ縮小でヒストグラム/ヒートマップを少し拡大, (c) 既存ブロックの再配置・拡大。
+- **フォント規約厳守**: 全体 mono(`body{font-family:var(--mono)}`)。新規 UI も mono 準拠、`var(--ui)`/sans 禁止(`memory/feedback_font_mono.md`・§17.1)。
+
+### 19.3 状態
+- 死蔵コード一掃済み(§18.2)。残置: `structure_types.py` 未使用 enum(無害)、`pattern_matcher.py`(意図的アーカイブ)。
+- origin/main は本セッションの全作業を反映済み。

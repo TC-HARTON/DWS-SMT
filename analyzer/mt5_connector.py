@@ -308,24 +308,64 @@ class MT5Connector:
             self._resolved = resolved
         log.info("Resolved %d symbols: %s", len(resolved), resolved)
 
-    def resolve_dxy(self, prefix: str = config.DXY_SYMBOL_PREFIX) -> str | None:
-        """Resolve the ACTIVE FRONT-MONTH dollar-index futures contract and
-        register it under base 'DXY' in self._resolved, so latest_tick('DXY') /
-        copy_rates('DXY', ...) work.
+    def resolve_dxy(
+        self,
+        prefix: str = config.DXY_SYMBOL_PREFIX,
+        index_names: Iterable[str] = config.DXY_INDEX_SYMBOLS,
+    ) -> str | None:
+        """Resolve a dollar-index symbol and register it under base 'DXY' in
+        self._resolved, so latest_tick('DXY') / copy_rates('DXY', ...) work.
 
-        The broker lists quarterly DXY_* contracts (e.g. DXY_M6 = Jun-2026,
-        DXY_U6 = Sep-2026). Selection is roll-safe in two stages:
-          1. keep only contracts with a LIVE (non-zero) bid — an expired
-             front month stops quoting, so it drops out automatically;
-          2. among the live ones pick the NEAREST contract month (front month)
-             via the futures month-code in the name — both the front and back
-             month tick simultaneously off the same feed, so tick recency
-             cannot tell them apart; the month code can. Falls back to the
-             freshest tick only when no name parses.
-        Returns the chosen broker symbol, or None if no live DXY contract
-        exists (the feature then degrades gracefully)."""
+        Brokers expose the index in one of two shapes; we try them in order:
+
+        1. CONTINUOUS spot/CFD index (e.g. TitanFX 'USDX', path Indices\\USDX) —
+           no expiry, no roll. Matched by EXACT name (case-insensitive) against
+           *index_names*; accepted only when it quotes a LIVE (non-zero) bid.
+        2. QUARTERLY futures (e.g. IC Markets 'DXY_M6' = Jun-2026, 'DXY_U6' =
+           Sep-2026). Selection is roll-safe in two stages:
+             a. keep only contracts with a LIVE (non-zero) bid — an expired
+                front month stops quoting, so it drops out automatically;
+             b. among the live ones pick the NEAREST contract month (front
+                month) via the futures month-code in the name — both the front
+                and back month tick simultaneously off the same feed, so tick
+                recency cannot tell them apart; the month code can. Falls back
+                to the freshest tick only when no name parses.
+
+        Returns the chosen broker symbol, or None if neither a continuous index
+        nor a live futures contract exists (the DXY card then degrades
+        gracefully)."""
         import re
         import datetime as _dt
+
+        with self._lock:
+            all_syms = mt5.symbols_get()
+        if not all_syms:
+            log.warning("resolve_dxy: mt5.symbols_get returned no symbols")
+            return None
+
+        # --- 1) continuous spot/CFD index (exact name, live bid required) ---
+        by_upper = {s.name.upper(): s.name for s in all_syms}
+        for want in index_names:
+            actual = by_upper.get(want.upper())
+            if actual is None:
+                continue
+            with self._lock:
+                if not mt5.symbol_select(actual, True):
+                    code, msg = mt5.last_error()
+                    log.warning("resolve_dxy: symbol_select failed for continuous %s: "
+                                "code=%s msg=%r", actual, code, msg)
+                    continue
+                tick = mt5.symbol_info_tick(actual)
+            bid = (getattr(tick, "bid", 0.0) or 0.0) if tick is not None else 0.0
+            if bid <= 0:
+                log.warning("resolve_dxy: continuous index %s has no live bid; skipping", actual)
+                continue
+            with self._lock:
+                self._resolved["DXY"] = actual
+            log.info("Resolved DXY continuous index symbol: %s (bid=%.4f)", actual, bid)
+            return actual
+
+        # --- 2) quarterly index futures (front-month auto-roll) ---
         # CME/ICE futures month codes F..Z = Jan..Dec.
         month_code = {"F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
                       "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12}
@@ -346,15 +386,11 @@ class MT5Connector:
                 year = 2000 + int(yd)
             return (year, month)
 
-        with self._lock:
-            all_syms = mt5.symbols_get()
-        if not all_syms:
-            log.warning("resolve_dxy: mt5.symbols_get returned no symbols")
-            return None
         key = prefix.upper()
         candidates = [s.name for s in all_syms if s.name.upper().startswith(key)]
         if not candidates:
-            log.warning("resolve_dxy: no DXY_* contracts found (prefix=%r)", prefix)
+            log.warning("resolve_dxy: no continuous index (%s) and no %s_* futures found",
+                        tuple(index_names), prefix)
             return None
 
         # (name, expiry_key|None, tick_time) for every LIVE-bid contract.
@@ -639,6 +675,37 @@ class MT5Connector:
         df.index = self._bar_index_utc(raw["time"])
         return df
 
+    def copy_rates_range(self, base: str, mt5_timeframe: int,
+                         from_ts: float, to_ts: float) -> pd.DataFrame:
+        """OHLC bars for *base* between two UTC epoch-second bounds.
+
+        Used for per-trade MAE/MFE (spec §8.1): we need the exact bars a
+        position was open across, which a ``count``-based fetch cannot bound.
+        Index is true UTC (DST-correct via the same ``_bar_index_utc`` the
+        regular feed uses). Empty DataFrame if MT5 returns nothing.
+
+        Args:
+            base: logical symbol (e.g. ``"XAUUSD"``).
+            mt5_timeframe: an ``mt5.TIMEFRAME_*`` constant.
+            from_ts: epoch seconds (UTC), inclusive lower bound.
+            to_ts: epoch seconds (UTC), inclusive upper bound.
+        """
+        broker = self.broker_name(base)
+        from_dt = datetime.fromtimestamp(from_ts, tz=timezone.utc)
+        to_dt = datetime.fromtimestamp(to_ts, tz=timezone.utc)
+        with self._lock:
+            raw = mt5.copy_rates_range(broker, mt5_timeframe, from_dt, to_dt)
+        if raw is None or len(raw) == 0:
+            return pd.DataFrame(columns=["open", "high", "low", "close",
+                                         "tick_volume", "spread", "real_volume"])
+        idx = self._bar_index_utc(raw["time"])
+        return pd.DataFrame({
+            "open": raw["open"], "high": raw["high"],
+            "low": raw["low"], "close": raw["close"],
+            "tick_volume": raw["tick_volume"], "spread": raw["spread"],
+            "real_volume": raw["real_volume"],
+        }, index=idx)
+
     def _bar_index_utc(self, server_secs: np.ndarray) -> pd.DatetimeIndex:
         """Convert MT5 server-time bar epochs (seconds) to a true-UTC index.
 
@@ -826,7 +893,7 @@ class MT5Connector:
                 "price": float(tick.ask if is_buy else tick.bid),
                 "deviation": int(config.ORDER_DEVIATION_POINTS),
                 "magic": int(config.ORDER_MAGIC),
-                "comment": "DWS-dash",
+                "comment": "dash",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": self._filling_mode(info),
             }
@@ -869,7 +936,7 @@ class MT5Connector:
                 "price": float(tick.bid if is_buy else tick.ask),
                 "deviation": int(config.ORDER_DEVIATION_POINTS),
                 "magic": int(config.ORDER_MAGIC),
-                "comment": "DWS-dash close",
+                "comment": "dash close",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": self._filling_mode(info),
             }

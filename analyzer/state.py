@@ -12,7 +12,6 @@ while keeping the heavier indicator pass on a 5 s cadence.
 
 from __future__ import annotations
 
-import copy
 import threading
 import time
 from dataclasses import dataclass
@@ -20,9 +19,9 @@ from typing import Optional
 
 from analyzer.account_monitor import PerformanceSnapshot
 from analyzer.calendar_feed import CalendarSnapshot
-from analyzer.signal_validator import ValidationSnapshot
 from analyzer.macro_feed import MacroSnapshot, RealYieldSnapshot
 from analyzer.dxy_feed import DxySnapshot
+from analyzer.ema_stack import EmaStackSnapshot
 from analyzer.cot_feed import CotSnapshot
 from analyzer.indicator_engine import AnalysisSnapshot
 from analyzer.mt5_connector import AccountSnapshot, Tick
@@ -66,22 +65,11 @@ class LatestState:
         self._account: Optional[AccountSnapshot] = None
         self._performance: Optional[PerformanceSnapshot] = None
         self._calendar: Optional[CalendarSnapshot] = None
-        self._validation: Optional[ValidationSnapshot] = None
         self._macro: Optional[MacroSnapshot] = None
         self._real_yield: Optional[RealYieldSnapshot] = None
         self._dxy: Optional[DxySnapshot] = None
+        self._ema_stack: Optional[EmaStackSnapshot] = None
         self._cot: Optional[CotSnapshot] = None
-        # Rolling per-cell PF history fed by set_validation(); the live OOS
-        # block uses it to draw a tiny sparkline so the user can see if a
-        # tier is improving or decaying within the session.
-        self._validation_history: dict[str, dict[str, list[float]]] = {}
-        self._validation_history_max_per_cell = 24    # ~2 h at 5-min cadence
-        # Persistent live trigger history, aggregated per (symbol, base TF) from
-        # the on-disk store for the CURRENTLY connected broker. Shape per cell:
-        # {"by_year": {YYYY: {stats, trades:[last30]}}}. ``_live_trigger_server``
-        # is the broker (MT5 server) the history belongs to, surfaced in the UI.
-        self._live_trigger_history: dict[str, dict[str, dict]] = {}
-        self._live_trigger_server: Optional[str] = None
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
         self._monotonic_version = 0  # bumped on any write — useful for clients
@@ -143,42 +131,6 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
-    def set_validation(self, snapshot: ValidationSnapshot) -> None:
-        with self._cond:
-            self._validation = snapshot
-            # Append this pass's PF to the rolling history bucket per
-            # (sym, base_tf). PF = ∞ is normalised to None (the front end
-            # treats it as "off chart"). Trim to the configured cap.
-            limit = self._validation_history_max_per_cell
-            for sym, per_tf in snapshot.by_symbol.items():
-                sym_buf = self._validation_history.setdefault(sym, {})
-                for tf, stats in per_tf.items():
-                    pf = stats.raw.profit_factor
-                    if pf != pf or pf == float("inf"):     # NaN or inf → None
-                        val = None
-                    else:
-                        val = float(pf)
-                    buf = sym_buf.setdefault(tf, [])
-                    buf.append(val)
-                    if len(buf) > limit:
-                        del buf[: len(buf) - limit]
-            self._monotonic_version += 1
-            self._analysis_version += 1
-            self._cond.notify_all()
-
-    def set_live_trigger_history(
-        self, history: dict[str, dict[str, dict]], server: str | None,
-    ) -> None:
-        """Publish the per-(symbol, TF) live trigger history aggregated from the
-        on-disk store, tagged with the broker it belongs to. Counts as a heavy
-        update so the next WS push is a full snapshot carrying it."""
-        with self._cond:
-            self._live_trigger_history = history
-            self._live_trigger_server = server
-            self._monotonic_version += 1
-            self._analysis_version += 1
-            self._cond.notify_all()
-
     def set_macro(self, snapshot: MacroSnapshot) -> None:
         with self._cond:
             self._macro = snapshot
@@ -211,6 +163,15 @@ class LatestState:
             self._analysis_version += 1
             self._cond.notify_all()
 
+    def set_ema_stack(self, snapshot: EmaStackSnapshot) -> None:
+        """Publish the latest EMA-stack oscillator snapshot. Counts as a heavy
+        domain so the next WS push is a full snapshot carrying it."""
+        with self._cond:
+            self._ema_stack = snapshot
+            self._monotonic_version += 1
+            self._analysis_version += 1
+            self._cond.notify_all()
+
     def wait_for_update(self, since_version: int, timeout: float) -> bool:
         """Block until ``self.version > since_version`` or *timeout* elapses.
 
@@ -239,16 +200,6 @@ class LatestState:
             return self._account
 
     @property
-    def live_trigger_history(self) -> dict[str, dict[str, dict]]:
-        with self._lock:
-            return copy.deepcopy(self._live_trigger_history)
-
-    @property
-    def live_trigger_server(self) -> str | None:
-        with self._lock:
-            return self._live_trigger_server
-
-    @property
     def status(self) -> ConnectionStatus:
         with self._lock:
             return self._status
@@ -262,11 +213,6 @@ class LatestState:
     def calendar(self) -> CalendarSnapshot | None:
         with self._lock:
             return self._calendar
-
-    @property
-    def validation(self) -> ValidationSnapshot | None:
-        with self._lock:
-            return self._validation
 
     @property
     def macro(self) -> MacroSnapshot | None:
@@ -289,13 +235,9 @@ class LatestState:
             return self._cot
 
     @property
-    def validation_history(self) -> dict[str, dict[str, list[float | None]]]:
-        """Snapshot copy of the per-cell PF history rolling buffer."""
+    def ema_stack(self) -> EmaStackSnapshot | None:
         with self._lock:
-            return {
-                sym: {tf: list(buf) for tf, buf in per_tf.items()}
-                for sym, per_tf in self._validation_history.items()
-            }
+            return self._ema_stack
 
     @property
     def version(self) -> int:
@@ -320,21 +262,11 @@ class LatestState:
                 "account": self._account,
                 "performance": self._performance,
                 "calendar": self._calendar,
-                "validation": self._validation,
                 "macro": self._macro,
                 "real_yield": self._real_yield,
                 "dxy": self._dxy,
+                "ema_stack": self._ema_stack,
                 "cot": self._cot,
-                "validation_history": {
-                    sym: {tf: list(buf) for tf, buf in per_tf.items()}
-                    for sym, per_tf in self._validation_history.items()
-                },
-                # Copy the two nested mutables so a concurrent writer
-                # (validation worker / broker bring-up) that rebinds them can
-                # never mutate a structure the WS thread is still iterating
-                # after the lock is released — matches validation_history above.
-                "live_trigger_history": copy.deepcopy(self._live_trigger_history),
-                "live_trigger_server": self._live_trigger_server,
                 "broker_meta": {k: dict(v) for k, v in self._broker_meta.items()},
             }
 
@@ -342,10 +274,8 @@ class LatestState:
         """Minimal view for the 2 Hz price tick: version/ts/status/price/account.
 
         The light WS path serialises only these fields, so calling the full
-        :meth:`snapshot` (which deep-copies the unbounded, ever-growing live
-        trigger history and rebuilds the validation-history buffers twice a
-        second for data it then discards) is pure waste — and holds the lock
-        longer against the 2 Hz price/account writers. This copies nothing
+        :meth:`snapshot` for data it then discards is pure waste — and holds the
+        lock longer against the 2 Hz price/account writers. This copies nothing
         heavy: the snapshot dataclasses are replaced wholesale by writers, so
         returning the current references under the lock is safe.
         """

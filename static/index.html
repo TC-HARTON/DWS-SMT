@@ -31,35 +31,6 @@
 </main>
 
 <aside class="side">
-    <div class="card account-card">
-      <div class="card-title">
-        <span class="title-accent">Account</span>
-        <span class="acc-identity-wrap">
-          <span data-bind="acc-identity">--</span>
-          <button class="broker-toggle" data-bind="broker-toggle" title="ブローカー切替" aria-haspopup="menu">▾</button>
-          <div class="broker-menu" data-bind="broker-menu" hidden></div>
-        </span>
-      </div>
-      <div class="acc-reco" title="検証済みロットラダー: 資金10万円ごとに0.01ロット (上限10)">
-        <span class="acc-reco-label">推奨ロット</span>
-        <span class="acc-reco-val mono" data-bind="acc-reco">--</span>
-        <span class="acc-reco-sub" data-bind="acc-reco-sub"></span>
-      </div>
-      <div class="acc-grid">
-        <div class="acc-cell"><div class="acc-label">Balance</div><div class="acc-val mono" data-bind="acc-balance">--</div></div>
-        <div class="acc-cell"><div class="acc-label">Equity</div><div class="acc-val mono" data-bind="acc-equity">--</div></div>
-        <div class="acc-cell"><div class="acc-label">Profit</div><div class="acc-val mono" data-bind="acc-profit">--</div></div>
-        <div class="acc-cell pnl"><div class="acc-label">Today P&L</div><div class="acc-val big mono" data-bind="acc-today">--</div></div>
-        <div class="acc-cell"><div class="acc-label">Margin</div><div class="acc-val mono" data-bind="acc-margin">--</div></div>
-        <div class="acc-cell"><div class="acc-label">Free</div><div class="acc-val mono" data-bind="acc-free">--</div></div>
-        <div class="acc-cell"><div class="acc-label">Lev</div><div class="acc-val mono" data-bind="acc-lev">--</div></div>
-        <div class="acc-cell"><div class="acc-label">Level</div><div class="acc-val mono" data-bind="acc-level">--</div></div>
-      </div>
-      <div class="acc-positions" data-bind="positions">
-        <div class="empty">no open positions</div>
-      </div>
-    </div>
-
     <div class="card ry-card">
       <div class="card-title"><span class="title-accent">実質金利 米10年</span><span data-bind="ry-status" class="mute">--</span></div>
       <div class="dxy-body" data-bind="realyield"><div class="empty mute">読み込み中…</div></div>
@@ -80,11 +51,19 @@
       <div class="cal-list" data-bind="calendar"><div class="empty mute">読み込み中…</div></div>
     </div>
 
-    <div class="card journal-card">
-      <div class="card-title"><span class="title-accent">トレード日誌</span><span data-bind="journal-status" class="mute">--</span></div>
-      <div class="journal-list" data-bind="journal"><div class="empty mute">発注すると、その時の3TF状況つきで自動記録されます</div></div>
-    </div>
   </aside>
+
+<section class="fund" data-bind="fund">
+  <div class="fund-kpi" data-bind="fund-kpi"></div>
+  <div class="fund-main">
+    <div class="fund-tabs" data-bind="fund-tabs">
+      <button class="pill on" data-fundtab="positions">現ポジション</button>
+      <button class="pill" data-fundtab="money">資金管理</button>
+      <button class="pill" data-fundtab="history">履歴</button>
+    </div>
+    <div class="fund-body" data-bind="fund-body"></div>
+  </div>
+</section>
 
 <!-- Discretionary order confirmation (mandatory before any live order). -->
 <div id="order-confirm" class="order-confirm" hidden>

@@ -129,6 +129,68 @@ def test_initialize_raises_when_symbol_missing(mt5_stub):
         c.initialize()
 
 
+# ----------------------------------------------------- resolve_dxy
+
+def _dxy_tick(bid: float, t: int = 1_700_000_000) -> SimpleNamespace:
+    return SimpleNamespace(bid=bid, ask=bid + 0.02, time=t)
+
+
+def test_resolve_dxy_continuous_index_symbol(mt5_stub):
+    """A continuous spot index (TitanFX 'USDX') resolves under base 'DXY'."""
+    mt5_stub.symbols_get.return_value = [_FakeSymbol("XAUUSD"), _FakeSymbol("USDX")]
+    mt5_stub.symbol_info_tick.side_effect = (
+        lambda name: _dxy_tick(99.25) if name == "USDX" else None
+    )
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    assert c.resolve_dxy() == "USDX"
+    assert c.resolved_symbols["DXY"] == "USDX"
+
+
+def test_resolve_dxy_prefers_continuous_over_futures(mt5_stub):
+    """Both a continuous index and quarterly futures exist → the continuous
+    spot symbol wins (it needs no roll)."""
+    mt5_stub.symbols_get.return_value = [
+        _FakeSymbol("USDX"), _FakeSymbol("DXY_M6"), _FakeSymbol("DXY_U6"),
+    ]
+    mt5_stub.symbol_info_tick.side_effect = (
+        lambda name: _dxy_tick(99.25) if name == "USDX" else _dxy_tick(99.30)
+    )
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    assert c.resolve_dxy() == "USDX"
+
+
+def test_resolve_dxy_skips_continuous_without_live_bid(mt5_stub):
+    """A continuous index quoting no bid (bid=0) is skipped; resolution falls
+    through to the live futures contract."""
+    mt5_stub.symbols_get.return_value = [_FakeSymbol("USDX"), _FakeSymbol("DXY_M6")]
+    mt5_stub.symbol_info_tick.side_effect = (
+        lambda name: _dxy_tick(0.0) if name == "USDX" else _dxy_tick(99.30)
+    )
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    assert c.resolve_dxy() == "DXY_M6"
+    assert c.resolved_symbols["DXY"] == "DXY_M6"
+
+
+def test_resolve_dxy_falls_back_to_futures(mt5_stub):
+    """No continuous index → a live quarterly futures contract resolves."""
+    mt5_stub.symbols_get.return_value = [
+        _FakeSymbol("XAUUSD"), _FakeSymbol("DXY_M6"), _FakeSymbol("DXY_U6"),
+    ]
+    mt5_stub.symbol_info_tick.side_effect = lambda name: _dxy_tick(99.30)
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    chosen = c.resolve_dxy()
+    assert chosen is not None and chosen.startswith("DXY_")
+    assert c.resolved_symbols["DXY"].startswith("DXY_")
+
+
+def test_resolve_dxy_none_when_no_index_or_futures(mt5_stub):
+    """Neither a continuous index nor futures present → None (graceful)."""
+    mt5_stub.symbols_get.return_value = [_FakeSymbol("XAUUSD"), _FakeSymbol("EURUSD")]
+    c = MT5Connector(terminal_path="X", login="", password="", server="")
+    assert c.resolve_dxy() is None
+    assert "DXY" not in c.resolved_symbols
+
+
 def test_latest_tick_returns_none_when_mt5_returns_none(mt5_stub):
     c = MT5Connector(terminal_path="X", login="", password="", server="")
     c.initialize()
@@ -350,3 +412,31 @@ def test_copy_rates_returns_empty_df_when_mt5_returns_none(mt5_stub):
     mt5_stub.copy_rates_from_pos.return_value = None
     df = c.copy_rates("XAUUSD", mt5_timeframe=15, count=10)
     assert df.empty
+
+
+def test_copy_rates_range_returns_utc_indexed_ohlc(monkeypatch):
+    import numpy as np
+    import pandas as pd
+    from analyzer import mt5_connector as mc
+
+    conn = mc.MT5Connector.__new__(mc.MT5Connector)  # bypass __init__/MT5
+    conn._resolved = {"XAUUSD": "XAUUSD"}
+    conn._lock = __import__("threading").Lock()
+    monkeypatch.setattr(conn, "broker_name", lambda base: "XAUUSD")
+    monkeypatch.setattr(conn, "_bar_index_utc",
+                        lambda epochs: pd.to_datetime(epochs, unit="s", utc=True))
+
+    raw = np.array(
+        [(1_700_000_000, 4500.0, 4510.0, 4495.0, 4505.0, 10, 2, 0)],
+        dtype=[("time", "<i8"), ("open", "<f8"), ("high", "<f8"),
+               ("low", "<f8"), ("close", "<f8"), ("tick_volume", "<i8"),
+               ("spread", "<i8"), ("real_volume", "<i8")],
+    )
+    monkeypatch.setattr(mc.mt5, "copy_rates_range",
+                        lambda *a, **k: raw, raising=False)
+
+    df = conn.copy_rates_range("XAUUSD", mc.mt5.TIMEFRAME_M1,
+                               1_699_999_000.0, 1_700_001_000.0)
+    assert list(df.columns[:4]) == ["open", "high", "low", "close"]
+    assert float(df["high"].iloc[0]) == 4510.0
+    assert float(df["low"].iloc[0]) == 4495.0

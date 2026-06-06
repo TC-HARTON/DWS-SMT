@@ -70,9 +70,7 @@ def mount_websocket(flask_app: "Flask", state: LatestState = STATE) -> Sock:
                     # a light price-only message (the client merges it).
                     av = state.analysis_version
                     if av > last_analysis_version:
-                        # Recurring full: omit the static 2 MB oos_baseline (the
-                        # client cached it from the initial snapshot below).
-                        payload = snapshot_to_json(state, include_baseline=False)
+                        payload = snapshot_to_json(state)
                     else:
                         payload = snapshot_light(state)
                     if payload["version"] <= last_version:
@@ -83,9 +81,8 @@ def mount_websocket(flask_app: "Flask", state: LatestState = STATE) -> Sock:
                     last_heartbeat = now
                 elif now - last_heartbeat >= config.WS_HEARTBEAT_INTERVAL_SEC:
                     # Keep-alive: re-send a full snapshot (rare; also self-heals
-                    # any client that missed a heavy update). Baseline omitted —
-                    # the client already cached it from the initial snapshot.
-                    payload = snapshot_to_json(state, include_baseline=False)
+                    # any client that missed a heavy update).
+                    payload = snapshot_to_json(state)
                     ws.send(json.dumps(payload, separators=(",", ":")))
                     last_version = payload["version"]
                     last_analysis_version = state.analysis_version

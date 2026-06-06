@@ -31,21 +31,13 @@ import time
 from dataclasses import dataclass
 
 import config
-from analyzer import dxy_feed, trigger_store
+from analyzer import dxy_feed, ema_stack
 from analyzer.account_monitor import PerformanceEngine
 from analyzer.calendar_feed import CalendarEngine
 from analyzer.cot_feed import CotEngine
 from analyzer.indicator_engine import IndicatorEngine
-from analyzer.line_reader import LINES, LinesState, LinesWatcher
-from analyzer.signal_validator import SignalValidator
 from analyzer.macro_feed import MacroEngine
 from analyzer.mt5_connector import MT5Connector, MT5ConnectionError
-# Pattern matcher live pipeline is currently decommissioned — the front-end
-# does not consume the results so running it every cycle wastes CPU + WS
-# bandwidth. ``analyzer.pattern_matcher`` and the JSON tables under
-# ``data/loss_analysis/`` are kept for future walk-forward-validated
-# re-introduction; re-enable by re-importing PatternMatcher here and
-# restoring ``_publish_pattern_matches`` in ``_run_analysis_pass``.
 from analyzer.state import (
     ConnectionStatus,
     LatestState,
@@ -73,18 +65,14 @@ class AnalysisLoop:
         connector: MT5Connector,
         engine: IndicatorEngine | None = None,
         state: LatestState = STATE,
-        lines_state: LinesState = LINES,
-        lines_watcher: LinesWatcher | None = None,
         performance_engine: PerformanceEngine | None = None,
         calendar_engine: CalendarEngine | None = None,
-        signal_validator: SignalValidator | None = None,
         macro_engine: MacroEngine | None = None,
         cot_engine: CotEngine | None = None,
         price_interval: float = config.PRICE_REFRESH_SEC,
         analysis_interval: float = config.ANALYSIS_REFRESH_SEC,
         history_interval: float = config.HISTORY_REFRESH_SEC,
         calendar_interval: float = config.CALENDAR_REFRESH_SEC,
-        validation_interval: float = config.VALIDATION_REFRESH_SEC,
         macro_interval: float = config.MACRO_REFRESH_SEC,
         realyield_interval: float = config.MACRO_REALYIELD_REFRESH_SEC,
         realyield_live_interval: float = config.MACRO_REALYIELD_LIVE_REFRESH_SEC,
@@ -94,22 +82,15 @@ class AnalysisLoop:
         self._connector = connector
         self._engine = engine or IndicatorEngine()
         self._state = state
-        self._lines_state = lines_state
-        self._lines_watcher = lines_watcher or LinesWatcher(state=lines_state)
         self._performance_engine = performance_engine or PerformanceEngine(connector)
         self._calendar_engine = calendar_engine or CalendarEngine()
         # Calendar HTTP fetch runs off-thread because the upstream timeout
         # is up to 30 s on a network outage — blocking the analysis loop
         # would starve the 1 s price refresh (SPEC §14.4).
         self._calendar_inflight = threading.Event()
-        self._signal_validator = signal_validator or SignalValidator(connector)
-        # Deep-history validation runs off-thread — the parallel fetch of
-        # VALIDATION_HISTORY_BARS across every symbol/TF takes far longer than
-        # the 0.5 s price tick may wait.
-        self._validation_inflight = threading.Event()
         # Macro fetch is pure HTTP (no MT5 connector lock), so it cannot starve
-        # the price tick the way the validation worker can — off-thread only
-        # keeps a slow network call out of the loop.
+        # the price tick — off-thread only keeps a slow network call out of the
+        # loop.
         self._macro_engine = macro_engine or MacroEngine()
         self._macro_inflight = threading.Event()
         # The real yield moves daily, so it refreshes faster than policy rates
@@ -124,28 +105,13 @@ class AnalysisLoop:
         self._reconnect_interval = reconnect_interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        # Pre-compute the full TF set we hand to fetch_rates_parallel each
-        # cycle: the Phase-1 indicator TFs plus the Phase-2 structure TFs.
-        # We dedupe by label so a future config edit that promotes a TF from
-        # STRUCTURE_TFS to TIMEFRAMES (or vice-versa) does not silently send
-        # two entries with the same key to the connector.
-        seen_labels: set[str] = set()
-        unique_tfs: list[config.TimeframeSpec] = []
-        for tf in (*config.TIMEFRAMES, *config.STRUCTURE_TFS):
-            if tf.label in seen_labels:
-                continue
-            seen_labels.add(tf.label)
-            unique_tfs.append(tf)
-        self._all_tfs = tuple(unique_tfs)
+        # TFs fetched each analysis cycle = the indicator timeframes (D1/H4/H1/M15).
+        self._all_tfs = tuple(config.TIMEFRAMES)
         self._schedules = (
             _Schedule("price", price_interval),
             _Schedule("analysis", analysis_interval),
             _Schedule("history", history_interval),
             _Schedule("calendar", calendar_interval),
-            # Delay the first validation pass: its deep-history fetch is heavy,
-            # so let warm-up and the first normal cycles settle first.
-            _Schedule("validation", validation_interval,
-                      next_run=time.time() + config.VALIDATION_STARTUP_DELAY_SEC),
             _Schedule("macro", macro_interval),
             _Schedule("realyield", realyield_interval),
             _Schedule("realyield_live", realyield_live_interval),
@@ -154,10 +120,9 @@ class AnalysisLoop:
 
     # --------------------------------------------------------------- start
     def start(self) -> None:
-        """Initialise MT5, start the lines watcher, run warm-up, then spin up the loop."""
+        """Initialise MT5, run warm-up, then spin up the loop."""
         self._connector.initialize()
         self._mark_status(connected=True, error=None)
-        self._lines_watcher.start()
         self._warmup()
         self._thread = threading.Thread(
             target=self._run, name="mt5-analysis-loop", daemon=True
@@ -166,14 +131,10 @@ class AnalysisLoop:
         log.info("Analysis loop started")
 
     def stop(self, join_timeout: float = 5.0) -> None:
-        """Signal the loop to exit and tear down MT5 + lines watcher."""
+        """Signal the loop to exit and tear down MT5."""
         self._stop.set()
         if self._thread is not None:
             self._thread.join(join_timeout)
-        try:
-            self._lines_watcher.stop()
-        except Exception:  # noqa: BLE001 — keep tear-down going
-            log.exception("LinesWatcher.stop raised")
         self._connector.shutdown()
         log.info("Analysis loop stopped")
 
@@ -203,7 +164,6 @@ class AnalysisLoop:
             "analysis": self._do_analysis_refresh,
             "history": self._do_history_refresh,
             "calendar": self._do_calendar_refresh,
-            "validation": self._do_validation_refresh,
             "macro": self._do_macro_refresh,
             "realyield": self._do_realyield_refresh,
             "realyield_live": self._do_realyield_live_refresh,
@@ -256,6 +216,12 @@ class AnalysisLoop:
         except Exception:  # noqa: BLE001
             log.exception("dxy compute failed")
 
+        # EMA-stack oscillator (one deep M15 copy_rates), same piggyback pattern.
+        try:
+            self._state.set_ema_stack(ema_stack.compute_ema_stack(self._connector))
+        except Exception:  # noqa: BLE001
+            log.exception("ema_stack compute failed")
+
         return len(rates)
 
     def _do_history_refresh(self, bases: list[str]) -> None:
@@ -288,62 +254,6 @@ class AnalysisLoop:
             log.exception("calendar worker failed")
         finally:
             self._calendar_inflight.clear()
-
-    def _do_validation_refresh(self, bases: list[str]) -> None:
-        """Spec Section A: deep-history signal validation every 5 minutes.
-
-        Dispatched to a daemon worker — the parallel deep-history fetch is far
-        too slow to run inside the loop without starving the 0.5 s price tick.
-        At most one validation runs at a time; overlapping cycles are skipped.
-
-        Validation covers only the DWS-SMT display symbols (``config.SYMBOLS``)
-        — any other resolved symbol has no DWS panel, so validating it would be
-        pure wasted fetch + compute load.
-        """
-        if self._validation_inflight.is_set():
-            log.debug("validation: previous pass still in flight, skipping tick")
-            return
-        self._validation_inflight.set()
-        display_bases = [s.base for s in config.SYMBOLS]
-        worker = threading.Thread(
-            target=self._validation_refresh_worker,
-            args=(display_bases,),
-            name="signal-validation", daemon=True,
-        )
-        worker.start()
-
-    def _validation_refresh_worker(self, bases: list[str]) -> None:
-        try:
-            snap = self._signal_validator.compute(bases, self._state.broker_meta)
-            self._state.set_validation(snap)
-            self._persist_live_triggers(snap)
-        except Exception:               # noqa: BLE001 — never reach the loop
-            log.exception("signal-validation worker failed")
-        finally:
-            self._validation_inflight.clear()
-
-    def _persist_live_triggers(self, snap) -> None:
-        """Append this pass's CLOSED live triggers to the per-broker on-disk
-        store, then publish the accumulated per-(symbol, TF) year history so the
-        dashboard shows the COMPLETE live record — not just the broker's sliding
-        window. Keyed by the connected broker (MT5 server)."""
-        acct = self._state.account
-        server = acct.server if acct is not None else None
-        if not server:
-            return    # no broker identity yet — skip until the account arrives
-        history: dict[str, dict[str, dict]] = {}
-        total_new = 0
-        for sym, per_tf in snap.by_symbol.items():
-            tf_hist: dict[str, dict] = {}
-            for tf, stats in per_tf.items():
-                triggers = getattr(stats.raw, "recent_triggers", ()) or ()
-                total_new += trigger_store.append_closed(server, sym, tf, triggers)
-                tf_hist[tf] = trigger_store.load_by_year(server, sym, tf)
-            history[sym] = tf_hist
-        if total_new:
-            log.info("live trigger store: %d new/updated closed triggers (%s)",
-                     total_new, server)
-        self._state.set_live_trigger_history(history, server)
 
     def _do_macro_refresh(self, bases: list[str]) -> None:
         """Spec Section B: refresh central-bank rates + employment every 6 h.

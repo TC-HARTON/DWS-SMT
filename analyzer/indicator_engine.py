@@ -17,8 +17,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from analyzer import dws_smt, indicators
-from analyzer.dws_smt import DwsSmtResult
+from analyzer import indicators
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +65,6 @@ class SymbolIndicators:
     broker_name: str
     by_tf: dict[str, TimeframeIndicators]
     chart: ChartBars | None = None    # Phase 6: lightweight OHLC for the UI
-    dws: DwsSmtResult | None = None   # DWS-SMT multi-TF trend histogram
 
 
 @dataclass(frozen=True)
@@ -76,37 +74,6 @@ class AnalysisSnapshot:
     generated_at: pd.Timestamp  # UTC
     compute_ms: float           # SPEC 19 target: ≤50 ms
     by_symbol: dict[str, SymbolIndicators]
-
-
-# --------------------------------------------------------------------------- #
-# Historical BIAS contribution
-# --------------------------------------------------------------------------- #
-
-def _bias_contribution_series(
-    close: np.ndarray, ema: np.ndarray, rsi: np.ndarray,
-    adx: np.ndarray, dip: np.ndarray, dim: np.ndarray,
-) -> np.ndarray:
-    """Per-bar regime-gated tfSignal contribution (5-tier code × trend factor).
-
-    Vectorised port of ``tfSignal()`` + ``tfTrendFactor()`` in
-    ``static/app.js`` — the thresholds here MUST stay in sync with the front
-    end. Used to build the *historical* BIAS series so the DWS-SMT trigger
-    filter can judge each past trigger by the BIAS as it was then, not now.
-    NaN-warmup bars (no RSI/ADX) contribute 0.
-    """
-    above = close > ema
-    di_bull = dip > dim
-    di_bear = dim > dip
-    code = np.zeros(close.shape, dtype=np.float64)
-    code = np.where((~above) & (rsi <= 50), -1.0, code)
-    code = np.where(above & (rsi >= 50), 1.0, code)
-    code = np.where((~above) & (adx >= 25) & di_bear & (rsi <= 45), -2.0, code)
-    code = np.where(above & (adx >= 25) & di_bull & (rsi >= 55), 2.0, code)
-    code = np.where(np.isfinite(rsi) & np.isfinite(adx), code, 0.0)
-    span = config.BIAS_REGIME_ADX_HIGH - config.BIAS_REGIME_ADX_LOW
-    trend = np.clip((adx - config.BIAS_REGIME_ADX_LOW) / span, 0.0, 1.0)
-    trend = np.where(np.isfinite(adx), trend, 0.0)
-    return code * trend
 
 
 # --------------------------------------------------------------------------- #
@@ -146,8 +113,7 @@ class IndicatorEngine:
         self,
         tf: config.TimeframeSpec,
         members: list[tuple[str, pd.DataFrame]],
-    ) -> tuple[dict[str, TimeframeIndicators],
-               dict[str, tuple[np.ndarray, np.ndarray]]]:
+    ) -> dict[str, TimeframeIndicators]:
         """Compute indicators for every (base, tf) pair sharing the same length.
 
         Args:
@@ -155,12 +121,10 @@ class IndicatorEngine:
             members: ``(base, df)`` tuples, all sharing identical bar count.
 
         Returns:
-            ``({base: TimeframeIndicators}, {base: (times_ns, bias_contrib)})``
-            — the second maps each symbol to its per-bar regime-gated BIAS
-            contribution series for this timeframe.
+            ``{base: TimeframeIndicators}`` for this timeframe.
         """
         if not members:
-            return {}, {}
+            return {}
         bases = [b for b, _ in members]
         dfs = [df for _, df in members]
         # All DataFrames must agree on bar count for batched stacking.
@@ -168,10 +132,10 @@ class IndicatorEngine:
         low = np.vstack([df["low"].to_numpy(dtype=np.float64) for df in dfs])
         close = np.vstack([df["close"].to_numpy(dtype=np.float64) for df in dfs])
         # Accuracy: report the last *closed* bar, never the in-progress one, so
-        # indicators (and the BIAS built from them) do not repaint tick-by-tick.
-        # The final column is the forming bar — every read below drops it.
+        # the indicators do not repaint tick-by-tick. The final column is the
+        # forming bar — every read below drops it.
         if close.shape[1] < 2:
-            return {}, {}
+            return {}
 
         ema_arr = indicators.ema(close, tf.ema_period)                       # (k, n)
         rsi_arr = indicators.rsi(close, self._rsi_period)                    # (k, n)
@@ -181,7 +145,6 @@ class IndicatorEngine:
         )
 
         result: dict[str, TimeframeIndicators] = {}
-        bias: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         # ``[:-1]`` / ``[-2]`` drop the forming bar so every value is the last
         # closed bar — the indicators no longer shift within a bar.
         for i, base in enumerate(bases):
@@ -204,18 +167,7 @@ class IndicatorEngine:
                 di_minus=indicators.last_finite(dim_arr[i][:-1]),
                 bar_time=bar_time,
             )
-            # Per-bar regime-gated BIAS contribution for this TF. The forming
-            # bar is dropped (``[:-1]``) — same as the closed-bar snapshot
-            # values above — so a base bar never maps to an in-progress
-            # higher-TF candle (no look-ahead in the historical BIAS series).
-            contrib = _bias_contribution_series(
-                close[i][:-1], ema_arr[i][:-1], rsi_arr[i][:-1],
-                adx_arr[i][:-1], dip_arr[i][:-1], dim_arr[i][:-1],
-            )
-            times_ns = dfs[i].index.values.astype(
-                "datetime64[ns]").astype("int64")[:-1]
-            bias[base] = (times_ns, contrib)
-        return result, bias
+        return result
 
     # ------------------------------------------------------------ pass over all
     def compute(self, rates: dict[tuple[str, str], pd.DataFrame]) -> AnalysisSnapshot:
@@ -238,11 +190,6 @@ class IndicatorEngine:
         symbol_tfs: dict[str, dict[str, TimeframeIndicators]] = {
             s.base: {} for s in self._symbols
         }
-        # Per-symbol per-TF historical BIAS contribution series, fed to the
-        # DWS-SMT layer so the trigger filter is judged at each bar's own time.
-        symbol_bias: dict[str, dict[str, tuple[np.ndarray, np.ndarray]]] = {
-            s.base: {} for s in self._symbols
-        }
 
         for tf in self._timeframes:
             # Group members by bar count so np.vstack never raises.
@@ -254,8 +201,7 @@ class IndicatorEngine:
                 by_len.setdefault(len(df), []).append((sym.base, df))
             for members in by_len.values():
                 try:
-                    batch_result, batch_bias = self._compute_timeframe_batch(
-                        tf, members)
+                    batch_result = self._compute_timeframe_batch(tf, members)
                 except Exception:  # noqa: BLE001 — log and continue with next batch
                     log.exception(
                         "indicator batch failed for tf=%s symbols=%s",
@@ -264,14 +210,11 @@ class IndicatorEngine:
                     continue
                 for base, ind in batch_result.items():
                     symbol_tfs[base][tf.label] = ind
-                for base, bseries in batch_bias.items():
-                    symbol_bias[base][tf.label] = bseries
 
         out = {
             base: SymbolIndicators(
                 base=base, broker_name=base, by_tf=per_tf,
                 chart=self._extract_chart_bars(base, per_tf, rates),
-                dws=self._compute_dws(base, rates, symbol_bias.get(base, {})),
             )
             for base, per_tf in symbol_tfs.items()
             if per_tf
@@ -317,25 +260,6 @@ class IndicatorEngine:
         return ChartBars(ohlc_h4=ohlc_h4, closes_m15=closes_m15, ema_h4=ema_h4)
 
     @staticmethod
-    def _compute_dws(
-        base: str,
-        rates: dict[tuple[str, str], pd.DataFrame],
-        bias_contrib: dict[str, tuple[np.ndarray, np.ndarray]],
-    ) -> DwsSmtResult | None:
-        """Run the DWS-SMT port for one symbol; never raises into the pass."""
-        needed = {tf for stack in config.DWS_SMT_STACKS.values() for tf in stack}
-        frames: dict[str, pd.DataFrame] = {}
-        for label in needed:
-            df = rates.get((base, label))
-            if df is not None and not df.empty:
-                frames[label] = df
-        try:
-            return dws_smt.compute_symbol(frames, bias_contrib=bias_contrib)
-        except Exception:  # noqa: BLE001 — a bad symbol must not blank the pass
-            log.exception("dws_smt compute failed for symbol=%s", base)
-            return None
-
-    @staticmethod
     def with_broker_names(
         snapshot: AnalysisSnapshot, broker_map: dict[str, str]
     ) -> AnalysisSnapshot:
@@ -350,7 +274,6 @@ class IndicatorEngine:
                 broker_name=broker_map.get(base, sym.base),
                 by_tf=sym.by_tf,
                 chart=sym.chart,
-                dws=sym.dws,
             )
             for base, sym in snapshot.by_symbol.items()
         }
@@ -359,3 +282,4 @@ class IndicatorEngine:
             compute_ms=snapshot.compute_ms,
             by_symbol=patched,
         )
+

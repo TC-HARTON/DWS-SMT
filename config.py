@@ -83,10 +83,10 @@ class SymbolSpec:
             raise ValueError(f"display_size must be xl|md|sm, got {self.display_size!r}")
 
 
-# XAUUSD-specialised dashboard: gold only. The whole indicator / validation /
-# DWS / trigger-store pipeline iterates this tuple, so reducing it to XAUUSD
-# alone confines every per-symbol computation to gold (the other majors and
-# their panels are gone). DXY is tracked separately as dollar context.
+# XAUUSD-specialised dashboard: gold only. The whole indicator pipeline iterates
+# this tuple, so reducing it to XAUUSD alone confines every per-symbol
+# computation to gold (the other majors and their panels are gone). DXY is
+# tracked separately as dollar context.
 SYMBOLS: Final[tuple[SymbolSpec, ...]] = (
     SymbolSpec("XAUUSD", "xl", 50.0),       # SPEC 10.2: $50
 )
@@ -116,16 +116,6 @@ TIMEFRAMES: Final[tuple[TimeframeSpec, ...]] = (
 
 TIMEFRAME_BY_LABEL: Final[dict[str, TimeframeSpec]] = {tf.label: tf for tf in TIMEFRAMES}
 
-# Phase 2 補助 TF — 指標計算には使わないが構造検出 (PWH/PWL/PMH/PML/VWAP) で必要。
-# ema_period は使われないので便宜上 0 を入れる。
-# W1 は DWS-SMT の 4H ベース・スタック最上段にも使うため、EMA(20) が十分に
-# ウォームアップする本数 (60本 ≈ 14か月) を確保する。
-STRUCTURE_TFS: Final[tuple[TimeframeSpec, ...]] = (
-    TimeframeSpec("W1",  mt5.TIMEFRAME_W1,  0,  60),
-    TimeframeSpec("MN1", mt5.TIMEFRAME_MN1, 0,  12),
-    TimeframeSpec("M1",  mt5.TIMEFRAME_M1,  0, 1440),  # 1 day for VWAP
-)
-
 # SPEC §6.2 ADX(14)
 ADX_PERIOD: Final[int] = 14
 
@@ -137,42 +127,47 @@ ATR_PERIOD: Final[int] = 14
 
 
 # --------------------------------------------------------------------------- #
-# DWS-SMT indicator — port of MQL5/Indicators/DWS_SMT.mq5 v2.00
-# --------------------------------------------------------------------------- #
-# The .mq5 stacks three timeframe rows (its TF1/TF2/TF3 inputs). Here the
-# selected base timeframe *anchors* its own stack: the base TF is the bottom
-# row and the two next-higher timeframes stack above it. Switching the base
-# therefore slides the whole 3-TF stack up/down the timeframe ladder. Each
-# tuple is listed top→bottom, the order the histogram draws the rows.
-DWS_SMT_STACKS: Final[dict[str, tuple[str, ...]]] = {
-    "M15": ("H4", "H1", "M15"),
-    "H1":  ("D1", "H4", "H1"),
-    "H4":  ("W1", "D1", "H4"),
-}
-# Switchable base timeframes — also the histogram x-axis resolution.
-DWS_SMT_BASE_TFS: Final[tuple[str, ...]] = tuple(DWS_SMT_STACKS)
-DWS_SMT_PERIOD: Final[int] = 20        # .mq5 input SMT_Period — EMA for close−EMA diff
-DWS_SMT_SMOOTH: Final[int] = 5         # .mq5 input Smooth — EMA for diff smoothing
-DWS_SMT_BARS: Final[int] = 96          # base bars emitted per base timeframe
-# Kept at 96 for a readable histogram timeline (denser windows blur the
-# per-bar alignment colours + crowd the trigger markers). The analytics
-# "trigger history" table is NO LONGER read from this live window — it is
-# served separately from the 16-year offline trigger log (oos_baseline.json
-# → trigger_history) with year-based period selection, so the display window
-# and the history sample are fully decoupled.
-
-
-# --------------------------------------------------------------------------- #
 # DXY (US Dollar Index) — dollar context for gold
 # --------------------------------------------------------------------------- #
-# DXY (US Dollar Index) — dollar context for gold (gold is inverse-USD). The
-# broker exposes quarterly DXY_* index futures; the active front-month contract
-# is auto-resolved at startup (it rolls, so picking by live bid + freshest tick,
-# not alphabetically). Display-only context, not a tradeable symbol.
-DXY_SYMBOL_PREFIX: Final[str] = "DXY"   # broker contract names: DXY_M6, DXY_U6, ...
+# US Dollar Index — dollar context for gold (gold is inverse-USD). Brokers
+# expose the index in one of two shapes, resolved at startup under base "DXY"
+# (see MT5Connector.resolve_dxy), continuous-first:
+#   1. a CONTINUOUS spot/CFD index — e.g. TitanFX "USDX" (path Indices\USDX),
+#      no expiry / no roll. Matched by exact name against DXY_INDEX_SYMBOLS.
+#   2. QUARTERLY index futures — e.g. IC Markets "DXY_M6"/"DXY_U6"; the active
+#      front-month is auto-rolled via the futures month-code (DXY_SYMBOL_PREFIX).
+# Display-only context, not a tradeable symbol.
+# Continuous index names tried first, in priority order (exact, case-insensitive).
+DXY_INDEX_SYMBOLS: Final[tuple[str, ...]] = ("USDX", "DXY", "USDIDX", "USDOLLAR")
+DXY_SYMBOL_PREFIX: Final[str] = "DXY"   # quarterly-futures prefix: DXY_M6, DXY_U6, ...
 DXY_CHART_TF: Final[str] = "H1"          # timeframe for the trend/sparkline
 DXY_CHART_BARS: Final[int] = 120         # bars to fetch (sparkline + change)
 DXY_EMA_PERIOD: Final[int] = 20          # trend EMA on DXY closes
+
+
+# --------------------------------------------------------------------------- #
+# EMA-stack oscillator (single-series, repaint-free) — center panel
+# --------------------------------------------------------------------------- #
+# Three EMAs on the M15 CLOSED-bar series: EMA20 (M15), EMA80 (~1H EMA20),
+# EMA320 (~4H EMA20). EMA320 is the trend centerline; price / EMA80 / EMA20 are
+# shown as % deviation from it — an RSI-style oscillator around a flat EMA320
+# center (above = uptrend, below = downtrend; the read is the user's, NO trigger
+# is computed). Causal EMA on confirmed bars only, NO multi-TF mapping → there
+# is structurally no place for look-ahead / repaint.
+EMA_STACK_TF: Final[str] = "M15"
+EMA_STACK_PERIODS: Final[tuple[int, int, int]] = (20, 80, 320)  # fast, mid, center
+EMA_STACK_FETCH_BARS: Final[int] = 1500    # deep enough for EMA320 to fully settle
+EMA_STACK_DISPLAY_BARS: Final[int] = 480   # trailing bars on the LIVE WS snapshot
+                                           # (~5 days M15) — kept small so the 2 Hz/5 s
+                                           # WS stays light; the deep history comes from
+                                           # the /api/ema_history endpoint below.
+# Deep history for the oscillator's drag-to-the-past. Served on demand via
+# /api/ema_history (fetched once on load + polled every few minutes) so the full
+# multi-month series never bloats the live WS snapshot. ~20k M15 bars ≈ 10 months
+# is the broker's practical depth.
+EMA_STACK_HISTORY_FETCH_BARS: Final[int] = 20000
+EMA_STACK_HISTORY_BARS: Final[int] = 20000
+EMA_STACK_HISTORY_REFRESH_SEC: Final[float] = 120.0   # frontend poll cadence
 
 
 # --------------------------------------------------------------------------- #
@@ -190,23 +185,13 @@ LOT_MAX: Final[float] = 10.0               # ceiling (liquidity / risk cap)
 
 
 # --------------------------------------------------------------------------- #
-# Pips display — convert net "points" to PIPS for the trigger history / OOS
+# Pips display — convert net "points" to PIPS
 # --------------------------------------------------------------------------- #
 # The dashboard shows P/L in PIPS, a broker-independent unit. Conversion:
-#     pips = net_pts * (source_point / PIP_PRICE)
-# where source_point is the price-per-point the data was computed with:
-#   * the frozen 16Y baseline (oos_baseline.json) used OOS_BASELINE_POINT
-#     (Dukascopy 3/5-digit convention);
-#   * the live feed uses the broker's own _Point (e.g. IC gold = 0.01).
+#     pips = net_pts * (broker_point / PIP_PRICE)
+# where the live feed uses the broker's own _Point (e.g. IC gold = 0.01).
 # PIP_PRICE is the market pip in PRICE units and MUST match pip_size_for():
 #   gold $0.10, JPY pairs 0.01, FX majors 0.0001 — regardless of broker digits.
-# This also removes the baseline(0.001)/live(0.01) 10x scale mismatch, since
-# pips is the same number for the same dollar move on either source.
-OOS_BASELINE_POINT: Final[dict[str, float]] = {
-    "XAUUSD": 0.001,
-    "USDJPY": 0.001, "EURJPY": 0.001, "GBPJPY": 0.001, "AUDJPY": 0.001,
-    "EURUSD": 0.00001, "GBPUSD": 0.00001, "AUDUSD": 0.00001,
-}
 PIP_PRICE: Final[dict[str, float]] = {
     "XAUUSD": 0.10,                                   # $1.00 = 10 pips
     "USDJPY": 0.01, "EURJPY": 0.01, "GBPJPY": 0.01, "AUDJPY": 0.01,
@@ -229,80 +214,26 @@ ORDER_MAX_LOT: Final[float] = LOT_MAX                 # hard per-order lot ceili
 
 
 # --------------------------------------------------------------------------- #
-# Signal validation layer (precision-optimization spec, Section A)
+# Broker server-clock timezones (DST handling)
 # --------------------------------------------------------------------------- #
-# Deep-history out-of-sample evaluation of the DWS-SMT signal. Runs off-thread
-# on its own slow schedule so it never touches the SPEC §19 50 ms budget.
-VALIDATION_REFRESH_SEC: Final[float] = 300.0    # re-validate every 5 minutes
-# Base bars evaluated per window. The offline backtest in
-# scripts/_backtest_all_sl_wf.py confirmed every (symbol, base TF) reaches
-# tier 信頼 on 16 y of Dukascopy data; the live validator was previously held
-# at 2 000 bars (~30 trades on M15, CI ~26 pp wide at N=53) only because of
-# the original freeze incident that led to the in-flight guard, per-TF caps,
-# and inter-symbol throttle. With those three safeguards in place we can raise
-# the live emit window to get statistically meaningful sample sizes — at
-# 20 000 M15 bars expect a few hundred trades per base, which tightens the
-# Wilson CI from ~26 pp to ~10 pp.
-VALIDATION_HISTORY_BARS: Final[int] = 20000
-# Per-timeframe FETCH depth. The deep PAST (2010-2025) of the trigger-history
-# table comes from the 16Y offline backtest (oos_baseline.json); the LIVE
-# broker fetch below only needs to cover the recent window that the backtest
-# doesn't reach (2026 onward + the broker's resident overlap), which the
-# front-end CONCATENATES onto the 16Y years. D1/W1 stay capped (freeze guard).
-VALIDATION_TF_BARS: Final[dict[str, int]] = {
-    "M15": 20000,    # ~7 months
-    "H1":  20000,    # ~3 years
-    "H4":  10000,    # ~broker resident (≈3-7 years)
-    "D1":   3000,    # ~12 years
-    "W1":    600,    # ~11.5 years
-}
-VALIDATION_MIN_TRADES: Final[int] = 30          # below this → tier "データ不足"
-# How many of the most-recent closed LIVE triggers each (symbol, base TF) ships
-# to the dashboard. The live feed only supplies the recent years that the 16Y
-# backtest doesn't cover (the front-end merges them), so a few hundred is
-# plenty — the broker's resident window yields at most ~400 (M15) triggers.
-VALIDATION_RECENT_TRIGGERS: Final[int] = 1000
-# Uniform round-trip cost (pips) charged to every LIVE/real trade's P/L. MT5's
-# per-bar ``spread`` field is unreliable (0 for ~18-84 % of historical bars, by
-# timeframe — it is only filled for bars the terminal recorded live), so instead
-# of a bogus per-bar spread we deduct one realistic, consistent cost: the IC
-# XAUUSD spread runs ~1 pip and a real fill also pays commission, so 2.0 pips
-# covers spread + commission. The small per-trade error is accepted by design.
-# Applied as ``cost_points = LIVE_SPREAD_COST_PIPS * pip_size / point`` so the
-# front end (which multiplies stored net-points by ``point / pip``) shows exactly
-# ``gross_pips - 2.0``. The frozen 16Y baseline keeps its own cost model.
-LIVE_SPREAD_COST_PIPS: Final[float] = 2.0
-# Persistent live trigger-history store. The live broker feed is only a sliding
-# window (M15 ≈ 7 months), so to keep a COMPLETE live record (survives restarts
-# and window slides, selectable years-end and beyond) every closed live trigger
-# is appended here, keyed by BROKER (MT5 server) × symbol × base TF. Triggers
-# are price-derived so the broker is the boundary; the account/login does not
-# matter. Different brokers get separate sub-dirs so spreads never mix.
-LIVE_TRIGGER_DIR: Final[Path] = PROJECT_ROOT / "data" / "live_triggers"
 # Broker server clocks that observe DST. MT5 stamps bars in the broker's SERVER
 # wall-clock; a DST-observing server (e.g. IC Markets = Europe/Bucharest, EET in
 # winter / EEST in summer) shifts by an hour across the year. A single detected
 # whole-hour offset is correct only for the CURRENT season, so the deep-history
-# fetch would stamp off-season bars an hour wrong — and the entry-time-keyed
-# trigger store would then record the same trade twice across a DST boundary.
-# For these servers we localize the raw server time in the named IANA zone
-# (DST-correct per bar) instead of subtracting one flat offset. Servers NOT
-# listed here (e.g. Exness, which runs a fixed offset) keep the flat-offset path.
-# Key by the MT5 server name as reported by ``account_info().server``.
+# fetch would stamp off-season bars an hour wrong. For these servers we localize
+# the raw server time in the named IANA zone (DST-correct per bar) instead of
+# subtracting one flat offset. Servers NOT listed here (e.g. Exness, which runs
+# a fixed offset) keep the flat-offset path. Key by the MT5 server name as
+# reported by ``account_info().server``.
 BROKER_TZ_BY_SERVER: Final[dict[str, str]] = {
     "ICMarketsSC-MT5-3": "Europe/Bucharest",
+    # TitanFX runs a GMT+2/+3 server (EET winter / EEST summer) — verified +3h in
+    # June against the Friday gold close (last tick server 23:54 = 20:54 UTC =
+    # NY 17:00 EDT). Listing it here makes the offset tz-computed (DST-correct,
+    # weekend-proof) instead of relying on a live tick, which a weekend restart
+    # lacks → it had defaulted to 0 and shifted every time 3h late.
+    "TitanFX-MT5-01": "Europe/Athens",
 }
-# Wilson score interval z for a 95 % two-sided CI — the exact 0.975 normal
-# quantile (not the 1.96 rounding), so the displayed bounds are exact.
-VALIDATION_CI_Z: Final[float] = 1.959963984540054
-# The connector serialises every MT5 fetch through one lock, and a slow cold
-# deep-history call can hold that lock (and the GIL) for seconds. The validator
-# therefore fetches ONE symbol at a time and sleeps this long between symbols
-# so the 0.5 s price tick and 5 s analysis pass interleave instead of starving.
-VALIDATION_FETCH_GAP_SEC: Final[float] = 2.0
-# Delay the first validation pass after start-up so warm-up and the first few
-# normal cycles finish (and warm the MT5 cache) before the deep fetch begins.
-VALIDATION_STARTUP_DELAY_SEC: Final[float] = 90.0
 
 
 # --------------------------------------------------------------------------- #
@@ -396,29 +327,6 @@ COT_CACHE_FILE: Final[Path] = PROJECT_ROOT / "external" / "cot" / "cot_cache.jso
 COT_EXTREME_HIGH_PCT: Final[float] = 90.0
 COT_EXTREME_LOW_PCT: Final[float] = 10.0
 
-# DWS histogram flip-proximity gradient (spec
-# docs/superpowers/specs/2026-06-02-dws-flip-proximity-design.md). Each stack
-# row's smoothed-diff magnitude is normalised by its own trailing volatility so
-# "near the zero-cross" (= near a colour flip = near a trigger) is comparable
-# across symbols. Display-only; never used by trigger/trade/order logic.
-DWS_FLIP_STD_WINDOW: Final[int] = 96    # trailing bars for the smoothed-diff std
-DWS_FLIP_K: Final[float] = 1.0          # scale: |sd| = k*std maps to |flip_norm| = 1
-
-
-# --------------------------------------------------------------------------- #
-# Composite BIAS — per-TF tfSignal → regime-gated weighted composite
-# --------------------------------------------------------------------------- #
-# The dashboard computes the *live* BIAS in static/app.js; the backend computes
-# the *historical* BIAS series (per DWS base bar) so the trigger filter can
-# judge each past trigger by the BIAS as it was then — not by today's BIAS
-# (look-ahead). These constants MUST stay in sync with TF_WEIGHTS and
-# tfTrendFactor() in static/app.js.
-BIAS_TF_WEIGHTS: Final[dict[str, float]] = {
-    "D1": 3.0, "H4": 2.0, "H1": 1.5, "M15": 1.0,
-}
-BIAS_REGIME_ADX_LOW: Final[float] = 15.0    # regime gate: ADX ≤ low → factor 0
-BIAS_REGIME_ADX_HIGH: Final[float] = 25.0   #              ADX ≥ high → factor 1
-
 
 # --------------------------------------------------------------------------- #
 # Background loop intervals (SPEC 19, 14.4, 12.5)
@@ -456,9 +364,11 @@ HISTORY_RANGES: Final[tuple[HistoryRange, ...]] = (
     HistoryRange("7d",    7),
     HistoryRange("30d",   30),
     HistoryRange("90d",   90),
+    HistoryRange("180d",  180),
+    HistoryRange("1Y",    365),
     HistoryRange("all",   None),
 )
-HISTORY_DEFAULT_RANGE: Final[str] = "30d"
+HISTORY_DEFAULT_RANGE: Final[str] = "90d"   # was 30d (spec §5)
 
 
 # --------------------------------------------------------------------------- #
@@ -594,28 +504,6 @@ SYMBOL_FETCH_WORKERS: Final[int] = 8
 
 
 # --------------------------------------------------------------------------- #
-# LineExporter EA (SPEC 9)
-# --------------------------------------------------------------------------- #
-
-# APPDATA exists on every Windows user session; fall back gracefully on
-# CI / non-Windows so the module still imports (used by tests).
-_appdata = os.environ.get("APPDATA", str(PROJECT_ROOT / "data"))
-LINES_DIR: Final[Path] = Path(
-    _get_env(
-        "LINES_DIR",
-        str(Path(_appdata) / "MetaQuotes" / "Terminal" / "Common" / "Files"),
-    )
-)
-LINES_FILE_PREFIX: Final[str] = "lines_"   # SPEC §9.1 filename pattern: lines_{symbol}.json
-LINES_FILE_SUFFIX: Final[str] = ".json"
-
-# Watchdog debounce: when an EA rewrites a file the FS often emits both a
-# CREATED and a MODIFIED event in rapid succession. We coalesce events
-# arriving within this window per (path) into a single reload.
-LINES_DEBOUNCE_SEC: Final[float] = 0.15
-
-
-# --------------------------------------------------------------------------- #
 # Dash server (SPEC 16.2, 16.3)
 # --------------------------------------------------------------------------- #
 
@@ -640,3 +528,18 @@ LOG_DIR: Final[Path] = PROJECT_ROOT / "logs"
 LOG_FILE: Final[Path] = LOG_DIR / "dashboard.log"
 LOG_FILE_MAX_BYTES: Final[int] = 5 * 1024 * 1024
 LOG_FILE_BACKUP_COUNT: Final[int] = 5
+
+# --------------------------------------------------------------------------- #
+# 資金管理(リスク上限ゲート)— spec §4.1。降格は表示・通知のみ、実発注は不変。
+# --------------------------------------------------------------------------- #
+DAILY_LOSS_LIMIT_PCT: Final[float] = -3.0    # 当日損失上限(残高比%)
+MAX_DD_LIMIT_PCT: Final[float] = -10.0       # 累計DD上限(%)
+
+# --------------------------------------------------------------------------- #
+# パフォーマンス分析の分類 bin(spec §6.4 / §7)。境界は「内側の閾値」のみ。
+# 値 v は bisect で [- inf, b0, b1, ..., +inf] のどの区間かに割り当てる。
+# --------------------------------------------------------------------------- #
+R_MULTIPLE_BINS: Final[tuple[float, ...]] = (-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0)
+EDGE_ADX_BINS: Final[tuple[float, ...]] = (20.0, 25.0, 30.0)
+EDGE_RSI_BINS: Final[tuple[float, ...]] = (30.0, 50.0, 70.0)
+EDGE_HOLD_MIN_BINS: Final[tuple[float, ...]] = (15.0, 60.0, 240.0)  # 保有分

@@ -66,6 +66,7 @@
 
     /* --- Layout -------------------------------------------------------- */
     --side-w:       370px;    /* right sidebar (account/calendar/macro) width */
+    --fund-h:       300px;    /* bottom fund/trade-management panel height */
 
     /* --- Shape & motion ------------------------------------------------ */
     --gap:var(--space-4);     /* legacy alias for --space-4 */
@@ -106,10 +107,11 @@ body {
        correlation row stays under the main column, lining up exactly with the
        expanded panel's two halves (①②). */
     grid-template-columns: 1fr var(--side-w);
-    grid-template-rows: 56px 1fr;
+    grid-template-rows: 56px 1fr var(--fund-h);
     grid-template-areas:
-        "header  header"
-        "main    side";
+        "header header"
+        "main   side"
+        "fund   side";
     gap:var(--gap);
     padding:var(--gap);
     /* Pre-JS fallback so the page is not broken if the script is slow;
@@ -117,6 +119,10 @@ body {
     width: 100vw;
     height: 100vh;
 }
+
+/* Form controls do NOT inherit font-family by UA default — force them onto the
+   mono base so buttons/inputs never fall back to Arial. */
+button, input, select, textarea { font-family: inherit; }
 
 /* --- Utility classes --------------------------------------------------- */
 .mono     { font-family: var(--mono); }
@@ -216,18 +222,6 @@ body {
 }
 .active-chip.strong-sell  .ac-side,
 .active-chip.strong-sell  .ac-sym { color: var(--sell); }
-/* #3 regime-degraded: high-conviction but the live rolling PF is ≥30% below the
-   16Y baseline → demoted to 様子見. Amber, muted, no directional colour, so it
-   reads as "stand aside", not an entry. Alert is suppressed (see fireSetupAlerts). */
-.active-chip.degraded {
-    border-color: var(--warning);
-    border-style: dashed;
-    background: rgba(255, 183, 77, 0.08);
-    opacity: 0.82;
-}
-.active-chip.degraded .ac-sym  { color: var(--fg-2); }
-.active-chip.degraded .ac-side { color: var(--warning); }
-.active-chip.degraded .ac-score { color: var(--fg-3); }
 .brand-mark {
     font-size: var(--text-xl);
     font-weight: var(--weight-bold);
@@ -267,7 +261,7 @@ body {
 }
 /* 4×2 panel grid — row 1 = 金 + USD majors, row 2 = JPY crosses.
    Each panel is now ~25% wider than the old 5-col layout, giving the
-   in-panel data (BIAS / signal chips / DWS state) real breathing room. */
+   in-panel data (BIAS / signal chips) real breathing room. */
 .symbols {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -311,7 +305,6 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 /* Per-card accent colors give each card a glanceable identity bar. */
-.account-card   { border-left-color: var(--accent); }
 .dxy-card       { border-left-color: var(--accent); }
 .ry-card        { border-left-color: #9d8cff; }
 .cot-card       { border-left-color: #e3b341; }
@@ -324,7 +317,8 @@ body {
 .dxy-chg { font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
 .dxy-chg.pos { color: var(--buy); }
 .dxy-chg.neg { color: var(--sell); }
-.dxy-spark { width: 100%; height: 34px; display: block; }
+.dxy-spark { width: 100%; height: auto; flex: 1 1 auto; min-height: 60px; display: block; align-self: stretch; }
+.ry-card [data-bind=realyield], .dxy-card [data-bind=dxy], .cot-card [data-bind=cot] { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .dxy-foot { display: flex; justify-content: space-between; align-items: baseline; }
 .dxy-gold { font-weight: 800; }
 .dxy-gold.pos { color: var(--buy); }
@@ -360,12 +354,12 @@ body {
 .cot-note { font-size: var(--text-xs); font-weight: 700; }
 .cot-note.hi { color: var(--sell); }      /* crowded long → contrarian caution */
 .cot-note.lo { color: var(--accent); }     /* specs de-risked → 1-year low */
-.cot-spark { width: 100%; height: 34px; display: block; }
+.cot-spark { width: 100%; height: auto; flex: 1 1 auto; min-height: 60px; display: block; align-self: stretch; }
 .cot-foot { display: flex; justify-content: space-between; gap:var(--space-2); flex-wrap: wrap; font-size: var(--text-2xs); }
 .cot-stale { color: var(--warning); font-weight: 700; }
 .card-title {
     display: flex; justify-content: space-between; align-items: baseline;
-    /* Mono to match every other box title (DWS-SMT etc.) — unifies the per-box
+    /* Mono to match every other box title — unifies the per-box
        title font across the whole dashboard. */
     font-family: var(--mono);
     font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-normal);
@@ -401,10 +395,9 @@ body {
    tired the eyes. Weak vs strong signal is already conveyed by the BIAS gauge,
    the matrix colours and the .active/.touch border, so opacity is not needed. */
 .panel.quiet  { opacity: 1; }
-/* .active and .touch are the highest-signal states (DWS-SMT firing /
-   structure touch). Keep the inner ring; drop the outer glow that was
-   making the dashboard look like an after-effects template. Border colour
-   carries enough urgency. */
+/* .active and .touch are the highest-signal states (strong BIAS). Keep the
+   inner ring; drop the outer glow that was making the dashboard look like an
+   after-effects template. Border colour carries enough urgency. */
 .panel.active {
     border-color: var(--warning);
     box-shadow: 0 0 0 1px var(--warning);
@@ -527,227 +520,6 @@ body {
 .comp-gauge-fill.sell { background: var(--sell); }
 .comp-gauge-fill.strong { box-shadow: inset 0 0 4px rgba(255,255,255,0.4); }
 
-/* ============================================================
-   ANALYTICS — Trade Plan + Conviction Breakdown + Risk Warnings.
-   Hidden by default (no space in compact panel); shown when expanded.
-   ============================================================ */
-.analytics { display: none; }
-.panel.expanded .analytics {
-    display: flex; flex-direction: column; gap:var(--space-5);
-    overflow-y: auto;
-    min-height: 0;
-}
-.anlx-block {
-    background: var(--panel-2);
-    /* Normalised to 3px to match .card / .composite border-bar discipline. */
-    border-left: 3px solid var(--accent);
-    border-radius: var(--radius);
-    padding: var(--space-5) var(--space-6);
-    display: flex;
-    flex-direction: column;
-    /* Content-sized — do NOT flex-grow. The old indicator-chart grid wanted to
-       fill the column; the current trigger-history + heatmap blocks are
-       content-height, so growing only injected dead space below short blocks. */
-    flex: 0 0 auto;
-}
-/* In the expanded panel the analytics column is as tall as the right-hand
-   OOS / histogram column. The trigger-CALENDAR block is content-height (a
-   compact date-picker), so it no longer flex-grows; the month trade list
-   scrolls internally (.tcal-scroll) and the heatmap stays below it. */
-.panel.expanded .anlx-triggers { flex: 0 0 auto; min-height: 0; }
-.panel.expanded .anlx-triggers .tcal-scroll { max-height: 240px; }
-/* Column-height alignment: the analytics container stretches to the same bottom
-   as the DWS histogram card on the right, but its content-sized blocks left a
-   slack strip below the last one (the heatmap), so the left card frame stopped
-   ~20px short of the right. Let the hourly-heatmap (the last block) grow to fill
-   that leftover so its card border meets the histogram card's bottom — the two
-   columns now end on the same line. The heatmap's session rows stay top-aligned
-   (the grow lands as bottom padding inside the card, not stretched cells). */
-.panel.expanded .anlx-heatmap { flex: 1 1 auto; }
-.anlx-title {
-    font-family: var(--mono);   /* unified with every other box title */
-    font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
-    color: var(--fg); text-transform: uppercase;
-    margin-bottom:var(--space-3);
-    border-bottom: 1px solid var(--border);
-    padding-bottom:var(--space-2);
-}
-.anlx-title .anlx-sub {
-    font-size: var(--text-xs); font-weight: var(--weight-normal); letter-spacing: 0;
-    color: var(--fg-3); text-transform: none;
-    margin-left:var(--space-4);
-}
-/* ============================================================
-   DWS-SMT panel — 3-TF trend histogram (port of DWS_SMT.mq5).
-   Lives in the expanded panel's right column, spanning the
-   signals + analytics rows. Hidden in compact mode.
-   ============================================================ */
-.dws { display: none; }
-.panel.expanded .dws {
-    flex-direction: column;
-    gap:var(--space-4);
-    background: var(--panel-2);
-    /* 3-px accent matches .anlx-block / .composite / .card discipline. */
-    border-left: 3px solid var(--accent);
-    border-radius: var(--radius);
-    /* Match .anlx-block padding so the two expanded-panel cards align. */
-    padding: var(--space-5) var(--space-6);
-    min-height: 0;
-}
-.dws-head {
-    display: flex; align-items: baseline; gap:var(--space-4);
-    border-bottom: 1px solid var(--border);
-    padding-bottom:var(--space-3);
-}
-.dws-title {
-    font-family: var(--mono);
-    font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: var(--track-loose);
-    color: var(--fg); text-transform: uppercase;
-}
-.dws-sub { font-size: var(--text-xs); color: var(--fg-2); }
-.dws-pills { margin-left:auto; display: flex; gap:var(--space-2); }
-/* Primary status headline — current 3-TF alignment + latest trigger.
-   Left accent bar turns green/red the moment a side is in control. */
-/* Verdict line = a row of distinct chips, each its own visual identity. */
-.dws-state {
-    display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3);
-    font-family: var(--mono); font-size: var(--text-sm);
-    padding:5px 9px; border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.03);
-    border-left: 3px solid var(--fg-3);
-}
-/* STATE pill — filled, direction-coloured: the headline that pops. */
-.dws-pill {
-    font-weight: 900; letter-spacing: 0.04em; white-space: nowrap;
-    padding: 3px 11px; border-radius: 999px;
-}
-.dws-pill.buy  { color: #04150f; background: var(--buy); }
-.dws-pill.sell { color: #1c0205; background: var(--sell); }
-.dws-pill.wait { color: var(--warning); background: rgba(255,183,77,0.14);
-                 box-shadow: inset 0 0 0 1px rgba(255,183,77,0.55); }
-/* SIGNAL chip — faint surface; the direction word carries the colour. */
-.dws-chip {
-    display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap;
-    padding: 2px 9px; border-radius: var(--radius-sm);
-    background: rgba(255,255,255,0.05);
-    font-size: var(--text-xs); color: var(--fg-2);
-}
-.dws-chip .ck { color: var(--fg-3); }
-.dws-chip .cv { color: var(--fg-3); }
-.dws-chip .tg-buy  { color: var(--buy);     font-weight: 900; }
-.dws-chip .tg-sell { color: var(--sell);    font-weight: 900; }
-.dws-chip .tg-exit { color: var(--warning); font-weight: 900; }
-/* TIME chip — cool (blue) family so "time" is visually apart from buy/sell.
-   Floated to the right edge of the verdict row + brightened for at-a-glance. */
-.dws-chip.cd {
-    margin-left: auto;
-    background: rgba(95,179,255,0.22);
-    box-shadow: inset 0 0 0 1px rgba(95,179,255,0.65);
-}
-.dws-chip.cd .dws-cd {
-    color: #8fc4ff; font-weight: 900; font-variant-numeric: tabular-nums;
-}
-/* BIAS ⇄ DWS divergence caveat — secondary line, de-emphasised. */
-.dws-sync {
-    font-family: var(--mono); font-size: var(--text-xs); font-weight: var(--weight-normal);
-    color: var(--fg-3);
-    padding:3px 9px; border-radius: var(--radius-sm);
-}
-.dws-sync.buy      { color: var(--buy); }
-.dws-sync.sell     { color: var(--sell); }
-.dws-sync.diverge  { color: var(--warning); background: rgba(255, 183, 77, 0.10); }
-.dws-sync.conflict { color: var(--sell);    background: rgba(255, 91, 107, 0.13); }
-/* Signed P/L numbers — green +, red −. Used by the validation block. */
-.dws-num     { font-weight: 800; }
-.dws-num.pos { color: var(--buy); }
-.dws-num.neg { color: var(--sell); }
-.dws-num.warn { color: var(--warning); }
-.dws-canvas-wrap {
-    /* Flex-fills the DWS card's leftover height. The histogram is halved not by
-       capping this box (fragile: the panel height varies with the display-fit
-       scale) but by the panel grid reserving the bottom ~0.8fr row as empty
-       space below the DWS card — see .panel.expanded grid-template-rows. */
-    flex: 1 1 auto; min-height: 168px; position: relative;
-}
-.dws-canvas-wrap canvas { display: block; }
-/* Hover-time readout (replaces the static bottom time-axis labels): a thin
-   vertical guide line + a bottom time chip following the cursor. pointer-events
-   none so it never blocks the canvas mousemove that drives it. */
-.dws-hover { position: absolute; inset: 0; pointer-events: none; }
-.dws-hover[hidden] { display: none; }
-.dws-hover-line {
-    position: absolute; top: 0; bottom: 13px; width: 1px;
-    background: rgba(242, 244, 249, 0.45);
-    transform: translateX(-0.5px);
-}
-.dws-hover-time {
-    position: absolute; bottom: 0; transform: translateX(-50%);
-    font: 700 10px var(--mono); color: var(--fg); white-space: nowrap;
-    background: rgba(11, 15, 25, 0.85); padding: 0 5px; border-radius: 2px;
-}
-.dws-legend {
-    display: flex; flex-wrap: wrap; gap:10px;
-    font-family: var(--mono); font-size: var(--text-2xs); color: var(--fg-muted);
-}
-.dws-legend span { display: flex; align-items: center; gap:3px; }
-.dws-legend .sw {
-    width: 10px; height: 10px; border-radius: 2px; display: inline-block;
-}
-.dws-legend .tg.buy  { color: var(--buy); }
-.dws-legend .tg.sell { color: var(--sell); }
-.dws-legend .tg.exit { color: var(--warning); }
-.dws-legend .dws-leg-sep { color: var(--fg-dim); margin-left:var(--space-2); }
-
-/* ============================================================
-   Compact-mode DWS summary — fills the lower ~60% of a COLLAPSED panel with
-   the live entry signal (alignment state + latest trigger + countdown). Hidden
-   when the panel is expanded (the full histogram shows instead). Reuses the
-   same win data as the expanded panel.
-   ============================================================ */
-.dws-compact {
-    flex: 1 1 auto; min-height: 0;
-    display: flex; flex-direction: column;
-    background: var(--panel-2);
-    border-left: 3px solid var(--accent);
-    border-radius: var(--radius);
-    padding:var(--space-3) var(--space-4);
-    overflow: hidden;
-}
-.panel.expanded .dws-compact { display: none; }   /* full histogram shows instead */
-.dwsc-inner {
-    display: flex; flex-direction: column; gap:var(--space-3);
-    justify-content: center; height: 100%; min-height: 0;
-}
-.dwsc-head { display: flex; align-items: baseline; justify-content: space-between;
-             font-family: var(--mono); }
-.dwsc-cap  { font-size: var(--text-2xs); font-weight: var(--weight-bold);
-             letter-spacing: var(--track-loose); color: var(--fg-3); text-transform: uppercase; }
-.dwsc-base { font-size: var(--text-2xs); color: var(--fg-2); font-weight: 700; }
-.dwsc-pill {
-    align-self: flex-start;
-    font-family: var(--mono); font-weight: 900; letter-spacing: 0.04em;
-    font-size: var(--text-md); padding:3px 12px; border-radius: 999px; white-space: nowrap;
-}
-.dwsc-pill.buy  { color: #04150f; background: var(--buy); }
-.dwsc-pill.sell { color: #1c0205; background: var(--sell); }
-.dwsc-pill.wait { color: var(--warning); background: rgba(255,183,77,0.14);
-                  box-shadow: inset 0 0 0 1px rgba(255,183,77,0.5); }
-.dwsc-trig { font-family: var(--mono); font-size: var(--text-sm); color: var(--fg-2);
-             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dwsc-trig .dwsc-lbl { color: var(--fg-3); font-size: var(--text-2xs); }
-.dwsc-trig .tg-buy  { color: var(--buy);     font-weight: 900; }
-.dwsc-trig .tg-sell { color: var(--sell);    font-weight: 900; }
-.dwsc-trig .tg-exit { color: var(--warning); font-weight: 900; }
-.dwsc-trig b.pos { color: var(--buy); }
-.dwsc-trig b.neg { color: var(--sell); }
-.dwsc-trig .dwsc-ago { color: var(--fg-3); font-size: var(--text-2xs); }
-.dwsc-none { color: var(--fg-3); }
-.dwsc-cd { font-family: var(--mono); font-size: var(--text-2xs); color: var(--fg-3); }
-.dwsc-cd .dws-cd { color: #8fc4ff; font-weight: 900; font-variant-numeric: tabular-nums; }
-.dwsc-empty { font-size: var(--text-2xs); }
-
-
-
 .composite.strong-buy  { border-left-color: var(--buy);
                          background: rgba(0,208,156,0.18); }
 .composite.strong-buy  .comp-arrow, .composite.strong-buy  .comp-text { color: var(--buy); }
@@ -844,8 +616,7 @@ body {
 /* ============================================================
    Expanded mode — click any panel to focus on it.
    - Larger fonts everywhere
-   - 2-column grid layout: full-width head/composite, then the
-     signals matrix and analytics stacked in the left column
+   - Single-column layout: head/composite, then the signals matrix
    - Show EMA column in sig matrix
    - Bigger struct rows
    ============================================================ */
@@ -855,38 +626,23 @@ body {
     padding:14px 20px;
     display: grid;
     grid-template-areas:
-        "head       head"
-        "signals    dws"
-        "analytics  dws"
-        ".          .";
-    grid-template-columns: 1fr 1fr;
-    /* #5 consolidation: BIAS no longer has its own full-width band — it is the
-       header INSIDE the signals block now, so the grid drops a row. The signals
-       row is min-content (BIAS header + TF table) so no dead gap opens beneath
-       it; the analytics row takes the remaining height to sit flush under the
-       table and fill down beside the DWS panel. The trade controls live INSIDE
-       the head row (right of the price), so they add no row.
-       Histogram compression (user: the full-height histogram was too tall): the
-       4th row is an EMPTY spacer (`.` — nothing placed there). With the DWS panel
-       spanning only rows 2-3 (min-content + 1fr) and the spacer taking ~0.8fr,
-       the post-head height splits so the histogram fills ~half and the lower
-       band is intentionally left blank. Robust across display-fit scales (a
-       fraction, not a fixed px). */
-    grid-template-rows: auto min-content minmax(0, 1fr) minmax(0, 0.8fr);
+        "head"
+        "signals"
+        "emastack";
+    grid-template-columns: 1fr;
+    /* #5 consolidation: BIAS is the header INSIDE the signals block now. The
+       head row carries the price + trade controls; the signals row (BIAS header
+       + TF table) sits beneath it; the EMA oscillator fills all remaining
+       height (1fr) so the graph scales with the panel / viewport. */
+    grid-template-rows: auto min-content 1fr;
     column-gap:var(--space-6);
     row-gap:var(--space-5);
     overflow-y: auto;
 }
+.panel.expanded .emastack { grid-area: emastack; }
 .panel.expanded:hover { transform: none; }
 .panel.expanded .panel-head { grid-area: head; position: relative; }
 .panel.expanded .signals    { grid-area: signals;   align-self: start; }
-.panel.expanded .dws        { grid-area: dws;       display: flex; }
-/* Analytics stretches to fill the row height (matches DWS panel) so the
-   indicator charts can use the available vertical space instead of leaving
-   the left column short. The block itself + the chart grid + canvases all
-   grow on the cross-axis below. */
-.panel.expanded .analytics  { grid-area: analytics; align-self: stretch;
-                              min-height: 0; }
 
 .panel.expanded .panel-sym  { font-size: 36px; }
 .panel.expanded .quote      { font-size: 26px; gap:14px; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
@@ -900,156 +656,13 @@ body {
 .panel.expanded .composite .comp-score { font-size: var(--text-lg); }
 .panel.expanded .sig-row {
     font-size: var(--text-lg); padding:var(--space-3) var(--space-4);
-    /* The signals box sits in the left column only — same width as the
-       analytics block stacked below it. The 6 columns (TF|TREND|EMA|ADX|
-       DI±|RSI) are fr-sized to fill that box edge-to-edge: no trailing
-       spacer, no dead gap. TREND gets the widest share for "STRONG SELL". */
+    /* The 6 columns (TF|TREND|EMA|ADX|DI±|RSI) are fr-sized to fill the box
+       edge-to-edge: no trailing spacer, no dead gap. TREND gets the widest
+       share for "STRONG SELL". */
     grid-template-columns: 0.7fr 1.9fr 1.15fr 0.85fr 0.85fr 0.85fr;
 }
 .panel.expanded .sig-row.sig-head { font-size: var(--text-xs); }
 
-/* ============================================================
-   Account card
-   ============================================================ */
-
-.account-card { flex: 0 0 auto; }
-/* Broker switcher attached to the ACCOUNT identity in the card title. */
-.acc-identity-wrap {
-    position: relative;
-    display: inline-flex;
-    align-items: baseline;
-    gap:var(--space-2);
-}
-.broker-toggle {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--fg-muted);
-    border-radius: 3px;
-    padding:0 5px;
-    margin-left:var(--space-2);
-    font-size: var(--text-2xs);
-    line-height: 1.4;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
-}
-.broker-toggle:hover { color: var(--accent); border-color: var(--accent); }
-.broker-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
-.broker-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    margin-top:var(--space-2);
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    z-index: 100;
-    min-width: 180px;
-    overflow: hidden;
-}
-.broker-menu[hidden] { display: none; }
-.broker-opt {
-    display: flex; align-items: center; gap:var(--space-4);
-    width: 100%;
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--border);
-    color: var(--fg);
-    font-family: var(--mono);
-    font-size: var(--text-sm);
-    padding:var(--space-4) 10px;
-    text-align: left;
-    cursor: pointer;
-}
-.broker-opt:last-child { border-bottom: 0; }
-.broker-opt:hover { background: var(--panel-2); }
-.broker-opt.active {
-    color: var(--accent);
-    cursor: default;
-}
-.broker-opt.active:hover { background: transparent; }
-.broker-check {
-    width: 12px;
-    color: var(--accent);
-    text-align: center;
-    flex: 0 0 auto;
-}
-/* Full-screen overlay while the server restarts for a broker switch. */
-#broker-switch-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 18, 28, 0.85);
-    color: var(--fg);
-    font-family: var(--mono);
-    font-size: var(--text-lg);
-    font-weight: var(--weight-medium);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    backdrop-filter: blur(2px);
-}
-#broker-switch-overlay.err { color: var(--sell); }
-/* Recommended lot — the actionable number, so it gets an accent-tinted band
-   above the balance grid (cool accent = "what to do", distinct from the
-   green/red money figures below). */
-.acc-reco {
-    display: flex; align-items: baseline; gap: var(--space-3);
-    margin-bottom: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius);
-    background: rgba(95, 179, 255, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(95, 179, 255, 0.55);
-}
-.acc-reco-label {
-    font-size: var(--text-2xs); font-weight: var(--weight-bold);
-    text-transform: uppercase; letter-spacing: var(--track-normal);
-    color: #7db4ff;
-}
-.acc-reco-val {
-    font-size: var(--text-xl); font-weight: var(--weight-bold);
-    color: #9ccbff; font-variant-numeric: tabular-nums;
-}
-.acc-reco-sub {
-    font-size: var(--text-3xs); color: var(--fg-3); white-space: nowrap;
-    margin-left: auto;          /* rule caption floats to the right, muted */
-}
-.acc-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap:var(--space-2);
-}
-.acc-cell {
-    background: var(--panel-2);
-    border-radius: var(--radius);
-    padding:var(--space-2) var(--space-4);
-}
-.acc-cell.pnl { grid-column: span 2; }
-.acc-label {
-    font-size: var(--text-2xs); font-weight: var(--weight-medium);
-    color: var(--fg-3);          /* muted label… */
-    text-transform: uppercase;
-    letter-spacing: var(--track-normal);
-}
-.acc-val {
-    font-family: var(--mono);
-    font-size: var(--text-md);
-    font-weight: var(--weight-medium);
-    color: var(--fg);            /* …bright figure */
-}
-/* Today P&L is the hero — clearly larger than the other figures so the
-   trader's eye lands on it first. Other balances stay at --text-md for a
-   single hierarchy step (was the only "big" number in a panel of numbers). */
-.acc-val.big { font-size: var(--text-xl); font-weight: var(--weight-bold); }
-.acc-val.pos { color: var(--buy); }
-.acc-val.neg { color: var(--sell); }
-
-.acc-positions { margin-top:var(--space-2); }
-.acc-positions .empty {
-    color: var(--fg-3); font-size: var(--text-xs); padding:var(--space-2) 0;
-}
-/* Two-line position card so the ✕ close button always fits the narrow
-   sidebar (a single-row grid overflowed and clipped ✕ off the right edge). */
 .pos-row {
     display: flex; flex-direction: column; gap:2px;
     font-family: var(--mono); font-size: var(--text-xs);
@@ -1059,10 +672,6 @@ body {
 }
 .pos-row.buy  { border-left-color: var(--buy); }
 .pos-row.sell { border-left-color: var(--sell); }
-.pos-line1 { display:flex; align-items:center; gap:var(--space-2); }
-.pos-line2 { display:flex; align-items:baseline; justify-content:space-between;
-             font-size: var(--text-2xs); color: var(--fg-2); }
-.pos-row .pos-sym { font-weight: var(--weight-medium); }
 .pos-row .pos-vol { color: var(--fg-3); }
 .pos-row .type-buy  { color: var(--buy);  font-weight: var(--weight-bold); }
 .pos-row .type-sell { color: var(--sell); font-weight: var(--weight-bold); }
@@ -1180,21 +789,17 @@ body {
 
 /* Calendar and Macro share the remaining sidebar height (account is fixed),
    each scrolling internally so neither is clipped when the sidebar is short. */
+.ry-card, .dxy-card, .cot-card { min-height: 0; }
 .calendar-card { flex: 1 1 0; min-height: 0; }
-.journal-card  { flex: 1 1 0; min-height: 0; }
-/* Calendar + Journal lists share one identical scroll treatment so the sidebar
-   panels match (and match the trigger-calendar list scroll). */
-.cal-list,
-.journal-list {
+/* Calendar list scroll treatment (matches the other sidebar panels). */
+.cal-list {
     display: flex; flex-direction: column; gap:var(--space-1);
     overflow-y: auto; min-height: 0; flex: 1;
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.22) transparent;
 }
-.cal-list::-webkit-scrollbar,
-.journal-list::-webkit-scrollbar { width: 7px; }
-.cal-list::-webkit-scrollbar-thumb,
-.journal-list::-webkit-scrollbar-thumb {
+.cal-list::-webkit-scrollbar { width: 7px; }
+.cal-list::-webkit-scrollbar-thumb {
     background: rgba(255,255,255,0.20); border-radius: 4px;
 }
 .cal-row {
@@ -1247,10 +852,7 @@ body {
 .cal-row.today .cal-date { color: var(--warning); }
 .cal-row.tomorrow .cal-date { color: var(--fg); }
 
-canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
-
 /* Pill buttons (window selectors) */
-.pill-group { display: flex; gap:var(--space-2); }
 .pill {
     background: var(--panel-2); color: var(--fg);
     border: 1px solid var(--border); border-radius: 4px;
@@ -1266,275 +868,12 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
 }
-/* Window size beyond the bars currently loaded — not selectable until enough
-   history accumulates. Greyed + not-allowed so the unavailable option reads as
-   "temporarily out of range", not broken. */
-.pill-disabled {
-    opacity: 0.4; cursor: not-allowed;
-    background: var(--panel-2); color: var(--fg-3);
-    border-color: var(--border); box-shadow: none;
-}
-.pill-disabled:hover { background: var(--panel-2); border-color: var(--border); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
-
-/* DWS-SMT signal-validation confidence block — the panel's headline
-   "is this signal trustworthy?" block, emphasised over the surrounding
-   state/sync lines via a slightly larger font, more padding, a brighter
-   background and a tier-coloured left accent bar. Uses the same monospace
-   family as the rest of the DWS panel (.dws-state / .dws-sync) and the
-   broader app-wide numeric convention (.bias chip / .stat-val / .acc-val). */
-.dws-validation {
-    font-family: var(--mono);
-    font-size: var(--text-sm);
-    padding:10px var(--space-5);
-    border-radius: var(--radius-sm);
-    color: var(--fg);
-    background: rgba(255, 255, 255, 0.055);
-    border-left: 3px solid var(--fg-3);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
-}
-/* Validation tier accent — same hue family as the chip background swatch so
-   the left border and the chip read as a single visual unit. */
-.dws-validation.trusted      { border-left-color: #2da27c; }
-.dws-validation.caution      { border-left-color: #c08a2a; }
-.dws-validation.insufficient { border-left-color: #6a7180; }
-/* Regime banner — shown ABOVE the panel when the live rolling PF has drifted far
-   from the 16Y baseline. Loud amber when worse (don't trust the long-run during a
-   drawdown); quiet green when materially better. */
-.dws-regime {
-    font-size: var(--text-sm); line-height: 1.35;
-    padding:6px var(--space-4); border-radius: var(--radius-sm);
-    margin-bottom:9px;
-}
-.dws-regime b { font-weight: 800; }
-.dws-regime em { font-style: normal; color: var(--fg-2); }
-.dws-regime .neg { color: var(--sell); font-weight: 800; }
-.dws-regime .pos { color: var(--buy); font-weight: 800; }
-.dws-regime.warn {
-    color: #ffe2b3; background: rgba(255,91,107,0.14);
-    border:1px solid rgba(255,91,107,0.45);
-}
-.dws-regime.good {
-    color: var(--fg-2); background: rgba(0,208,156,0.10);
-    border:1px solid rgba(0,208,156,0.30);
-}
-.dws-vhead {
-    display: flex; align-items: center; gap:var(--space-4);
-    margin-bottom:9px;
-}
-.dws-validation .dws-vtier {
-    font-weight: 800;
-    padding:var(--space-1) 9px;
-    border-radius: 3px;
-    white-space: nowrap;
-    font-size: var(--text-sm);
-    letter-spacing: 0.04em;
-}
-.dws-validation.trusted      .dws-vtier { background: var(--tier-trusted);      color: var(--fg); }
-.dws-validation.caution      .dws-vtier { background: var(--tier-caution);      color: var(--fg); }
-.dws-validation.insufficient .dws-vtier { background: var(--tier-insufficient); color: var(--fg); }
-.dws-vlabel {
-    font-size: var(--text-xs); letter-spacing: 0.06em;
-    color: var(--fg-muted);
-}
-/* Collapsible header / verdict / rolling explanations.
-   Default = HIDDEN. The "説明" toggle in the validation header sets a
-   .desc-open class on the .dws-validation wrapper which reveals every
-   description inside. Per-symbol open state is persisted to localStorage
-   so the user opens once and the choice survives reloads.
-
-   Color hierarchy (so the eye can scan, not a wall of identical white):
-     - Body text:   dim grey rgba(255,255,255,.55)   — easy to skim
-     - <b> keyword: amber  #d4a02a                   — methodology / terms
-     - <em>:        cyan   #5fb3ff                   — numeric callouts
-     - .dws-sig:    green  var(--buy)                — significance pass */
-.dws-vhead-desc,
-.dws-vverdict-desc,
-.dws-vsec-desc {
-    display: none;
-    font-size: var(--text-xs);
-    line-height: 1.6;
-    color: rgba(255, 255, 255, 0.55);
-    padding:5px var(--space-4) 7px var(--space-4);
-    background: rgba(255, 255, 255, 0.025);
-    border-left: 2px solid rgba(212, 160, 42, 0.40);
-    border-radius: 2px;
-    margin:var(--space-1) 0 var(--space-2) 0;
-}
-.dws-vhead-desc b,
-.dws-vverdict-desc b,
-.dws-vsec-desc b {
-    color: #d4a02a;
-    font-weight: 700;
-}
-.dws-vhead-desc em,
-.dws-vverdict-desc em,
-.dws-vsec-desc em {
-    color: #5fb3ff;
-    font-style: normal;
-    font-weight: 700;
-}
-.dws-vverdict-desc .dws-sig {
-    color: var(--buy);
-    font-weight: 700;
-}
-
-/* Header section gets a wider accent so it visually owns the whole card. */
-.dws-vhead-desc {
-    background: rgba(56, 161, 105, 0.05);
-    border-left-color: rgba(56, 161, 105, 0.55);
-}
-.dws-vverdict-desc {
-    background: rgba(212, 160, 42, 0.06);
-    border-left-color: rgba(212, 160, 42, 0.55);
-}
-.dws-vsec-desc {
-    background: rgba(255, 255, 255, 0.02);
-    border-left-color: rgba(255, 255, 255, 0.25);
-}
-
-/* Reveal every description when the parent .dws-validation has .desc-open. */
-.dws-validation.desc-open .dws-vhead-desc,
-.dws-validation.desc-open .dws-vverdict-desc,
-.dws-validation.desc-open .dws-vsec-desc {
-    display: block;
-}
-
-/* "説明" disclosure toggle — informational button in the validation header.
-   Uses the same cyan accent the description body uses for <em> numerics,
-   so the visual language ties button → revealed content. Prominent enough
-   that the user can find it at a glance, restrained enough that it does
-   not compete with the tier / verdict badges. */
-.dws-vexplain {
-    appearance: none;
-    border: 1px solid rgba(95, 179, 255, 0.55);
-    border-radius: 4px;
-    color: #5fb3ff;
-    background: rgba(95, 179, 255, 0.10);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    padding:var(--space-1) 9px var(--space-1) var(--space-4);
-    cursor: pointer;
-    display: inline-flex; align-items: center; gap:var(--space-2);
-    flex: 0 0 auto;
-    line-height: 1.3;
-    transition: background-color 90ms ease-out, border-color 90ms ease-out;
-}
-.dws-vexplain:hover {
-    background: rgba(95, 179, 255, 0.22);
-    border-color: rgba(95, 179, 255, 0.85);
-    color: #8fcaff;
-}
-.dws-vexplain:focus-visible {
-    outline: 2px solid rgba(95, 179, 255, 0.70);
-    outline-offset: 1px;
-}
-.dws-validation.desc-open .dws-vexplain {
-    background: rgba(95, 179, 255, 0.28);
-    border-color: rgba(95, 179, 255, 1);
-    color: #ffffff;
-    box-shadow: 0 0 0 1px rgba(95, 179, 255, 0.55);
-}
-.dws-vexplain-icon { font-size: var(--text-3xs); line-height: 1; }
-.dws-vexplain-label { letter-spacing: 0.10em; }
-
-/* Secondary rolling block — same description style as primary metrics. */
-.dws-vsec-row {
-    display: flex; align-items: center; gap:var(--space-4);
-    flex-wrap: wrap;
-    line-height: 1.4;
-}
-/* PF-vs-baseline drift indicator next to the live PF value. */
-.dws-pf-drift {
-    font-weight: 800;
-    font-size: var(--text-xs);
-    margin-left:var(--space-2);
-    padding:1px 5px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-}
-.dws-pf-drift.pos { color: var(--buy); }
-.dws-pf-drift.neg { color: var(--sell); }
-.dws-pf-drift.warn {
-    box-shadow: 0 0 0 1px currentColor;
-    background: rgba(255, 255, 255, 0.10);
-}
-
-/* ============================================================
-   16Y deep-history evaluation — primary OOS display
-   ============================================================ */
-
-/* Period-drift verdict badge in the validation header.
-   STABLE = green outline, DRIFT = amber, REGIME-CHANGE = red. */
-.dws-vverdict {
-    font-weight: 800;
-    font-size: var(--text-2xs);
-    letter-spacing: 0.06em;
-    padding:var(--space-1) 7px;
-    border-radius: 3px;
-    margin-left:auto;
-    flex: 0 0 auto;
-    cursor: help;
-    white-space: nowrap;
-}
-.dws-vverdict.stable {
-    color: var(--buy);
-    background: rgba(56, 161, 105, 0.12);
-    box-shadow: inset 0 0 0 1px rgba(56, 161, 105, 0.55);
-}
-.dws-vverdict.drift {
-    color: #d4a02a;
-    background: rgba(212, 160, 42, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(212, 160, 42, 0.55);
-}
-.dws-vverdict.regime {
-    color: var(--sell);
-    background: rgba(229, 62, 62, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(229, 62, 62, 0.55);
-}
-
-/* Secondary "直近 ローリング ~7M" line below the 16Y headline metrics. */
-.dws-vsecondary {
-    display: flex; align-items: center; gap:var(--space-4);
-    margin-top:var(--space-4);
-    padding-top:7px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.18);
-    font-size: var(--text-xs);
-    color: var(--fg);
-    line-height: 1.4;
-    flex-wrap: wrap;
-}
-.dws-vsec-label {
-    font-weight: 800; letter-spacing: 0.06em;
-    color: var(--fg-dim);
-    text-transform: uppercase;
-    flex: 0 0 auto;
-    font-size: var(--text-2xs);
-}
-.dws-vsec-fig {
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    color: var(--fg);
-    flex: 1 1 auto;
-}
-.dws-vsec-empty {
-    color: var(--fg-dim);
-    font-style: normal;
-    font-weight: var(--weight-medium);
-}
-
-
-/* The Macro Rates panel was removed (real yield promoted to its own card). Only
-   the DWS-sync counter-carry flag below survives — set by updateDwsSync when an
-   alignment fights the rate carry. */
-.dws-sync.macro-counter { color: var(--warning); }
-
 
 /* ============================================================
    Trade journal (discretionary) — sidebar panel. One row per placed order
@@ -1578,160 +917,170 @@ canvas { display: block; max-width: 100%; flex: 1; min-height: 0; }
 .jr-tf i  { font-style: normal; color: var(--fg-3); margin-left: 2px; }
 .jr-sub { margin-top:2px; font-size: var(--text-2xs); font-family: var(--mono); }
 
-
 /* ============================================================
-   Analytics: (A) recent trigger history + (B) hourly win-rate heatmap.
-   Both empirical — A is the live DWS-SMT feedback loop, B is the 16Y OOS
-   per-hour win rate. Live in the expanded panel's left column.
+   Fund / trade-management panel — bottom row (grid-area: fund)
    ============================================================ */
-
-/* (B) Session-grouped time-of-day win-rate heatmap: アジア / ロンドン / NY
-   rows, each a label + that session's JST-hour boxes (DST-aware boundaries). */
-.hm-sessions {
-    display: flex; flex-direction: column; gap:4px;
-    margin-top:var(--space-2);
+.fund {
+    grid-area: fund;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: var(--gap);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: var(--space-3) var(--space-4);
+    min-height: 0;
+    overflow: hidden;
+    font-family: var(--mono);
 }
-.hm-session { display: flex; align-items: stretch; gap:6px; }
-.hm-session-label {
-    flex:0 0 72px; display: flex; flex-direction: column; justify-content: center;
-    padding:0 8px; border-radius:3px;
-    font-family: var(--mono); font-weight: var(--weight-bold); font-size: var(--text-2xs);
-    border-left:3px solid var(--fg-3);
-}
-.hm-session-label .hm-sess-rng {
-    font-size: var(--text-3xs); font-weight: var(--weight-medium); color: var(--fg-3);
-}
-.hm-session-label.asia   { background: rgba(255,183,77,0.12);  border-left-color:#ffb74d; color:#ffcf8a; }
-.hm-session-label.london { background: rgba(95,179,255,0.12);  border-left-color:#5fb3ff; color:#9ccbff; }
-.hm-session-label.ny     { background: rgba(178,124,255,0.13); border-left-color:#b27cff; color:#cbb0ff; }
-.hm-session-cells { display: flex; gap:3px; flex:1 1 auto; min-width:0; }
-.hm-session-cells .hm-cell { flex:1 1 0; min-width:0; }
-.hm-cell {
+.fund-kpi {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding:2px 0;
-    border-radius: 3px;
-    border: 1px solid rgba(255,255,255,0.06);
+    gap: 3px;
+    border-right: 1px solid var(--border);
+    padding-right: var(--space-3);
+    font-size: var(--text-2xs);
+    overflow: hidden;
+}
+.fund-main { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; }
+.fund-tabs { display: flex; gap: 4px; }
+.fund-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
     font-family: var(--mono);
-    line-height: 1.12;
-    cursor: help;
+    font-variant-numeric: tabular-nums;
 }
-.hm-cell.is-now {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+.fk-acct { color: var(--accent); font-size: var(--text-3xs); font-weight: 700;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fk-row { display: flex; justify-content: space-between; align-items: baseline; }
+.fk-l { color: var(--fg-3); }
+.fk-v { font-variant-numeric: tabular-nums; }
+.fk-v.pos { color: var(--buy); } .fk-v.neg { color: var(--sell); }
+.fk-v.accent { color: var(--warning); font-weight: 700; }
+.fk-bar { margin-top: auto; height: 6px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+.fk-bar-fill { height: 100%; background: var(--buy); }
+.fk-bar-cap { font-size: var(--text-3xs); }
+.fund, .fund .fk-l, .fund .mute, .fund .mm-field label, .fund .empty { color: var(--fg); }
+.fund-kpi { font-size: var(--text-xs); }
+
+/* ---- Fund panel — 現ポジション tab (F3) -------------------------------- */
+.ftab-pos .pos-row {
+    display: flex; gap: var(--space-3); align-items: baseline;
+    padding: 3px 0; border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
 }
-.hm-hour {
-    font-size: var(--text-3xs);
-    color: rgba(255,255,255,0.55);
-    font-weight: 700;
+.ftab-pos .pos-vol { color: var(--fg-2); }
+.fund-body .pos-close-all { margin-bottom: var(--space-2); }
+
+/* ---- Fund panel — 資金管理 tab (F4) ------------------------------------ */
+.mm-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--space-3); }
+.mm-group { border:1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
+.mm-group h4 { margin:0 0 4px; font-size: var(--text-2xs); color: var(--accent); font-weight:700; font-family: var(--mono); }
+.mm-field { display:flex; justify-content:space-between; align-items:baseline; gap: var(--space-2); margin: 2px 0; }
+.mm-field label { color: var(--fg-3); font-size: var(--text-2xs); font-family: var(--mono); }
+.mm-field input { width: 90px; background: var(--bg); color: var(--fg); border:1px solid var(--border);
+    border-radius:3px; padding:2px 5px; font-family: var(--mono); font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums; text-align:right; }
+.mm-out { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--fg); font-size: var(--text-2xs); }
+.mm-gate { font-size: var(--text-2xs); font-family: var(--mono); }
+.mm-gate.warn { color: var(--warning); border:1px dashed var(--warning); border-radius:var(--radius);
+    padding:3px 6px; margin-bottom: var(--space-2); }
+
+/* ---- Fund panel — 履歴 tab (F5) ---------------------------------------- */
+.ftab-hist .hist-row {
+    display: flex; gap: var(--space-3); align-items: baseline;
+    padding: 2px 0; border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    font-family: var(--mono);
 }
-.hm-wr {
+.ftab-hist .h-ctx { display: inline-flex; gap: 3px; }
+.ftab-hist .h-side-buy  { color: var(--buy);  font-weight: var(--weight-bold); }
+.ftab-hist .h-side-sell { color: var(--sell); font-weight: var(--weight-bold); }
+
+/* ---- Risk-limit gate (F6): visual-caution 様子見 on panel-head order buttons ----- */
+/* Triggered when daily-loss >= 3% of balance OR max-drawdown >= 10%.              */
+/* DISPLAY ONLY — buttons remain fully clickable. Trader retains full discretion.  */
+.panel-head .trade-btn.degraded {
+    border-style: dashed !important;
+    border-color: var(--warning) !important;
+    background: transparent !important;
+    color: var(--warning) !important;
+    opacity: 0.85;
+}
+
+/* ── EMA-stack oscillator (center panel) ──────────────────────────────────
+   Three EMAs on the M15 series as %-deviation from the EMA320 centerline.
+   Repaint-free upstream; this is pure drawing (no trigger glyphs). Font is
+   inherited (var(--mono)); never declare font-family here. */
+.emastack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    min-height: 0;               /* size to the 1fr grid track, don't force height */
+    position: relative;          /* anchor for the hover crosshair + chip */
+}
+.emastack .empty { margin: auto; }
+/* The readout row is fixed-height; the chart flexes to fill everything below. */
+.ema-content { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: var(--space-3); }
+.ema-read {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-5);
+    font-size: var(--text-md);
+    color: var(--fg-2);
+    font-variant-numeric: tabular-nums;
+}
+.ema-side { font-size: var(--text-lg); font-weight: 600; }
+.ema-side.pos { color: var(--buy); }
+.ema-side.neg { color: var(--sell); }
+.ema-k { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--fg); }
+.ema-dot { width: 9px; height: 2px; border-radius: 1px; display: inline-block; }
+.ema-dot-center { width: 11px; height: 0; background: none; border-top: 1px dashed var(--fg-3); }
+.ema-osc { width: 100%; flex: 1 1 auto; min-height: 0; height: 100%; display: block; cursor: crosshair; }
+.emastack.ema-dragging .ema-osc { cursor: grabbing; }
+.ema-latest {
+    margin-left: auto;            /* push to the right edge of the readout row */
+    font-family: var(--mono);     /* buttons don't inherit font-family — keep mono */
     font-size: var(--text-sm);
-    font-weight: 800;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 10px;
+    cursor: pointer;
+}
+.ema-latest:hover { border-color: var(--accent); }
+.ema-latest.at-latest { color: var(--fg-3); border-color: var(--border); }   /* already live */
+/* EMA320 centerline — crisp white dashes, constant on-screen width regardless of
+   the non-uniform viewBox stretch (vector-effect set on the element). */
+.ema-center { stroke: #f4f7fb; stroke-width: 2; stroke-dasharray: 7 5; opacity: .95; }
+/* Daily (JST) period divider lines — clearly visible vertical separators. */
+.ema-day { stroke: rgba(200, 212, 238, .6); stroke-width: 1.5; stroke-dasharray: 6 4; }
+
+/* Hover crosshair + readout chip (JST time + each line's %-dev at that bar). */
+.ema-cursor {
+    position: absolute;
+    width: 1px;
+    background: rgba(244, 247, 251, .35);
+    pointer-events: none;
+}
+.ema-hover {
+    position: absolute;
+    pointer-events: none;
+    z-index: 5;
+    background: var(--panel-2, #252c3b);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: var(--text-md);
     color: var(--fg);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
-/* Low-sample cell (N < HM_MIN_N): dashed border + muted WR so it reads as a
-   reference value, not a coloured edge. Background is already neutral grey. */
-.hm-cell.hm-lown {
-    border-style: dashed;
-    border-color: rgba(255,255,255,0.14);
-}
-.hm-cell.hm-lown .hm-wr { color: var(--fg-3); font-weight: 700; }
-
-
-/* ============================================================
-   Trigger-history CALENDAR — a date-picker the user selects a
-   period from: a ◀ year ▶ navigator (the year opens a year
-   grid), a 12-month grid, and the selected period's aggregate.
-   Every .cal-* / .tcal-* rule below is scoped to .anlx-triggers
-   so it cannot accidentally restyle the economic-calendar panel
-   (which uses .cal-row / .cal-list as bare globals).
-   ============================================================ */
-.anlx-triggers .cal-broker {
-    font-family: var(--mono); font-size: var(--text-2xs); font-weight: 700;
-    color: var(--accent); text-transform: none; letter-spacing: 0; margin-left:var(--space-4);
-}
-.anlx-triggers .cal-rec {
-    font-size: var(--text-3xs); font-weight: 700; letter-spacing: 0.04em;
-    color: var(--buy); text-transform: none; margin-left:var(--space-3);
-}
-.anlx-triggers .cal-nav { display:flex; align-items:center; gap:var(--space-3); margin:var(--space-1) 0 var(--space-3) 0; font-family: var(--mono); }
-.anlx-triggers .cal-arrow {
-    font-size: var(--text-sm); color: var(--fg-2); cursor:pointer; user-select:none;
-    padding:0 var(--space-3); border-radius: var(--radius-sm);
-    border: 1px solid rgba(255,255,255,0.14);
-}
-.anlx-triggers .cal-arrow:hover { color: var(--fg); border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.05); }
-.anlx-triggers .cal-arrow.off { opacity:0.25; pointer-events:none; }
-.anlx-triggers .cal-ytitle {
-    font-family: var(--mono); font-weight: 800; color: var(--fg); cursor:pointer;
-    letter-spacing:0.02em; min-width: 88px; text-align:center;
-}
-.anlx-triggers .cal-ytitle i { font-style:normal; font-size: var(--text-xs); color: var(--fg-dim); }
-.anlx-triggers .cal-ytitle.is-live { color: #5fb3ff; }
-.anlx-triggers .cal-ytitle:hover { color: #fff; }
-.anlx-triggers .cal-src { margin-left:auto; font-size: var(--text-2xs); font-weight:700; color: var(--fg-dim); font-family: var(--mono); }
-.anlx-triggers .cal-src.is-live { color: #5fb3ff; }
-.anlx-triggers .cal-chip {
-    margin-left:auto; font-size: var(--text-2xs); font-weight:700; cursor:pointer;
-    color: var(--fg-2); border:1px solid rgba(95,179,255,0.4); border-radius: var(--radius-sm);
-    padding:0 var(--space-3);
-}
-.anlx-triggers .cal-chip:hover { color:#fff; background: rgba(95,179,255,0.18); }
-.anlx-triggers .cal-months,
-.anlx-triggers .cal-years { display:grid; grid-template-columns: repeat(4, 1fr); gap:3px; margin-bottom:var(--space-3); }
-.anlx-triggers .cal-mcell,
-.anlx-triggers .cal-ycell {
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
-    font-family: var(--mono); font-size: var(--text-2xs); font-weight:700; color:#eef2f8;
-    padding:6px 2px; border-radius: var(--radius-sm); cursor:pointer; min-width:0;
-    white-space:nowrap; background: rgba(255,255,255,0.04); transition: filter 90ms;
-}
-.anlx-triggers .cal-mcell i,
-.anlx-triggers .cal-ycell i { font-style:normal; font-size: var(--text-3xs); font-weight:700; opacity:0.95; }
-.anlx-triggers .cal-mcell:hover,
-.anlx-triggers .cal-ycell:hover { filter: brightness(1.2); }
-.anlx-triggers .cal-mcell.empty { color: var(--fg-dim); background: rgba(255,255,255,0.03); }
-.anlx-triggers .cal-mcell.empty i { opacity:0.45; }
-.anlx-triggers .cal-mcell.on,
-.anlx-triggers .cal-ycell.on { box-shadow: inset 0 0 0 2px rgba(95,179,255,0.95); color:#fff; }
-.anlx-triggers .cal-ycell.is-live { outline:1px solid rgba(95,179,255,0.30); }
-.anlx-triggers .cal-summary {
-    /* mono + tabular like the month cells / trade list — unifies the win-loss /
-       PF / cumulative figures in this block with the rest of the dashboard. */
-    font-family: var(--mono); font-variant-numeric: tabular-nums;
-    font-size: var(--text-sm); color: var(--fg-2);
-    border-top: 1px dashed rgba(255,255,255,0.10); padding-top:var(--space-3); margin-bottom:var(--space-2);
-}
-.anlx-triggers .cal-summary b { font-weight: 800; color: var(--fg); }
-.anlx-triggers .cal-summary b.pos { color: var(--buy); }
-.anlx-triggers .cal-summary b.neg { color: var(--sell); }
-.anlx-triggers .cal-open { color:#d69e2e; }
-.anlx-triggers .cal-empty { color: var(--fg-dim); font-size: var(--text-sm); padding:var(--space-3) var(--space-2); }
-.anlx-triggers .tcal-scroll {
-    display:flex; flex-direction:column; gap:2px; max-height: 220px; overflow-y:auto;
-    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent;
-}
-.anlx-triggers .cal-trow {
-    display:grid; grid-template-columns: 1fr auto auto auto; gap:var(--space-3); align-items:center;
-    font-size: var(--text-xs); font-family: var(--mono); padding:2px var(--space-3);
-    border-left:2px solid transparent; border-radius:2px;
-}
-.anlx-triggers .cal-trow.win  { border-left-color: rgba(0,208,156,0.55); background: rgba(0,208,156,0.05); }
-.anlx-triggers .cal-trow.loss { border-left-color: rgba(255,91,107,0.55); background: rgba(255,91,107,0.05); }
-.anlx-triggers .cal-trow.open { box-shadow: inset 0 0 0 1px rgba(95,179,255,0.45); }
-.anlx-triggers .cal-tt { color: var(--fg-2); white-space:nowrap; }
-.anlx-triggers .cal-tt i { font-style:normal; color:#d69e2e; font-weight:700; margin-right:var(--space-2); }
-.anlx-triggers .cal-td { font-weight:800; }
-.anlx-triggers .cal-td.buy { color: var(--buy); }
-.anlx-triggers .cal-td.sell { color: var(--sell); }
-.anlx-triggers .cal-tw { text-align:center; font-weight:800; }
-.anlx-triggers .cal-tw.win { color: var(--buy); }
-.anlx-triggers .cal-tw.loss { color: var(--sell); }
-.anlx-triggers .cal-tp { text-align:right; font-weight:700; font-variant-numeric: tabular-nums; }
-.anlx-triggers .cal-tp.pos { color: var(--buy); }
-.anlx-triggers .cal-tp.neg { color: var(--sell); }
-.anlx-triggers .cal-tp.muted { color: var(--fg-dim); }
-
+.ema-hover b { color: var(--accent); font-weight: 600; margin-right: 8px; font-size: var(--text-lg); }
+.ema-hover span { color: var(--fg-2); margin-right: 8px; }

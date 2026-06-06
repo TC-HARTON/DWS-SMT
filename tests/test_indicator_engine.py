@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from analyzer.indicator_engine import IndicatorEngine, _bias_contribution_series
+from analyzer.indicator_engine import IndicatorEngine
 
 
 def _make_rate_df(n: int, base_price: float = 100.0) -> pd.DataFrame:
@@ -79,22 +79,6 @@ def test_engine_compute_under_budget_for_full_load():
         f"best-of-3 compute took {best:.1f} ms (>2x SPEC budget of "
         f"{config.TARGET_ANALYSIS_BUDGET_MS} ms)"
     )
-
-
-def test_bias_contribution_series_ports_tfsignal_and_regime_gate():
-    # All three bars above EMA. bar0 = STRONG BUY in a trend, bar1 = plain BUY
-    # in a range, bar2 = NaN warmup.
-    close = np.array([110.0, 110.0, 110.0])
-    ema = np.array([100.0, 100.0, 100.0])
-    rsi = np.array([60.0, 52.0, np.nan])
-    adx = np.array([30.0, 20.0, 30.0])
-    dip = np.array([25.0, 10.0, 25.0])
-    dim = np.array([10.0, 12.0, 10.0])
-    out = _bias_contribution_series(close, ema, rsi, adx, dip, dim)
-    # bar0: code +2, ADX 30 → trend 1.0 → 2.0
-    # bar1: code +1 (BUY), ADX 20 → trend 0.5 → 0.5
-    # bar2: RSI NaN → 0.0
-    np.testing.assert_allclose(out, [2.0, 0.5, 0.0])
 
 
 def test_with_broker_names_patches_in_resolved_names():

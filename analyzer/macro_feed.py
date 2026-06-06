@@ -2,8 +2,7 @@
 
 Fetches each tracked currency's central-bank policy rate (USD/EUR/GBP/JPY/AUD)
 plus US employment, then derives a per-currency-pair rate differential and a
-macro direction. The dashboard uses this to (a) show a reference panel and
-(b) flag DWS-SMT triggers that fight the carry.
+macro direction. The dashboard uses this as a carry-direction reference.
 
 Honest scope note: policy rates give the structural *carry* direction plus
 actual hike/cut events — not the market-implied rate-expectation momentum

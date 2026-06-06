@@ -196,6 +196,52 @@ def _tf_context(symbol: str) -> dict:
     return out
 
 
+def _env_from_snapshot(snap: dict) -> dict:
+    """発注時のマクロ/ドル地合いを journal 用に取得(spec §7.2)。
+
+    全フィールド任意・防御的読み取り。欠落ブロックが発注記録を壊さないよう、
+    値が取れたものだけを記録する。
+    Real field names used (verified from dataclasses):
+      DxySnapshot.price       → dxy_level
+      DxySnapshot.change      → dxy_change
+      CotSnapshot.pctile_1y   → cot_pctile
+      RealYieldSnapshot.value → real_yield_level
+      RealYieldSnapshot.change_1d → real_yield_change
+    """
+    out: dict = {}
+    dxy = snap.get("dxy")
+    if dxy is not None:
+        lvl = getattr(dxy, "price", None)
+        chg = getattr(dxy, "change", None)
+        if lvl is not None:
+            out["dxy_level"] = float(lvl)
+        if chg is not None:
+            out["dxy_change"] = float(chg)
+    cot = snap.get("cot")
+    if cot is not None:
+        pct = getattr(cot, "pctile_1y", None)
+        if pct is not None:
+            out["cot_pctile"] = float(pct)
+    ry = snap.get("real_yield")
+    if ry is not None:
+        val = getattr(ry, "value", None)
+        chg = getattr(ry, "change_1d", None)
+        if val is not None:
+            out["real_yield_level"] = float(val)
+        if chg is not None:
+            out["real_yield_change"] = float(chg)
+    return out
+
+
+def _env_context(symbol: str) -> dict:
+    """STATE から発注時 env スナップを best-effort 取得(絶対に致命的にしない)。"""
+    try:
+        snap = STATE.snapshot()
+        return _env_from_snapshot(snap)
+    except Exception:  # noqa: BLE001 — env is best-effort
+        return {}
+
+
 def _journal_order(symbol: str, side: str, lots: float,
                    sl: float | None, tp: float | None, res: dict) -> None:
     """Append one journal entry for a just-placed order (broker-scoped)."""
@@ -208,6 +254,7 @@ def _journal_order(symbol: str, side: str, lots: float,
         "ticket": res.get("order") or res.get("ticket"),
         "price": res.get("price"),
         "ctx": _tf_context(symbol),
+        "env": _env_context(symbol),
     })
 
 
@@ -333,6 +380,25 @@ def build_app(connector=None) -> Flask:
             limit = 200
         return jsonify({"server": server,
                         "entries": journal_store.load_recent(server, limit)})
+
+    @app.route("/api/ema_history", methods=["GET"])
+    def get_ema_history():
+        """Deep EMA-stack history for the oscillator's drag-to-the-past.
+
+        Computed on demand (the frontend fetches once on load + polls every few
+        minutes) so the full multi-month series never rides the live WS snapshot.
+        Read-only; returns a stale-shaped block when the connector is absent.
+        """
+        from analyzer import ema_stack
+        from dashboard.serialize import serialize_ema_stack
+        if connector is None:
+            return jsonify(None), 503
+        snap = ema_stack.compute_ema_stack(
+            connector,
+            fetch_bars=config.EMA_STACK_HISTORY_FETCH_BARS,
+            display_bars=config.EMA_STACK_HISTORY_BARS,
+        )
+        return jsonify(serialize_ema_stack(snap))
 
     @app.route("/api/close", methods=["POST"])
     def post_close():

@@ -12,19 +12,6 @@
 //   row 2 (bottom) : JPY crosses        (円)
 // XAUUSD-specialised dashboard: gold only (matches backend config.SYMBOLS).
 const SYMBOL_ORDER = ["XAUUSD"];
-// Min samples for an hourly-heatmap cell to be treated as signal (not noise).
-const HM_MIN_N = 30;
-// Regime flags fire on TWO conditions together: (1) recent rolling PF is below
-// the 16Y baseline by the drift threshold, AND (2) recent PF is also under an
-// ABSOLUTE floor. The IC↔Dukascopy calibration proved the FX "drift below 16Y"
-// is a broker-agnostic regime softening that STAYS profitable (PF ~1.5-1.7), so
-// being below the exceptional 16Y peak alone must NOT cry wolf — only flag when
-// the recent edge is genuinely thin in absolute terms. Execution (lot/SL) stays
-// the user's discretion — untouched.
-const REGIME_WARN_DRIFT = -0.20;   // banner (amber): drift this far below 16Y...
-const REGIME_GATE_DRIFT = -0.30;   // demote to 様子見 + mute alert at this depth...
-const REGIME_PF_FLOOR   = 1.30;    // ...but ONLY when recent PF is also below this
-                                   // (PF >= 1.30 = solidly profitable → never flag).
 
 // Per-domain version stamp cache so callbacks can skip no-op renders.
 const STAMPS = {};
@@ -35,12 +22,10 @@ function changed(key, stamp) {
     return true;
 }
 
-// Selected windows (clientside state only).
+// Clientside-only selected state (bottom fund/trade-management panel tab).
 const UI = {
-    dwsBase:        'M15',  // DWS-SMT trigger base (x-axis): H1 / M15 (H4 hidden here only)
-    calYear:        null,   // trigger-calendar selected year (null → newest in data)
-    calMonth:       null,   // trigger-calendar selected month 1-12 (JST), or null = whole year
-    calView:        'months', // calendar body: 'months' grid or 'years' picker
+    fundTab:        (() => { try { return localStorage.getItem('mt5-fundtab') || 'positions'; }
+                             catch (_e) { return 'positions'; } })(),
 };
 
 // ------------------------------------------------------------
@@ -88,20 +73,6 @@ function pipMultiplierFor(sym) {
     return 10000;
 }
 
-/** Points-per-price-unit = 1 / MT5 _Point, the broker's finest price step.
- *  Taken straight from symbol_meta.point so trade P/L is in true MT5 points
- *  (e.g. XAUUSD _Point 0.001 → 1000). Distinct from pipMultiplierFor, which
- *  uses the coarser pip_size. */
-function pointMultiplierFor(sym) {
-    const meta = latestSnap && latestSnap.symbol_meta && latestSnap.symbol_meta[sym];
-    if (meta && meta.point && meta.point > 0) {
-        return 1 / meta.point;
-    }
-    // Fallback before the first snapshot — broker-typical digit counts.
-    if (sym && (sym.startsWith('XAU') || sym.startsWith('XAG'))) return 1000;
-    if (sym && sym.endsWith('JPY')) return 1000;
-    return 100000;
-}
 function fmtPrice(v, d) {
     if (v == null || !isFinite(v)) return '--';
     return Number(v).toFixed(d ?? priceDigits(v));
@@ -127,6 +98,39 @@ function fmtJSTdate(epochSec) {
     if (!epochSec) return '--';
     const d = new Date(epochSec * 1000 + 9 * 3600 * 1000);
     return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+}
+
+// ------------------------------------------------------------
+// Money-management math helpers (XAUUSD-specific, no order logic)
+// ------------------------------------------------------------
+
+// XAUUSD: pip = 0.10 price units. 1 lot = 100 oz -> pip value = 100 * 0.10 = $10 / lot / pip.
+function pipValueUsd(lots) { return 100 * 0.10 * lots; }
+function positionSizeLots(riskAmount, slPips, pipValPerLot) {
+    if (slPips <= 0 || pipValPerLot <= 0) return null;
+    return riskAmount / (slPips * pipValPerLot);
+}
+function rrRatio(entry, sl, tp) {
+    const risk = Math.abs(entry - sl), reward = Math.abs(tp - entry);
+    if (risk <= 0) return null;
+    return reward / risk;
+}
+function expectancyR(winRate, rr) { return winRate * rr - (1 - winRate); }   // assumes 1R loss
+function breakevenWR(rr) { return rr > 0 ? 1 / (1 + rr) : null; }
+function kellyFraction(winRate, rr) {                  // f* = W - (1-W)/RR
+    if (rr <= 0) return null;
+    return winRate - (1 - winRate) / rr;
+}
+function riskOfRuin(winRate, rr, units) {
+    const edge = expectancyR(winRate, rr);
+    if (edge <= 0) return 1;
+    const a = (1 - edge) / (1 + edge);
+    return Math.max(0, Math.min(1, Math.pow(a, units)));
+}
+function liquidationPips(equity, marginUsed, lots) {   // pips of adverse move to 100% margin
+    const buffer = equity - marginUsed;
+    const perPip = pipValueUsd(lots);
+    return perPip > 0 ? buffer / perPip : null;
 }
 
 // ------------------------------------------------------------
@@ -176,6 +180,7 @@ function buildPanel(sym) {
             </div>
             <button class="panel-close" type="button" title="閉じる (Esc)">✕</button>
         </div>
+        <div class="emastack" data-bind="emastack-${sym}"><div class="empty mute">EMA 読み込み中…</div></div>
         <div class="signals" data-bind="signals-${sym}">
             <div class="composite" data-bind="composite-${sym}">
                 <span class="comp-label" title="複合 BIAS スコア (-10=STRONG SELL ⇆ +10=STRONG BUY)">BIAS</span>
@@ -193,9 +198,6 @@ function buildPanel(sym) {
             </div>
             <div class="sig-body" data-bind="sig-body-${sym}"></div>
         </div>
-        <div class="dws-compact" data-bind="dwsc-${sym}"></div>
-        <div class="analytics" data-bind="analytics-${sym}"></div>
-        <div class="dws" data-bind="dws-${sym}"></div>
     `;
     // Wire the trade controls. stopPropagation so clicking buttons/inputs does
     // NOT toggle the panel's expand/collapse (the panel-level click handler).
@@ -219,15 +221,15 @@ function onPanelClick(ev, panel, grid) {
         ev.stopPropagation();
         panel.classList.remove('expanded');
         grid.classList.remove('has-expanded');
-        // Re-render so the sig / dws panels repaint for the new mode.
-        if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+        // Re-render so the signal panels repaint for the new mode.
+        if (latestSnap) { delete STAMPS['sig']; paintAll(); }
         return;
     }
     // Clear any other expansion + toggle this one
     grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
     grid.classList.toggle('has-expanded', !wasExpanded);
     if (!wasExpanded) panel.classList.add('expanded');
-    if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+    if (latestSnap) { delete STAMPS['sig']; paintAll(); }
 }
 
 // Esc key collapses expanded panel
@@ -241,7 +243,7 @@ document.addEventListener('keydown', (e) => {
     if (!grid || !grid.classList.contains('has-expanded')) return;
     grid.querySelectorAll('.panel.expanded').forEach(p => p.classList.remove('expanded'));
     grid.classList.remove('has-expanded');
-    if (latestSnap) { delete STAMPS['sig']; delete STAMPS['dws']; paintAll(); }
+    if (latestSnap) { delete STAMPS['sig']; paintAll(); }
 });
 
 // ------------------------------------------------------------
@@ -249,9 +251,6 @@ document.addEventListener('keydown', (e) => {
 // ------------------------------------------------------------
 
 let latestSnap = null;
-// Cached once per session: the static 16Y OOS baseline arrives only in the
-// first full WS snapshot (it never changes), then is re-attached to later fulls.
-let OOS_BASELINE = null;
 
 function paintHeader(snap) {
     $bind('clock').textContent = fmtJSTclock(snap.ts);
@@ -285,34 +284,17 @@ function paintActiveSetups(snap) {
         const c = compositeSignal(sa.by_tf);
         if (c.cls === 'na' || c.cls === 'neutral') continue;
         if (Math.abs(c.score) < 5) continue;  // only high-conviction
-        // #3 regime gate: a high-conviction setup is DEMOTED to 様子見 (still
-        // shown, de-emphasised, sorted last; excluded from alerts) only when its
-        // live rolling PF is BOTH >=30% below the 16Y baseline AND below the
-        // absolute floor — so a still-profitable below-peak regime is left alone.
-        const st = _regimeState(sym, snap);
-        const degraded = _regimeGated(st);
-        scored.push({ sym, c, degraded, drift: st ? st.drift : null });
+        scored.push({ sym, c });
     }
-    // Non-degraded high-conviction first; 様子見 sink to the end. Strongest
-    // |score| first within each group.
-    scored.sort((a, b) => (a.degraded - b.degraded)
-        || (Math.abs(b.c.score) - Math.abs(a.c.score)));
+    // Strongest |score| first.
+    scored.sort((a, b) => Math.abs(b.c.score) - Math.abs(a.c.score));
     fireSetupAlerts(scored);                  // notify the moment a NEW setup appears
     if (scored.length === 0) {
         root.innerHTML = '<span class="active-empty">no high-conviction signals</span>';
         return;
     }
-    root.innerHTML = scored.slice(0, 8).map(({ sym, c, degraded, drift }) => {
+    root.innerHTML = scored.slice(0, 8).map(({ sym, c }) => {
         const scoreStr = (c.score > 0 ? '+' : '') + c.score.toFixed(1);
-        if (degraded) {
-            const pct = Math.round(drift * 100);
-            return `<span class="active-chip degraded"
-                title="直近地合い悪化: 16Y比 ${pct}% → 降格(様子見)。執行・ロット・SL は裁量。">
-                <span class="ac-sym">${sym}</span>
-                <span class="ac-side">${c.arrow} 様子見</span>
-                <span class="ac-score">${scoreStr}</span>
-            </span>`;
-        }
         return `<span class="active-chip ${c.cls}">
             <span class="ac-sym">${sym}</span>
             <span class="ac-side">${c.arrow} ${c.label}</span>
@@ -362,12 +344,9 @@ function paintAlertBell() {
         : '高確信アラート: OFF（クリックでON）';
 }
 
-/** Detect newly-appeared high-conviction setups and notify (deduped by sym|cls).
- *  Regime-degraded (様子見) setups are excluded — they were demoted, so they must
- *  not fire an alert. A setup that later recovers re-enters `active` and alerts
- *  again, which is the desired "regime healed" signal. */
+/** Detect newly-appeared high-conviction setups and notify (deduped by sym|cls). */
 function fireSetupAlerts(scored) {
-    const active = scored.filter(s => !s.degraded);
+    const active = scored;
     const cur = new Set(active.map(s => s.sym + '|' + s.c.cls));
     // First pass after load (or after enabling) seeds the baseline WITHOUT firing,
     // so the existing setups don't all alert at once on open.
@@ -445,100 +424,6 @@ function paintPrices(snap) {
     }
 }
 
-function paintAccount(snap) {
-    const a = snap.account;
-    if (!a) return;
-    $bind('acc-identity').textContent = `${a.login} / ${a.server}`;
-    $bind('acc-balance').textContent = fmtPrice(a.balance, 2);
-    $bind('acc-equity').textContent  = fmtPrice(a.equity, 2);
-    const profitEl = $bind('acc-profit');
-    profitEl.textContent = fmtSigned(a.profit, 2);
-    profitEl.className   = 'acc-val mono ' + (a.profit > 0 ? 'pos' : a.profit < 0 ? 'neg' : '');
-    $bind('acc-margin').textContent  = fmtPrice(a.margin, 2);
-    $bind('acc-free').textContent    = fmtPrice(a.margin_free, 2);
-    $bind('acc-lev').textContent     = a.leverage ? '1:' + a.leverage : '--';
-
-    // Recommended lot (validated fixed-fractional ladder) — server-computed.
-    const recoEl = $bind('acc-reco');
-    if (recoEl) {
-        if (a.recommended_lot != null && isFinite(a.recommended_lot)) {
-            recoEl.textContent = Number(a.recommended_lot).toFixed(2);
-            const r = a.lot_rule || {};
-            const stepMan = r.step ? Math.round(r.step / 10000) : null;
-            $bind('acc-reco-sub').textContent = stepMan
-                ? `0.01 / ${stepMan}万円 ・ 上限${r.max ?? '--'}` : '';
-        } else {
-            recoEl.textContent = '--';
-            $bind('acc-reco-sub').textContent = '';
-        }
-    }
-    $bind('acc-level').textContent   = (a.margin_level != null) ? a.margin_level.toFixed(1) + ' %' : '--';
-
-    // Today P&L (from performance snapshot if available)
-    const todayEl = $bind('acc-today');
-    if (snap.performance && snap.performance.today_total_pnl != null) {
-        const t = snap.performance.today_total_pnl;
-        todayEl.textContent = fmtSigned(t, 2);
-        todayEl.className   = 'acc-val big mono ' + (t > 0 ? 'pos' : t < 0 ? 'neg' : '');
-    } else {
-        todayEl.textContent = '--';
-    }
-
-    // Positions
-    const posRoot = $bind('positions');
-    const positions = a.positions || [];
-    // Rebuild the DOM (and the ✕ buttons) ONLY when the set of tickets or the
-    // trade permission changes. Account updates arrive at ~2 Hz; rebuilding
-    // innerHTML every tick destroyed the close buttons mid-click, so individual
-    // 決済 never registered. Floating price/PnL are updated in place below.
-    // Include type + volume so a partial close (volume change) or a same-ticket
-    // flip rebuilds the row — otherwise the static parts (lot, side) go stale.
-    const sig = positions.map(p => `${p.ticket}:${p.type}:${p.volume}`).join(',')
-        + '|' + (a.trade_allowed ? 1 : 0);
-    if (sig !== posRoot._sig) {
-        posRoot._sig = sig;
-        if (!positions.length) {
-            posRoot.innerHTML = '<div class="empty">no open positions</div>';
-        } else {
-            const rows = positions.map(p => {
-                const d = priceDigits(p.price_open, p.symbol);
-                const cls = p.type === 'BUY' ? 'buy' : 'sell';
-                const closeBtn = a.trade_allowed
-                    ? `<button class="pos-close" type="button" data-ticket="${p.ticket}" title="この建玉を成行決済">✕</button>` : '';
-                return `<div class="pos-row ${cls}" data-ticket="${p.ticket}">
-                    <div class="pos-line1">
-                        <span class="type-${cls}">${esc(p.type)}</span>
-                        <span class="pos-sym">${esc(p.symbol)}</span>
-                        <span class="pos-vol">${(p.volume != null ? p.volume : 0).toFixed(2)}L</span>
-                        ${closeBtn}
-                    </div>
-                    <div class="pos-line2">
-                        <span class="pos-px"></span>
-                        <span class="pos-pnl"></span>
-                    </div>
-                </div>`;
-            }).join('');
-            const allBtn = a.trade_allowed
-                ? `<button class="pos-close-all" type="button">全決済 (${positions.length})</button>` : '';
-            posRoot.innerHTML = allBtn + rows;
-        }
-    }
-    // Live in-place refresh of price + floating PnL for the existing rows.
-    for (const p of positions) {
-        const row = posRoot.querySelector(`.pos-row[data-ticket="${p.ticket}"]`);
-        if (!row) continue;
-        const d = priceDigits(p.price_open, p.symbol);
-        const px = row.querySelector('.pos-px');
-        if (px) px.textContent = `${fmtPrice(p.price_open, d)}→${fmtPrice(p.price_current, d)}`;
-        const pnl = row.querySelector('.pos-pnl');
-        if (pnl) {
-            pnl.textContent = fmtSigned(p.profit, 2);
-            pnl.className = 'pos-pnl ' + (p.profit > 0 ? 'pos' : 'neg');
-        }
-    }
-    applyTradeGating(a);
-    wireCloseButtons();
-}
 
 // ------------------------------------------------------------
 // Discretionary order panel — confirm-then-send (no auto trading)
@@ -549,7 +434,7 @@ function paintAccount(snap) {
 function applyTradeGating(acc) {
     const ok = !!(acc && acc.trade_allowed);
     // Gate: only touch the DOM when permission or recommended lot changes
-    // (paintAccount runs at ~2 Hz; nothing here changes per tick otherwise).
+    // (this runs at ~2 Hz; nothing here changes per tick otherwise).
     const reco = (acc && acc.recommended_lot != null) ? Number(acc.recommended_lot).toFixed(2) : '';
     if (!changed('tradegate', (ok ? 1 : 0) + '|' + reco)) return;
     document.querySelectorAll('.trade-panel').forEach(tp => {
@@ -620,7 +505,6 @@ function submitOrder(o, goBtn) {
             el.className = 'oc-result ok';
             el.textContent = `約定 #${j.order} @ ${j.price} (${j.volume} lot)`;
             goBtn.textContent = '完了';
-            fetchJournal();   // pull the freshly-logged entry (with its 3TF context)
             setTimeout(() => { document.getElementById('order-confirm').hidden = true; }, 1500);
         } else {
             el.className = 'oc-result err';
@@ -799,6 +683,276 @@ function calendarCategory(title) {
  *  rising dollar is a HEADWIND for gold and a falling dollar a TAILWIND — the
  *  panel leads with that gold-impact read, then the level / change / trend.
  *  A small SVG sparkline shows the recent dollar path. */
+// EMA oscillator zoom: visible-bar window (TradingView-style wheel zoom).
+const EMA_VIEW_MIN = 30;          // fewest visible bars (max zoom-in)
+const EMA_VIEW_MAX = 2000;        // most bars drawn at once (zoom-out cap; pan covers the rest)
+const EMA_VIEW_DEFAULT = 160;     // default visible bars
+const EMA_W = 1000, EMA_H = 300, EMA_PAD = 6;   // SVG viewBox geometry
+const EMA_HISTORY_POLL_MS = 120000;             // re-fetch deep history every 2 min
+
+// Deep EMA history (~10 months M15) from /api/ema_history — preferred over the
+// small live WS window so the oscillator can drag months into the past without
+// bloating the WS snapshot. Polled; the WS block is the instant initial paint.
+let EMA_HISTORY = null;
+function fetchEmaHistory() {
+    fetch('/api/ema_history')
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d && d.t && d.t.length > 1) { EMA_HISTORY = d; paintEmaStack(latestSnap); } })
+        .catch(() => {});
+}
+
+function _jstDayKey(ms) {
+    const d = new Date(ms + 9 * 3600 * 1000);   // JST calendar day key
+    return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+}
+
+/** EMA-stack oscillator (center panel): three EMAs on the M15 series shown as
+ *  %-deviation from the EMA320 centerline (price / EMA20 / EMA80 oscillating
+ *  around a flat 0 = EMA320). Above center = uptrend, below = downtrend — the
+ *  read is the user's; no trigger / arrow is drawn. Repaint-free upstream.
+ *  Wheel = zoom (visible-bar window); daily JST boundaries are marked. */
+function paintEmaStack(snap) {
+    const el = $bind('emastack-XAUUSD');
+    if (!el) return;
+    // Persistent shell built ONCE: the crosshair + chip live OUTSIDE the
+    // re-rendered content so a content redraw never wipes them (no flicker).
+    if (!el._emaInit) {
+        el._emaInit = true;
+        el.innerHTML = `<div class="ema-content"></div>`
+                     + `<div class="ema-cursor" hidden></div><div class="ema-hover" hidden></div>`;
+        el.addEventListener('mousemove', ev => (el._drag ? _emaDrag(el, ev) : _emaHover(el, ev)));
+        el.addEventListener('mouseleave', () => {
+            const c = el.querySelector('.ema-cursor'), h = el.querySelector('.ema-hover');
+            if (c) c.hidden = true;
+            if (h) h.hidden = true;
+        });
+        el.addEventListener('wheel', ev => _emaWheel(el, ev), { passive: false });
+        el.addEventListener('mousedown', ev => _emaDragStart(el, ev));
+        // End the drag even if the mouse is released outside the panel.
+        window.addEventListener('mouseup', () => {
+            if (el._drag) { el._drag = null; el.classList.remove('ema-dragging'); }
+        });
+        // "直近" button snaps the view back to the latest bar (realtime).
+        el.addEventListener('click', ev => {
+            if (ev.target.closest('.ema-latest') && el._view) {
+                el._view.off = 0;
+                _emaRender(el);
+            }
+        });
+    }
+    const content = el.querySelector('.ema-content');
+    // Prefer the deep /api/ema_history series; fall back to the live WS window
+    // until the first history fetch returns.
+    const d = EMA_HISTORY || (snap && snap.ema_stack);
+    if (!d || d.stale || !d.t || d.t.length < 2) {
+        content.innerHTML = `<div class="empty mute">${d && d.symbol ? 'EMA データ取得待ち' : 'EMA320 用の履歴待ち'}</div>`;
+        el._ema = null;
+        el._emaStamp = null;
+        return;
+    }
+    const n = d.dev_price.length;
+    // Full series stashed; the view window (count + offset-from-right) is what's
+    // drawn. off=0 keeps the right edge pinned to the newest bar (auto-follow).
+    el._ema = { t: d.t, dp: d.dev_price, df: d.dev_fast, dm: d.dev_mid, n,
+                price: d.price, ema_fast: d.ema_fast, ema_mid: d.ema_mid,
+                ema_center: d.ema_center };
+    if (!el._view) el._view = { count: Math.min(EMA_VIEW_DEFAULT, n), off: 0 };
+    el._view.count = Math.min(el._view.count, n);
+    // Re-render the SVG only when a new confirmed bar arrives (data is fixed
+    // between bar closes). Wheel zoom calls _emaRender directly.
+    const stamp = d.t[n - 1] + ':' + n;
+    if (el._emaStamp === stamp) return;
+    el._emaStamp = stamp;
+    _emaRender(el);
+}
+
+/** Render the SVG + readout for the current view window. */
+function _emaRender(el) {
+    const data = el._ema, content = el.querySelector('.ema-content');
+    if (!data || !content) return;
+    const n = data.n, v = el._view;
+    const i1 = Math.max(0, n - 1 - v.off);
+    const i0 = Math.max(0, i1 - v.count + 1);
+    const cnt = i1 - i0 + 1;
+    const dp = data.dp, df = data.df, dm = data.dm, t = data.t;
+    let m = 0;
+    for (let i = i0; i <= i1; i++) m = Math.max(m, Math.abs(dp[i]), Math.abs(df[i]), Math.abs(dm[i]));
+    m = (m || 1) * 1.08;
+    const W = EMA_W, H = EMA_H, pad = EMA_PAD;
+    const X = k => pad + (cnt > 1 ? k / (cnt - 1) : 0) * (W - 2 * pad);    // k = 0..cnt-1
+    const Y = val => pad + (1 - (val + m) / (2 * m)) * (H - 2 * pad);      // 0 at center
+    const path = (arr) => {
+        let s = '';
+        for (let k = 0; k < cnt; k++) s += (k ? ' L' : 'M') + X(k).toFixed(1) + ',' + Y(arr[i0 + k]).toFixed(1);
+        return s;
+    };
+    const line = (arr, col, w) => `<path d="${path(arr)}" fill="none" stroke="${col}" stroke-width="${w}"/>`;
+    const y0 = Y(0).toFixed(1);
+    // Daily JST boundary lines (period dividers).
+    let dividers = '', prevDay = null;
+    for (let k = 0; k < cnt; k++) {
+        const day = _jstDayKey(t[i0 + k]);
+        if (prevDay !== null && day !== prevDay) {
+            const x = X(k).toFixed(1);
+            dividers += `<line x1="${x}" y1="0" x2="${x}" y2="${H}" class="ema-day" vector-effect="non-scaling-stroke"/>`;
+        }
+        prevDay = day;
+    }
+    // Colour the gap BETWEEN the centerline (EMA320 = zero) and the EMA20 line:
+    // the area between the EMA20 curve and the zero line. A vertical gradient
+    // switches hard at the centerline so the gap is blue where EMA20 is ABOVE
+    // EMA320 and red where BELOW — the colour is the EMA20-vs-EMA320 spread.
+    // Two solid bands split at the centerline (NO fade): the whole gap between
+    // EMA320 (zero) and EMA20 reads as one clear colour — blue above, red below.
+    const zeroFrac = (parseFloat(y0) / H).toFixed(4);
+    const grad =
+        `<defs><linearGradient id="emaGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="${H}">`
+      + `<stop offset="0" stop-color="#4d8eff" stop-opacity="0.30"/>`
+      + `<stop offset="${zeroFrac}" stop-color="#4d8eff" stop-opacity="0.30"/>`
+      + `<stop offset="${zeroFrac}" stop-color="#ff5b6b" stop-opacity="0.30"/>`
+      + `<stop offset="1" stop-color="#ff5b6b" stop-opacity="0.30"/>`
+      + `</linearGradient></defs>`;
+    // Fill the gap to the centerline for BOTH EMA80 and EMA20. Drawn EMA80 first
+    // (usually the wider gap) then EMA20 on top — where both sit the same side of
+    // EMA320 the overlap reads a touch deeper.
+    const areaOf = arr => `<path d="${path(arr)} L${X(cnt - 1).toFixed(1)},${y0} `
+                        + `L${X(0).toFixed(1)},${y0} Z" fill="url(#emaGrad)" stroke="none"/>`;
+    const svg =
+        `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="ema-osc" role="img">`
+      + grad
+      + areaOf(dm)            // centerline ↔ EMA80
+      + areaOf(df)            // centerline ↔ EMA20
+      + dividers
+      + `<line x1="0" y1="${y0}" x2="${W}" y2="${y0}" class="ema-center" vector-effect="non-scaling-stroke"/>`
+      + line(dm, '#4d8eff', 1.6)            // EMA80 (~1H)
+      + line(df, '#ffb74d', 1.6)            // EMA20 (M15)
+      + line(dp, '#e8edf5', 1.2)            // price (line stays; only the readout value was removed)
+      + `</svg>`;
+    // 乖離率 (disparity ratio) = (price − EMA) / EMA × 100, shown for every EMA
+    // including EMA320. Price itself is not displayed.
+    const dr = (e) => (data.price == null || !e) ? null : (data.price - e) / e * 100;
+    const sp = (v) => (v == null ? '--' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+    const d320 = dr(data.ema_center);
+    const upCls = (v) => (v == null ? '' : v >= 0 ? 'pos' : 'neg');
+    const read =
+        `<div class="ema-read">`
+      + `<span class="ema-side ${upCls(d320)}">乖離率</span>`
+      + `<span class="ema-k"><i class="ema-dot" style="background:#ffb74d"></i>EMA20 ${sp(dr(data.ema_fast))}</span>`
+      + `<span class="ema-k"><i class="ema-dot" style="background:#4d8eff"></i>EMA80 ${sp(dr(data.ema_mid))}</span>`
+      + `<span class="ema-k"><i class="ema-dot ema-dot-center"></i>EMA320 ${sp(d320)}</span>`
+      + `<span class="ema-k mute">${cnt}本 (ホイール拡縮/ドラッグで遡る)</span>`
+      + `<button type="button" class="ema-latest${v.off > 0 ? '' : ' at-latest'}">▶ 直近</button>`
+      + `</div>`;
+    content.innerHTML = read + svg;
+    el._geom = { i0, i1, cnt, W, pad };       // for hover index mapping
+}
+
+/** Wheel = zoom the visible-bar window, anchored at the bar under the cursor. */
+function _emaWheel(el, ev) {
+    const data = el._ema, g = el._geom;
+    if (!data || !g) return;
+    ev.preventDefault();
+    const svg = el.querySelector('.ema-content .ema-osc');
+    if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+    // absolute index of the bar currently under the cursor (the zoom anchor)
+    let vi = Math.round((frac * g.W - g.pad) / (g.W - 2 * g.pad) * (g.cnt - 1));
+    vi = Math.max(0, Math.min(g.cnt - 1, vi));
+    const aiCursor = g.i0 + vi;
+    const v = el._view;
+    const factor = ev.deltaY < 0 ? (1 / 1.2) : 1.2;        // wheel up = zoom in
+    let count = Math.round(v.count * factor);
+    count = Math.max(EMA_VIEW_MIN, Math.min(Math.min(EMA_VIEW_MAX, data.n), count));
+    // keep the anchor bar at the same fractional x
+    let i0 = Math.round(aiCursor - frac * (count - 1));
+    i0 = Math.max(0, Math.min(data.n - count, i0));
+    v.count = count;
+    v.off = Math.max(0, (data.n - 1) - (i0 + count - 1));
+    _emaRender(el);
+    _emaHover(el, ev);                                      // refresh crosshair/chip in place
+}
+
+/** Begin a horizontal pan-drag (only when the press lands on the chart). */
+function _emaDragStart(el, ev) {
+    if (!el._ema || !el._geom) return;
+    if (!ev.target.closest('.ema-osc')) return;        // ignore presses on the readout/button
+    const svg = el.querySelector('.ema-content .ema-osc');
+    if (!svg) return;
+    el._drag = { x0: ev.clientX, off0: el._view.off, w: svg.getBoundingClientRect().width,
+                 cnt: el._geom.cnt };
+    el.classList.add('ema-dragging');
+    const cur = el.querySelector('.ema-cursor'), hov = el.querySelector('.ema-hover');
+    if (cur) cur.hidden = true;
+    if (hov) hov.hidden = true;
+    ev.preventDefault();
+}
+
+/** Pan the view window: dragging RIGHT reveals older bars (scroll into the past). */
+function _emaDrag(el, ev) {
+    const d = el._drag, data = el._ema;
+    if (!d || !data || !d.w) return;
+    const deltaBars = Math.round((ev.clientX - d.x0) * d.cnt / d.w);
+    let off = d.off0 + deltaBars;                       // drag right (+dx) -> +off -> past
+    off = Math.max(0, Math.min(data.n - el._view.count, off));
+    if (off !== el._view.off) { el._view.off = off; _emaRender(el); }
+}
+
+/** Crosshair for the EMA oscillator: a vertical line UNDER the cursor and a chip
+ *  centered on it showing the nearest VISIBLE bar's JST time (+ each line's
+ *  %-deviation at that bar). Pure read-out, no signal. */
+function _emaHover(el, ev) {
+    const data = el._ema, g = el._geom;
+    const content = el.querySelector('.ema-content');
+    const svg = content && content.querySelector('.ema-osc');
+    const cur = el.querySelector('.ema-cursor');
+    const hov = el.querySelector('.ema-hover');
+    if (!data || !g || !svg) return;
+    const r = svg.getBoundingClientRect();
+    const elR = el.getBoundingClientRect();
+    if (!r.width || ev.clientX < r.left || ev.clientX > r.right) {
+        if (cur) cur.hidden = true;
+        if (hov) hov.hidden = true;
+        return;
+    }
+    // The whole UI is scaled via `transform: scale()` (applyDisplayFit), so
+    // getBoundingClientRect/clientX are REAL px while absolutely-positioned
+    // children live in unscaled local px — convert by this factor.
+    const scale = (el.offsetWidth && r.width) ? (elR.width / el.offsetWidth) : 1;
+    const frac = (ev.clientX - r.left) / r.width;          // ratio — scale-invariant
+    let vi = Math.round((frac * g.W - g.pad) / (g.W - 2 * g.pad) * (g.cnt - 1));
+    vi = Math.max(0, Math.min(g.cnt - 1, vi));
+    const ai = g.i0 + vi;                                   // absolute index into the series
+    const localX = (ev.clientX - elR.left) / scale;
+    const top = (r.top - elR.top) / scale;
+    const height = r.height / scale;
+    if (cur) {
+        cur.hidden = false;
+        cur.style.left = localX.toFixed(1) + 'px';
+        cur.style.top = top.toFixed(1) + 'px';
+        cur.style.height = height.toFixed(1) + 'px';
+    }
+    if (hov) {
+        const sec = data.t[ai] / 1000;
+        const sgn = val => (val >= 0 ? '+' : '') + val.toFixed(2);
+        hov.hidden = false;
+        // Same metric as the readout: each EMA's 乖離率 (price vs that EMA) at the
+        // hovered bar, derived from the per-bar deviations-from-EMA320:
+        //   (price−EMA)/EMA = (1+devPrice/100)/(1+devEMA/100) − 1.  EMA320乖離率
+        //   is just devPrice (price vs EMA320).
+        const kairi = (dP, dE) => { const den = 1 + dE / 100; return den ? ((1 + dP / 100) / den - 1) * 100 : 0; };
+        hov.innerHTML = `<b>${fmtJSTdate(sec)} ${fmtJSTclockNoSec(sec)}</b>`
+            + `<span>EMA20 ${sgn(kairi(data.dp[ai], data.df[ai]))}%</span>`
+            + `<span>EMA80 ${sgn(kairi(data.dp[ai], data.dm[ai]))}%</span>`
+            + `<span>EMA320 ${sgn(data.dp[ai])}%</span>`;
+        const hw = hov.offsetWidth || 200;
+        const panelW = el.offsetWidth || (elR.width / scale);
+        const hx = Math.max(0, Math.min(panelW - hw, localX - hw / 2));
+        hov.style.left = hx.toFixed(1) + 'px';
+        hov.style.top = (top + 4).toFixed(1) + 'px';
+    }
+}
+
 function paintDxy(snap) {
     const el = $bind('dxy');
     const symEl = $bind('dxy-sym');
@@ -820,7 +974,7 @@ function paintDxy(snap) {
     const cs = (d.closes || []).filter(v => isFinite(v));
     let spark = '';
     if (cs.length >= 2) {
-        const W = 240, H = 34, pad = 2;
+        const W = 240, H = 96, pad = 2;
         const lo = Math.min(...cs), hi = Math.max(...cs), span = (hi - lo) || 1;
         const xO = i => pad + (i / (cs.length - 1)) * (W - 2 * pad);
         const yO = v => pad + (1 - (v - lo) / span) * (H - 2 * pad);
@@ -874,7 +1028,7 @@ function paintRealYield(snap) {
     const cs = (d.series || []).filter(v => isFinite(v));
     let spark = '';
     if (cs.length >= 2) {
-        const W = 240, H = 34, pad = 2;
+        const W = 240, H = 96, pad = 2;
         const lo = Math.min(...cs), hi = Math.max(...cs), span = (hi - lo) || 1;
         const xO = i => pad + (i / (cs.length - 1)) * (W - 2 * pad);
         const yO = v => pad + (1 - (v - lo) / span) * (H - 2 * pad);
@@ -952,7 +1106,7 @@ function paintCot(snap) {
     // 52-week sparkline of the net, with a zero baseline when it's in range.
     let spark = '';
     if (hist.length >= 2) {
-        const W = 240, H = 34, pad = 2;
+        const W = 240, H = 96, pad = 2;
         const lo = Math.min(...hist, 0), hi = Math.max(...hist, 0), span = (hi - lo) || 1;
         const xO = i => pad + (i / (hist.length - 1)) * (W - 2 * pad);
         const yO = v => pad + (1 - (v - lo) / span) * (H - 2 * pad);
@@ -983,90 +1137,7 @@ function paintCot(snap) {
 
 // NOTE: the Macro Rates sidebar panel was removed (real yield promoted to its
 // own card; per-pair policy rates + employment dropped). The macro snapshot is
-// still served + computed because dwsTriggerMacroAlign uses snap.macro.by_pair
-// as the counter-carry fallback when the real yield is unavailable — but there
-// is no longer a paintMacro renderer.
-
-// ------------------------------------------------------------
-// Trade journal (discretionary) — REST-fed, broker-scoped.
-// Each order placed through the dashboard is logged server-side together with
-// the 3TF market context captured at entry. The panel reviews a trade against
-// the setup it was actually taken on ("which alignment did I enter on?").
-// ------------------------------------------------------------
-const JR_TF_ORDER = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
-let _journalServer = null;   // broker the panel currently reflects
-
-/** Pull the recent journal from the backend and repaint the side panel. */
-function fetchJournal() {
-    fetch('/api/journal?limit=40')
-        .then(r => (r.ok ? r.json() : null))
-        .then(j => { if (j) paintJournal(j); })
-        .catch(() => {});   // panel is best-effort; never surface fetch noise
-}
-
-/** Refetch the journal when the active broker changes (per-broker store). */
-function maybeRefreshJournal(snap) {
-    const srv = (snap && snap.account && snap.account.server) || null;
-    if (srv && srv !== _journalServer) { _journalServer = srv; fetchJournal(); }
-}
-
-function paintJournal(data) {
-    const root = $bind('journal');
-    if (!root) return;
-    const status = $bind('journal-status');
-    const entries = (data && data.entries) || [];
-    _journalServer = (data && data.server) || _journalServer;
-    if (status) status.textContent = entries.length ? `${entries.length}件` : '記録なし';
-    if (!entries.length) {
-        root.innerHTML = '<div class="empty mute">発注すると、その時の3TF状況つきで自動記録されます</div>';
-        return;
-    }
-    root.innerHTML = entries.map(renderJournalEntry).join('');
-}
-
-function renderJournalEntry(e) {
-    const side = (e.side || '').toUpperCase();
-    const sideCls = side === 'BUY' ? 'buy' : 'sell';
-    const tsSec = (e.ts || 0) / 1000;
-    const px = e.price != null ? fmtPrice(e.price, priceDigits(e.price, e.symbol)) : '--';
-    const lots = e.lots != null ? Number(e.lots).toFixed(2) : '--';
-    // SL/TP/ticket sub-line — only the parts that exist (SL/TP are discretionary
-    // and frequently blank, so we never render empty placeholders).
-    const sub = [];
-    if (e.sl != null) sub.push('SL ' + fmtPrice(e.sl, priceDigits(e.sl, e.symbol)));
-    if (e.tp != null) sub.push('TP ' + fmtPrice(e.tp, priceDigits(e.tp, e.symbol)));
-    if (e.ticket != null) sub.push('#' + e.ticket);
-    const subHtml = sub.length
-        ? `<div class="jr-sub mute">${esc(sub.join(' ・ '))}</div>` : '';
-    // 3TF context chips, ordered low→high TF. EMA side drives the ↑/↓ + colour;
-    // ADX rides along as a strength read, with RSI / DI in the hover tooltip.
-    const ctx = e.ctx || {};
-    const tfs = Object.keys(ctx).sort((a, b) => {
-        const ia = JR_TF_ORDER.indexOf(a), ib = JR_TF_ORDER.indexOf(b);
-        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-    });
-    const chips = tfs.map(tf => {
-        const c = ctx[tf] || {};
-        const up = !!c.ae;
-        const adx = c.adx != null ? ` <i>ADX${Math.round(c.adx)}</i>` : '';
-        const tip = `EMA ${up ? '上' : '下'}`
-            + (c.rsi != null ? ` / RSI ${c.rsi}` : '')
-            + (c.dip != null && c.dim != null ? ` / +DI ${c.dip} -DI ${c.dim}` : '');
-        return `<span class="jr-tf ${up ? 'up' : 'dn'}" title="${esc(tip)}">`
-            + `${esc(tf)} ${up ? '↑' : '↓'}${adx}</span>`;
-    }).join('');
-    return `<div class="jr-row">
-        <div class="jr-head">
-            <span class="jr-side ${sideCls}">${esc(side)}</span>
-            <span class="jr-sym">${esc(e.symbol || '')}</span>
-            <span class="jr-lots mono">${esc(lots)}</span>
-            <span class="jr-px mono">@${esc(px)}</span>
-            <span class="jr-time mute">${esc(fmtJSTdate(tsSec))} ${esc(fmtJSTclockNoSec(tsSec))}</span>
-        </div>
-        ${chips ? `<div class="jr-ctx">${chips}</div>` : ''}
-        ${subHtml}
-    </div>`;
-}
+// still served + computed, but there is no longer a paintMacro renderer.
 
 // ------------------------------------------------------------
 // Per-symbol TF signal matrix + composite bias.
@@ -1135,354 +1206,6 @@ function pctEmaDist(close, ema) {
         return null;
     }
     return ((close - ema) / ema) * 100;
-}
-
-// Trigger-CALENDAR controls (date-picker style). One capture-phase handler for
-// every action: ◀/▶ year step (data-cal-go), open/close the year picker
-// (data-cal-toggle-years), pick a year from it (data-cal-pick-year), select a
-// month (data-cal-month, click again to clear), back to year-total
-// (data-cal-allmonths). stopPropagation so the parent .panel collapse never fires.
-document.addEventListener('click', (ev) => {
-    const el = ev.target.closest(
-        '[data-cal-go],[data-cal-month],[data-cal-pick-year],[data-cal-toggle-years],[data-cal-allmonths]');
-    if (!el) return;
-    ev.stopPropagation();
-    ev.preventDefault();
-    if (el.hasAttribute('data-cal-go')) {
-        UI.calYear = Number(el.dataset.calGo); UI.calMonth = null; UI.calView = 'months';
-    } else if (el.hasAttribute('data-cal-pick-year')) {
-        UI.calYear = Number(el.dataset.calPickYear); UI.calMonth = null; UI.calView = 'months';
-    } else if (el.hasAttribute('data-cal-toggle-years')) {
-        UI.calView = UI.calView === 'years' ? 'months' : 'years';
-    } else if (el.hasAttribute('data-cal-month')) {
-        const m = Number(el.dataset.calMonth);
-        UI.calMonth = (UI.calMonth === m) ? null : m;
-    } else if (el.hasAttribute('data-cal-allmonths')) {
-        UI.calMonth = null;
-    }
-    delete STAMPS['sig'];
-    if (latestSnap) paintSignals(latestSnap);
-}, true);
-
-/** JST calendar year of an epoch-ms timestamp (UTC+9). */
-function jstYear(ms) {
-    return new Date(ms + 9 * 3600 * 1000).getUTCFullYear();
-}
-
-/** JST calendar month (1-12) of an epoch-ms timestamp (UTC+9). */
-function jstMonth(ms) {
-    return new Date(ms + 9 * 3600 * 1000).getUTCMonth() + 1;
-}
-
-/** Trigger-history CALENDAR — a familiar date-picker the user selects a period
- *  from. A year navigator (◀ year ▶, the year clickable to open a year grid) over
- *  the WHOLE record (16Y backtest ≤ last_year + live beyond it, data-driven — no
- *  fixed year/month list), a 12-month grid for the selected year (each month a
- *  net-pips heat cell), and the selected period's aggregate (+ that month's live
- *  trades). Compact: one year shown at a time. The 16Y backtest and live feed
- *  merge through one reader; backtest reads grey, live cyan. */
-function buildTriggerCalendar(snap, sym) {
-    const tf = UI.dwsBase;
-    const brokerServer = snap.live_history?.server || null;
-    const brokerSub = brokerServer
-        ? `<span class="cal-broker" title="記録中ブローカー">${esc(brokerServer)}</span>`
-        + `<span class="cal-rec" title="ライブを永続記録中">● 記録中</span>` : '';
-    const head = `<div class="anlx-title">トリガー履歴 ${esc(tf)}`
-        + `<span class="anlx-sub">16Y + ライブ連結 · pips（往復コスト控除 / ライブ2.0pip）${brokerSub}</span></div>`;
-
-    // Backtest owns years ≤ last_year, live owns years beyond it (data-driven).
-    const th = snap.oos_baseline?.by_symbol?.[sym]?.[tf]?.trigger_history || {};
-    const csvBy = th.by_year || {};
-    const csvLastYear = th.last_year
-        || (Object.keys(csvBy).length ? Math.max(...Object.keys(csvBy).map(Number)) : 0);
-    const liveBy = snap.live_history?.by_symbol?.[sym]?.[tf]?.by_year || {};
-    const csvF = pipsFactor(sym, 'csv'), liveF = pipsFactor(sym, 'live');
-    const ym = {};                                   // year -> {rec, f, isLive}
-    for (const [y, r] of Object.entries(csvBy)) if (+y <= csvLastYear) ym[y] = { rec: r, f: csvF, isLive: false };
-    for (const [y, r] of Object.entries(liveBy)) if (+y > csvLastYear) ym[y] = { rec: r, f: liveF, isLive: true };
-
-    const openTrig = (snap.validation?.by_symbol?.[sym]?.[tf]?.raw?.recent_triggers || []).find(t => t.o) || null;
-    const openYear = openTrig ? jstYear(openTrig.t) : null;
-    const openMonth = openTrig ? jstMonth(openTrig.t) : null;
-
-    const years = [...new Set([...Object.keys(ym).map(Number),
-        ...(openYear && openYear > csvLastYear ? [openYear] : [])])].sort((a, b) => b - a);
-    if (!years.length) {
-        const msg = brokerServer ? 'このブローカーの記録は蓄積開始（確定トリガー待ち）'
-                                 : '履歴データ取得待ち（ライブ検証は起動後 ~90 秒）';
-        return `<div class="anlx-block anlx-triggers">${head}<div class="cal-empty">${esc(msg)}</div></div>`;
-    }
-
-    // --- selection state ---
-    let calYear = Number(UI.calYear);
-    if (!years.includes(calYear)) calYear = years[0];
-    const calMonth = (UI.calMonth >= 1 && UI.calMonth <= 12) ? UI.calMonth : null;
-    const yearsView = UI.calView === 'years';
-
-    // --- colour scale anchored on the data's own |max| month (whole record) ---
-    let maxAbs = 0;
-    for (const k of Object.keys(ym)) {
-        const ms = ym[k].rec.months || {};
-        for (const m of Object.values(ms)) maxAbs = Math.max(maxAbs, Math.abs((m.cum_pts || 0) * ym[k].f));
-    }
-    const heat = (pips) => {
-        const t = maxAbs > 0 ? Math.max(-1, Math.min(1, pips / maxAbs)) : 0;
-        const a = (0.14 + 0.56 * Math.abs(t)).toFixed(3);
-        return pips >= 0 ? `background:rgba(0,208,156,${a})` : `background:rgba(255,91,107,${a})`;
-    };
-    const yearPips = (y) => { const mm = ym[String(y)]; return mm ? (mm.rec.cum_pts || 0) * mm.f : 0; };
-
-    // --- selected-period aggregate ---
-    const meta = ym[String(calYear)];
-    const f = meta ? meta.f : liveF;
-    const yearRec = meta ? meta.rec : null;
-    const isLive = meta ? meta.isLive : (calYear > csvLastYear);
-    const toStat = (s) => ({ n: s ? s.n : 0, wins: s ? s.wins : 0, losses: s ? s.losses : 0,
-        cum: s ? (s.cum_pts || 0) * f : 0, gw: s ? (s.gross_win || 0) * f : 0, gl: s ? (s.gross_loss || 0) * f : 0 });
-    let stat, periodLabel, trades = [];
-    if (calMonth) {
-        stat = toStat((yearRec && yearRec.months || {})[String(calMonth)]);
-        periodLabel = `${calYear}年 ${calMonth}月`;
-        trades = ((yearRec && yearRec.trades) || []).filter(t => jstMonth(t.t) === calMonth).map(t => ({ ...t, p: t.p * f }));
-    } else {
-        stat = toStat(yearRec);
-        periodLabel = `${calYear}年`;
-        trades = ((yearRec && yearRec.trades) || []).map(t => ({ ...t, p: t.p * f }));
-    }
-    let nOpen = 0;
-    if (openTrig && openYear === calYear && (!calMonth || openMonth === calMonth)) {
-        nOpen = 1;
-        trades = [{ t: openTrig.t, d: openTrig.d, p: openTrig.p * liveF, o: true }, ...trades];
-    }
-    const pf = stat.gl > 0 ? stat.gw / stat.gl : (stat.gw > 0 ? Infinity : 0);
-    const wrTxt = stat.n ? (stat.wins / stat.n * 100).toFixed(1) + '%' : '--';
-    const cumCls = stat.cum > 0 ? 'pos' : stat.cum < 0 ? 'neg' : '';
-
-    // --- nav row (◀ older / year / ▶ newer ; year opens the year grid) ---
-    const idx = years.indexOf(calYear);
-    const newer = idx > 0 ? years[idx - 1] : null;      // years desc → idx-1 is more recent
-    const older = idx < years.length - 1 ? years[idx + 1] : null;
-    const yLiveCls = isLive ? ' is-live' : '';
-    const nav = `<div class="cal-nav">`
-        + `<span class="cal-arrow${older == null ? ' off' : ''}"${older != null ? ` data-cal-go="${older}"` : ''} title="前年">◀</span>`
-        + `<span class="cal-ytitle${yLiveCls}" data-cal-toggle-years title="年を選ぶ">${calYear}年 <i>${yearsView ? '▴' : '▾'}</i></span>`
-        + `<span class="cal-arrow${newer == null ? ' off' : ''}"${newer != null ? ` data-cal-go="${newer}"` : ''} title="翌年">▶</span>`
-        + (calMonth ? `<span class="cal-chip" data-cal-allmonths title="年計に戻す">年計へ</span>`
-                    : `<span class="cal-src${yLiveCls}">${isLive ? 'ライブ' : '16Y'}</span>`)
-        + `</div>`;
-
-    // --- calendar body: year-picker grid OR the 12-month grid ---
-    let body;
-    if (yearsView) {
-        // Newest year first (top-left) — `years` is already sorted descending.
-        body = `<div class="cal-years">` + years.map(y => {
-            const p = yearPips(y), on = y === calYear ? ' on' : '';
-            const live = ym[String(y)] && ym[String(y)].isLive ? ' is-live' : '';
-            return `<span class="cal-ycell${on}${live}" style="${heat(p)}" data-cal-pick-year="${y}" `
-                 + `title="${y}年 ${p >= 0 ? '+' : ''}${fmtPips(p)}pips">${y}<i>${p >= 0 ? '+' : ''}${fmtPips(p)}</i></span>`;
-        }).join('') + `</div>`;
-    } else {
-        const months = (yearRec && yearRec.months) || {};
-        body = `<div class="cal-months">` + Array.from({ length: 12 }, (_, i) => {
-            const m = i + 1, s = months[String(m)], on = calMonth === m ? ' on' : '';
-            if (!s) return `<span class="cal-mcell empty${on}" data-cal-month="${m}">${m}月<i>·</i></span>`;
-            const p = (s.cum_pts || 0) * f;
-            const wr = s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '--';
-            const pfm = s.profit_factor != null ? s.profit_factor.toFixed(2) : '∞';
-            return `<span class="cal-mcell${on}" style="${heat(p)}" data-cal-month="${m}" `
-                 + `title="${calYear}/${m}月 · ${s.n}件 · 勝率${wr} · PF ${pfm}">`
-                 + `${m}月<i>${p >= 0 ? '+' : ''}${fmtPips(p)}</i></span>`;
-        }).join('') + `</div>`;
-    }
-
-    // --- summary + (live month only) trade list ---
-    const openNote = nOpen ? ` · <b class="cal-open">保有中 ${nOpen}</b>` : '';
-    const summary = `<div class="cal-summary">`
-        + `<b>${esc(periodLabel)} 確定 ${stat.n.toLocaleString('en-US')} 件</b> · 勝率 <b>${wrTxt}</b>`
-        + ` · <b class="pos">${stat.wins.toLocaleString('en-US')}勝</b> <b class="neg">${stat.losses.toLocaleString('en-US')}敗</b>`
-        + ` · PF <b>${pf === Infinity ? '∞' : pf.toFixed(2)}</b>`
-        + ` · 累積 <b class="${cumCls}">${stat.cum >= 0 ? '+' : ''}${fmtPips(stat.cum)} pips</b>${openNote}</div>`;
-
-    let listHtml = '';
-    if (calMonth && isLive) {
-        const rows = trades.map(t => {
-            const dir = t.d > 0 ? 'buy' : 'sell', dt = t.d > 0 ? 'BUY' : 'SELL';
-            const pt = `${t.p >= 0 ? '+' : ''}${fmtPips(t.p)}`;
-            if (t.o) return `<div class="cal-trow open"><span class="cal-tt"><i>保有</i>${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span><span class="cal-td ${dir}">${dt}</span><span class="cal-tp muted">${pt}</span></div>`;
-            const w = t.p > 0;
-            return `<div class="cal-trow ${w ? 'win' : 'loss'}"><span class="cal-tt">${fmtJSTdate(t.t / 1000)} ${fmtJSTclockNoSec(t.t / 1000)}</span><span class="cal-td ${dir}">${dt}</span><span class="cal-tw ${w ? 'win' : 'loss'}">${w ? '✓' : '✗'}</span><span class="cal-tp ${w ? 'pos' : 'neg'}">${pt}</span></div>`;
-        }).join('') || `<div class="cal-empty">${esc(periodLabel)}内のトリガーなし</div>`;
-        listHtml = `<div class="tcal-list"><div class="tcal-scroll">${rows}</div></div>`;
-    }
-
-    return `<div class="anlx-block anlx-triggers">${head}${nav}${body}${summary}${listHtml}</div>`;
-}
-
-/** Analytics section = (A) live DWS-SMT trigger history (from the connected
- *  MT5 broker, any broker; rolling period filter) + (B) 16-year hourly
- *  win-rate heatmap. Both empirical. */
-function buildAnalytics(snap, sym) {
-    const sa = snap.analysis && snap.analysis.by_symbol && snap.analysis.by_symbol[sym];
-    if (!sa) return '';
-    return buildTriggerCalendar(snap, sym) + buildHourlyHeatmap(snap, sym);
-}
-
-/** Multiplier to convert a data source's raw net-"points" to PIPS.
- *    pips = raw_pts * (source_point / pip_price)
- *  source_point = price units per point the data was computed with: the frozen
- *  16Y baseline uses ``oos_point`` (Dukascopy 3/5-digit), the live feed uses the
- *  broker's ``point``. ``pip_price`` is the market pip in price units (gold
- *  $0.10, JPY 0.01, FX 0.0001). Returns 1 (raw points) if meta is missing, so
- *  it degrades gracefully and never yields NaN. ``source`` is 'live' or 'csv'. */
-function pipsFactor(sym, source) {
-    const m = (latestSnap && latestSnap.symbol_meta && latestSnap.symbol_meta[sym]) || {};
-    const pip = m.pip_price || m.pip_size;
-    if (!pip || !isFinite(pip) || pip <= 0) return 1;
-    const srcPoint = source === 'live' ? m.point : m.oos_point;
-    if (!srcPoint || !isFinite(srcPoint) || srcPoint <= 0) return 1;
-    return srcPoint / pip;
-}
-
-/** Pips formatter — full magnitude, NO k/M abbreviation (user wants every
- *  digit). Sub-100 values keep one decimal; ≥100 are whole pips with comma
- *  grouping (e.g. 70,800). Sign handled by the caller. */
-function fmtPips(v) {
-    if (v == null || !isFinite(v)) return '--';
-    if (Math.abs(v) < 100) return v.toFixed(1);
-    return Math.round(v).toLocaleString('en-US');
-}
-
-/** (B) 16-year hourly win-rate heatmap for the selected base TF. Reads the
- *  static oos_baseline.json ``hourly_winrate`` (24 JST-hour buckets). Cells
- *  are coloured red→amber→green by win rate; the current JST hour is ringed
- *  so the user sees "are we in a statistically good hour right now?". */
-/** EU summer time (London): last Sun Mar 01:00 UTC → last Sun Oct 01:00 UTC. */
-function isDstEU(ms) {
-    const y = new Date(ms).getUTCFullYear();
-    const lastSun = (mon) => {                       // mon 0-based; 01:00 UTC
-        const last = new Date(Date.UTC(y, mon + 1, 0));
-        return Date.UTC(y, mon, last.getUTCDate() - last.getUTCDay(), 1);
-    };
-    return ms >= lastSun(2) && ms < lastSun(9);      // Mar → Oct
-}
-/** US summer time (New York): 2nd Sun Mar 07:00 UTC → 1st Sun Nov 06:00 UTC. */
-function isDstUS(ms) {
-    const y = new Date(ms).getUTCFullYear();
-    const nthSun = (mon, n, hr) => {
-        const first = new Date(Date.UTC(y, mon, 1));
-        const day = 1 + ((7 - first.getUTCDay()) % 7) + (n - 1) * 7;
-        return Date.UTC(y, mon, day, hr);
-    };
-    return ms >= nthSun(2, 2, 7) && ms < nthSun(10, 1, 6);   // Mar(2nd) → Nov(1st)
-}
-
-function buildHourlyHeatmap(snap, sym) {
-    const baseTf = UI.dwsBase;
-    const base = snap.oos_baseline?.by_symbol?.[sym]?.[baseTf];
-    const baseHourly = base && base.hourly_winrate;
-    if (!Array.isArray(baseHourly) || !baseHourly.length) return '';
-    // Merge 16Y baseline + live (years past the CSV boundary) per JST hour, so
-    // the time-of-day win-rate is "16Y + ライブ連結" and recomputes continuously
-    // as live triggers accumulate. Live owns years > csvLastYear (same boundary
-    // as the trigger-history table); the baseline owns everything ≤ it.
-    const merged = Array.from({ length: 24 }, (_, h) => ({ hour: h, n: 0, wins: 0 }));
-    for (const h of baseHourly) {
-        const m = merged[h.hour];
-        if (m) { m.n += h.n || 0; m.wins += h.wins || 0; }
-    }
-    const th = base.trigger_history || {};
-    const csvLastYear = th.last_year
-        || (Object.keys(th.by_year || {}).length
-            ? Math.max(...Object.keys(th.by_year).map(Number)) : 0);
-    const liveYears = snap.live_history?.by_symbol?.[sym]?.[baseTf]?.by_year || {};
-    let liveN = 0;
-    for (const [y, rec] of Object.entries(liveYears)) {
-        if (Number(y) <= csvLastYear) continue;          // live owns > boundary
-        for (const hb of (rec.hourly || [])) {
-            const m = merged[hb.hour];
-            if (m) { m.n += hb.n || 0; m.wins += hb.wins || 0; liveN += hb.n || 0; }
-        }
-    }
-    // Combined population WR anchors the colour scale (honest baseline+live).
-    const totN = merged.reduce((s, m) => s + m.n, 0);
-    const totW = merged.reduce((s, m) => s + m.wins, 0);
-    const popWr = totN ? totW / totN : (base.win_rate || 0);
-    const hourly = merged.map(m => ({ hour: m.hour, n: m.n,
-        win_rate: m.n ? m.wins / m.n : null }));
-    const nowJst = (() => {
-        const d = new Date(Date.now() + 9 * 3600 * 1000);
-        return d.getUTCHours();
-    })();
-    // Colour scale anchored on the population WR: at/above pop → green ramp,
-    // below → red ramp. Keeps the heatmap honest (a 40 % hour isn't "good" in
-    // absolute terms, it's just at this symbol's baseline).
-    const cellColor = (wr) => {
-        if (wr == null) return 'rgba(255,255,255,0.05)';
-        const d = wr - popWr;                     // deviation from baseline
-        const t = Math.max(-1, Math.min(1, d / 0.10));   // ±10pp saturates
-        if (t >= 0) {
-            const a = 0.15 + t * 0.55;
-            return `rgba(56,161,105,${a.toFixed(3)})`;     // green
-        }
-        const a = 0.15 + (-t) * 0.55;
-        return `rgba(229,62,62,${a.toFixed(3)})`;          // red
-    };
-    const byHour = {};
-    for (const h of hourly) byHour[h.hour] = h;
-
-    // ① Order the boxes by FX session (Asia → London → NY) instead of 00:00.
-    // ② DST-aware: Japan has no DST so the JST buckets are fixed; only the
-    // London/NY session *boundaries* shift ±1h with EU/US summer time, detected
-    // automatically from the current date.
-    const nowMs = Date.now();
-    const lonOpen = isDstEU(nowMs) ? 16 : 17;        // London 08:00 local → JST
-    const nyOpen  = isDstUS(nowMs) ? 21 : 22;        // New York 08:00 local → JST
-    const ASIA_OPEN = 8;                              // Tokyo-ish session start
-    const SESS = { asia: 'アジア', london: 'ロンドン', ny: 'NY' };
-    const seq = [];
-    const push = (a, b, s) => { for (let x = a; x < b; x++) seq.push({ h: x % 24, s }); };
-    push(ASIA_OPEN, lonOpen, 'asia');
-    push(lonOpen, nyOpen, 'london');
-    push(nyOpen, ASIA_OPEN + 24, 'ny');              // wraps past midnight
-
-    const cell = (hr) => {
-        const h = byHour[hr] || { hour: hr, n: 0, win_rate: null };
-        const wr = h.win_rate;
-        const isNow = hr === nowJst;
-        // Below ~30 samples a cell's win rate is noise (wide CI), so it must NOT
-        // be coloured as an edge. Render it neutral grey with the WR muted; the
-        // tooltip says it's a reference value, not a signal.
-        const lowN = wr != null && h.n < HM_MIN_N;
-        const wrTxt = wr == null ? '--' : Math.round(wr * 100);
-        const title = wr == null
-            ? `${hr}時 JST — データなし`
-            : `${hr}時 JST — WR ${(wr*100).toFixed(1)}% (N=${h.n}` + (lowN
-                ? `・標本不足 N<${HM_MIN_N}: 参考値)`
-                : `、母集団比 ${((wr-popWr)*100>=0?'+':'')}${((wr-popWr)*100).toFixed(1)}pp)`);
-        const bg = lowN ? 'rgba(255,255,255,0.05)' : cellColor(wr);
-        return `<div class="hm-cell${isNow ? ' is-now' : ''}${lowN ? ' hm-lown' : ''}"
-                     style="background:${bg}" title="${esc(title)}">
-            <span class="hm-hour">${String(hr).padStart(2,'0')}</span>
-            <span class="hm-wr">${wrTxt}</span>
-        </div>`;
-    };
-    const rowsHtml = ['asia', 'london', 'ny'].map(s => {
-        const hrs = seq.filter(x => x.s === s).map(x => x.h);
-        if (!hrs.length) return '';
-        const rng = `${String(hrs[0]).padStart(2,'0')}–${String((hrs[hrs.length-1]+1)%24).padStart(2,'0')}`;
-        return `<div class="hm-session">
-            <div class="hm-session-label ${s}">${esc(SESS[s])}<span class="hm-sess-rng">${rng} JST</span></div>
-            <div class="hm-session-cells">${hrs.map(cell).join('')}</div>
-        </div>`;
-    }).join('');
-
-    const dstTag = (isDstEU(nowMs) || isDstUS(nowMs)) ? '夏時間' : '冬時間';
-    return `<div class="anlx-block anlx-heatmap">
-        <div class="anlx-title">時刻別勝率 ${esc(UI.dwsBase)}
-            <span class="anlx-sub">16Y${liveN ? ' + ライブ ' + liveN.toLocaleString('en-US') + '件' : ''}・セッション別 (${dstTag}・母集団 WR ${(popWr*100).toFixed(1)}%基準、■=現在、灰=標本不足 N&lt;${HM_MIN_N})</span>
-        </div>
-        <div class="hm-sessions">${rowsHtml}</div>
-    </div>`;
 }
 
 
@@ -1590,10 +1313,6 @@ function paintSignals(snap) {
                 fill.className = 'comp-gauge-fill ' + (comp.score <= -7 ? 'sell strong' : 'sell');
             }
         }
-        // Analytics section: intentionally blank — indicator charts were
-        // removed per user direction. The .analytics div renders empty.
-        const analytics = $bind(`analytics-${sym}`);
-        if (analytics) analytics.innerHTML = buildAnalytics(snap, sym);
         // Panel activity glow now driven by composite signal strength
         // (replaces the previous structure-proximity tier).
         const panel = document.getElementById('panel-' + sym);
@@ -1608,785 +1327,6 @@ function paintSignals(snap) {
             }
         }
     }
-}
-
-// ------------------------------------------------------------
-// DWS-SMT panel — 3-TF trend histogram + triggers (port of DWS_SMT.mq5)
-// Backend computes the colours/triggers; this just renders them on a
-// Canvas and lets the user switch the base timeframe (x-axis).
-// ------------------------------------------------------------
-
-// H4 is hidden from the TRIGGER-TF selector only (few traders trade the 4H
-// signal). It is NOT removed from BIAS — the composite, the signal matrix and
-// the summary chips all still show H4, and the engine/DWS stacks still use it.
-const DWS_BASES = ['H1', 'M15'];
-const DWS_BASE_LABEL = { H1: '1H', M15: 'M15' };
-// Histogram cell colours by index: 0 up / 1 down / 2 flat.
-const DWS_CELL = ['#00d09c', '#ff5b6b', '#3f4760'];
-
-// Flip-proximity render: a row cell's hue is the sign of its flip_norm and its
-// proximity-to-flip is shown by blending the sign colour toward the neutral
-// grey as |fn|→0. Firmly aligned (|fn|→1) = the solid sign colour (the old
-// clean flat look); near the zero-cross (a flip/trigger imminent) = grey-ish
-// (= "neutral / about to flip"). Blending toward the palette's own neutral
-// grey — OPAQUE, not alpha-on-dark — avoids the muddy dark smears that fading
-// to transparency produced. DWS_FLIP_IMMINENT gates the current-bar holdout
-// emphasis.
-const DWS_FLIP_IMMINENT = 0.25;
-const _DWS_UP = [0, 208, 156], _DWS_DOWN = [255, 91, 107], _DWS_NEUTRAL = [63, 71, 96];
-
-/** Canvas fill for a DWS row cell from its signed flip-norm: opaque lerp from
- *  the neutral grey (at the flip) to the sign colour (firmly aligned). Falls
- *  back to the flat colour index when fn is missing/non-finite (older snapshot). */
-const _DWS_FLIP_KNEE = 0.45;   // |fn| >= knee → full solid colour (clean bands);
-                               // only genuinely near-flip cells desaturate.
-function dwsCellFill(fn, fallbackIdx) {
-    if (fn == null || !isFinite(fn)) return DWS_CELL[fallbackIdx] || DWS_CELL[2];
-    const mag = Math.min(1, Math.abs(fn));
-    if (mag === 0) return DWS_CELL[2];
-    // Knee: keep aligned/most bars at the full sign colour (crisp bands); only
-    // the near-flip tail ramps toward neutral grey, so the histogram reads as
-    // clean colour blocks with a subtle "about to flip" fade at the edges.
-    const t = Math.min(1, mag / _DWS_FLIP_KNEE);
-    const c = fn > 0 ? _DWS_UP : _DWS_DOWN;
-    const r = Math.round(_DWS_NEUTRAL[0] + (c[0] - _DWS_NEUTRAL[0]) * t);
-    const g = Math.round(_DWS_NEUTRAL[1] + (c[1] - _DWS_NEUTRAL[1]) * t);
-    const b = Math.round(_DWS_NEUTRAL[2] + (c[2] - _DWS_NEUTRAL[2]) * t);
-    return `rgb(${r},${g},${b})`;
-}
-
-function dwsResult(snap, sym) {
-    const sa = snap && snap.analysis && snap.analysis.by_symbol
-             && snap.analysis.by_symbol[sym];
-    return sa ? sa.dws : null;
-}
-
-/** Build the DWS panel skeleton once and wire the 4H/1H/M15 pills. */
-function ensureDwsSkeleton(sym) {
-    const host = $bind('dws-' + sym);
-    if (!host || host.dataset.built) return host;
-    host.innerHTML = `
-        <div class="dws-head">
-            <span class="dws-title">DWS-SMT</span>
-            <span class="dws-sub">3TF一致トリガー</span>
-            <span class="dws-pills">${DWS_BASES.map(b =>
-                `<button class="pill${b === UI.dwsBase ? ' on' : ''}" `
-                + `data-dws="${b}">${DWS_BASE_LABEL[b]}</button>`
-            ).join('')}</span>
-        </div>
-        <div class="dws-state" data-bind="dws-state-${sym}">--</div>
-        <div class="dws-validation" data-bind="dws-validation-${sym}">--</div>
-        <div class="dws-sync" data-bind="dws-sync-${sym}">--</div>
-        <div class="dws-canvas-wrap"><canvas data-bind="dws-canvas-${sym}"></canvas>
-            <div class="dws-hover" data-bind="dws-hover-${sym}" hidden>
-                <div class="dws-hover-line"></div>
-                <div class="dws-hover-time"></div>
-            </div></div>
-        <div class="dws-legend">
-            <span><i class="sw" style="background:${DWS_CELL[0]}"></i>上</span>
-            <span><i class="sw" style="background:${DWS_CELL[1]}"></i>下</span>
-            <span><i class="sw" style="background:${DWS_CELL[2]}"></i>中立</span>
-            <span class="tg buy">▲BUY</span>
-            <span class="tg sell">▼SELL</span>
-            <span class="tg exit">✕EXIT</span>
-            <span class="dws-leg-sep">実線=BIAS整合 / 淡中抜き=未整合</span>
-        </div>`;
-    host.querySelectorAll('button[data-dws]').forEach(btn => {
-        btn.onclick = (ev) => {
-            // The panel itself collapses on click — stop the pill click from
-            // bubbling up to that handler so switching the base TF keeps the
-            // panel open.
-            ev.stopPropagation();
-            UI.dwsBase = btn.dataset.dws;
-            document.querySelectorAll('.dws-pills .pill').forEach(p =>
-                p.classList.toggle('on', p.dataset.dws === UI.dwsBase));
-            // Force a redraw despite the paintDws / paintSignals memoization
-            // gates — the hourly heatmap in analytics follows the selected
-            // base TF, so it must re-render on a TF switch too.
-            delete STAMPS['dws'];
-            delete STAMPS['sig'];
-            if (latestSnap) { paintDws(latestSnap); paintSignals(latestSnap); }
-        };
-    });
-
-    // Hover-time readout: the static bottom time-axis labels were removed; the
-    // time for the bar under the cursor now shows in a bottom chip + guide line.
-    // drawDwsCanvas stashes the bar geometry on the canvas as ``_dws`` so this
-    // handler can map a cursor X → bar index → bar time without redrawing.
-    const cvs = $bind('dws-canvas-' + sym);
-    const hover = $bind('dws-hover-' + sym);
-    if (cvs && hover) {
-        const lineEl = hover.querySelector('.dws-hover-line');
-        const timeEl = hover.querySelector('.dws-hover-time');
-        cvs.addEventListener('mousemove', (e) => {
-            const g = cvs._dws;
-            if (!g || !g.t || !g.t.length) { hover.hidden = true; return; }
-            const rect = cvs.getBoundingClientRect();
-            if (rect.width === 0) return;
-            // Map screen px → canvas CSS (design) px — the body is display-fit
-            // scaled, so clientWidth/rect.width = 1/scale undoes the transform.
-            const localX = (e.clientX - rect.left) * (cvs.clientWidth / rect.width);
-            let j = Math.floor((localX - g.plotX) / g.barW);
-            j = Math.max(0, Math.min(g.N - 1, j));
-            const ms = g.t[j];
-            if (ms == null) { hover.hidden = true; return; }
-            const sec = ms / 1000;
-            const cx = g.plotX + j * g.barW + g.barW / 2;
-            hover.hidden = false;
-            lineEl.style.left = cx.toFixed(1) + 'px';
-            timeEl.textContent = `${fmtJSTdate(sec)} ${fmtJSTclockNoSec(sec)}`;
-            // Clamp the chip's centre so it never spills past the canvas edges.
-            const clampedX = Math.max(g.plotX, Math.min(g.W - 4, cx));
-            timeEl.style.left = clampedX.toFixed(1) + 'px';
-        });
-        cvs.addEventListener('mouseleave', () => { hover.hidden = true; });
-    }
-
-    host.dataset.built = '1';
-    return host;
-}
-
-function paintDws(snap) {
-    // Skip on price-only frames — the histogram is analysis-derived. The
-    // 'dws' stamp is busted on panel expand/collapse and on a TF-pill click
-    // so those still force a redraw. The validation layer refreshes on its
-    // own cadence, so its timestamp is folded into the stamp key.
-    const analysis = snap.analysis;
-    const vts = (snap.validation && snap.validation.generated_at) || 0;
-    if (analysis && !changed('dws', analysis.generated_at + ':' + vts)) return;
-    for (const sym of SYMBOL_ORDER) {
-        ensureDwsSkeleton(sym);
-        drawDwsCanvas(snap, sym);
-        const dc = $bind('dwsc-' + sym);
-        if (dc) dc.innerHTML = buildCompactDws(snap, sym);   // fills the compact panel
-    }
-}
-
-/** Compact-mode DWS summary that fills the otherwise-empty lower half of a
- *  collapsed panel: the 3-TF alignment state pill, the latest trigger (side +
- *  gross pips + bars-ago) and the bar-close countdown — the actual entry signal
- *  for all 8 symbols at a glance, without expanding. Reuses the SAME win data /
- *  alignment / pips logic as the expanded DWS panel (no duplicate trigger logic).
- *  Hidden when the panel is expanded (the full DWS histogram shows instead). */
-function buildCompactDws(snap, sym) {
-    const d = dwsResult(snap, sym);
-    const win = d && d.by_base && d.by_base[UI.dwsBase];
-    if (!win || !win.c || !win.c.length) {
-        return '<div class="dwsc-inner"><div class="dwsc-empty mute">DWS 計算待ち</div></div>';
-    }
-    const N = win.c.length;
-    const last = win.c[N - 1];
-    const allUp = last.every(c => c === 0);
-    const allDown = last.every(c => c === 1);
-    const pill = allUp ? { cls: 'buy', txt: '▲ 揃い BUY' }
-               : allDown ? { cls: 'sell', txt: '▼ 揃い SELL' }
-               : { cls: 'wait', txt: '— 待機 (不一致)' };
-    // Latest trigger + its gross pips (same conversion as drawDwsCanvas).
-    const ptMult = pointMultiplierFor(sym);
-    const liveF = pipsFactor(sym, 'live');
-    const tradeByEntry = {};
-    (win.trades || []).forEach(t => { tradeByEntry[t.i] = t; });
-    let trig = '<span class="dwsc-none">直近トリガー無し</span>';
-    for (let j = N - 1; j >= 0; j--) {
-        const g = win.g[j];
-        if (!g) continue;
-        const gc = g === 'BUY' ? 'tg-buy' : g === 'SELL' ? 'tg-sell' : 'tg-exit';
-        const tr = tradeByEntry[j];
-        let pipsHtml = '';
-        if (tr) {
-            const pips = tr.p * ptMult * liveF;
-            const pc = pips > 0 ? 'pos' : pips < 0 ? 'neg' : '';
-            pipsHtml = ` <b class="${pc}">${pips >= 0 ? '+' : ''}${fmtPips(pips)}</b>`;
-        }
-        trig = `<span class="${gc}">${esc(g)}</span>${pipsHtml}`
-             + ` <span class="dwsc-ago">${N - 1 - j}本前</span>`;
-        break;
-    }
-    let cd = '';
-    const mins = TF_MINUTES[UI.dwsBase];
-    if (mins && win.t && win.t.length) {
-        const closeMs = win.t[win.t.length - 1] + mins * 60000;
-        // class "dws-cd" + data-close → ticked every 1s by startTickers().
-        cd = `<div class="dwsc-cd">確定まで <span class="dws-cd" data-close="${closeMs}">`
-           + `${esc(fmtCountdown(closeMs - Date.now()))}</span></div>`;
-    }
-    const baseLbl = esc(DWS_BASE_LABEL[UI.dwsBase] || UI.dwsBase);
-    return `<div class="dwsc-inner">`
-         + `<div class="dwsc-head"><span class="dwsc-cap">DWS-SMT</span>`
-         +   `<span class="dwsc-base">${baseLbl}</span></div>`
-         + `<div class="dwsc-pill ${pill.cls}">${esc(pill.txt)}</div>`
-         + `<div class="dwsc-trig"><span class="dwsc-lbl">直近</span> ${trig}</div>`
-         + cd
-         + `</div>`;
-}
-
-
-/** A BUY/SELL trigger is "tradeable" only when the composite BIAS agrees with
- *  it (BIAS out of the NEUTRAL band, same direction). EXIT is a risk signal,
- *  not a directional entry, so it is always treated as relevant. */
-function dwsTriggerTradeable(g, biasScore) {
-    if (g === 'EXIT') return true;
-    if (g === 'BUY')  return biasScore >= 3;
-    if (g === 'SELL') return biasScore <= -3;
-    return false;
-}
-
-/** Macro alignment of a BUY/SELL trigger for *sym*: +1 aligned with the carry,
- *  -1 counter-carry, 0 when there is no macro data. EXIT is direction-neutral. */
-function dwsTriggerMacroAlign(g, sym, snap) {
-    if (g !== 'BUY' && g !== 'SELL') return 0;
-    let macroDir;
-    if (sym === 'XAUUSD') {
-        // Gold: drive direction off the US real yield (gold ∝ −real yield);
-        // fall back to the policy-rate trend when the real yield is missing.
-        const ry = snap.real_yield;
-        if (ry && ry.value != null) {
-            macroDir = ry.gold_dir;
-        } else {
-            const b = snap.macro && snap.macro.by_pair && snap.macro.by_pair[sym];
-            macroDir = b ? b.macro_dir : 0;
-        }
-    } else {
-        const b = snap.macro && snap.macro.by_pair && snap.macro.by_pair[sym];
-        macroDir = b ? b.macro_dir : 0;
-    }
-    if (!macroDir) return 0;
-    const triggerDir = g === 'BUY' ? 1 : -1;
-    return triggerDir === macroDir ? 1 : -1;
-}
-
-/** Draw a trigger marker. BIAS-confirmed BUY/SELL are filled; unconfirmed ones
- *  are drawn hollow (outline only) so the eye lands on the tradeable ones. */
-function drawDwsMarker(ctx, cx, cy, g, tradeable) {
-    if (g === 'EXIT') {
-        ctx.strokeStyle = '#ffb74d'; ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx + 4, cy + 4);
-        ctx.moveTo(cx + 4, cy - 4); ctx.lineTo(cx - 4, cy + 4);
-        ctx.stroke();
-        return;
-    }
-    const col = g === 'BUY' ? '#00d09c' : '#ff5b6b';
-    ctx.beginPath();
-    if (g === 'BUY') {
-        ctx.moveTo(cx, cy - 5); ctx.lineTo(cx - 5, cy + 4); ctx.lineTo(cx + 5, cy + 4);
-    } else {
-        ctx.moveTo(cx, cy + 5); ctx.lineTo(cx - 5, cy - 4); ctx.lineTo(cx + 5, cy - 4);
-    }
-    ctx.closePath();
-    if (tradeable) {
-        // BIAS-confirmed: bright filled triangle.
-        ctx.fillStyle = col;
-        ctx.fill();
-    } else {
-        // Unconfirmed: faded hollow outline — clearly de-emphasised vs filled.
-        ctx.save();
-        ctx.globalAlpha = 0.45;
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.restore();
-    }
-}
-
-// Base-TF bar length in minutes — used for the "confirm in …" countdown.
-const TF_MINUTES = { M15: 15, H1: 60, H4: 240, D1: 1440, W1: 10080 };
-
-/** Format ms-until-close as "確定まで H:MM:SS" (or M:SS under an hour). */
-function fmtCountdown(ms) {
-    if (ms <= 0) return '足確定 (更新待ち)';
-    const s = Math.floor(ms / 1000);
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    const p = n => String(n).padStart(2, '0');
-    return '確定まで ' + (h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`);
-}
-
-/** Update the state line above the canvas (current alignment + latest trigger). */
-function updateDwsState(el, win) {
-    if (!el) return;
-    const N = win.c.length;
-    const last = win.c[N - 1];
-    const allUp = last.every(c => c === 0);
-    const allDown = last.every(c => c === 1);
-    // Each semantic element gets its OWN visual identity (not all one grey):
-    //  STATE  = filled pill, direction-coloured (the headline);
-    //  SIGNAL = chip, direction word in its colour + bars-ago muted;
-    //  TIME   = cool (blue) chip — "time" is its own colour family, kept apart
-    //           from the warm buy/sell palette. The rightmost bar is FORMING
-    //           (EMA colours flicker intra-bar); the countdown shows when it
-    //           confirms, ticked every 1 s by startTickers().
-    let pillCls, pillTxt;
-    if (allUp)        { pillCls = 'buy';  pillTxt = '▲ 揃い BUY'; }
-    else if (allDown) { pillCls = 'sell'; pillTxt = '▼ 揃い SELL'; }
-    else              { pillCls = 'wait'; pillTxt = '— 待機 (不一致)'; }
-    let html = `<span class="dws-pill ${pillCls}">${esc(pillTxt)}</span>`;
-
-    for (let j = N - 1; j >= 0; j--) {
-        if (win.g[j]) {
-            const g = win.g[j];
-            const gc = g === 'BUY' ? 'tg-buy' : g === 'SELL' ? 'tg-sell' : 'tg-exit';
-            html += `<span class="dws-chip"><span class="ck">最新</span>`
-                  + `<span class="${gc}">${esc(g)}</span>`
-                  + `<span class="cv">${N - 1 - j}本前</span></span>`;
-            break;
-        }
-    }
-
-    const mins = TF_MINUTES[UI.dwsBase];
-    if (mins && win.t && win.t.length) {
-        const closeMs = win.t[win.t.length - 1] + mins * 60000;
-        html += `<span class="dws-chip cd"><span class="dws-cd" data-close="${closeMs}">`
-              + `${esc(fmtCountdown(closeMs - Date.now()))}</span></span>`;
-    }
-    el.className = 'dws-state';
-    el.innerHTML = html;
-}
-
-/** Composite BIAS score (-10..+10) for a symbol, or 0 when unavailable. */
-function dwsBiasScore(snap, sym) {
-    const sa = snap.analysis && snap.analysis.by_symbol && snap.analysis.by_symbol[sym];
-    return (sa && sa.by_tf) ? compositeSignal(sa.by_tf).score : 0;
-}
-
-/** Update the BIAS ⇄ DWS alignment line (recommendation 1).
- *  The actionable read is the *divergence*: agreement is expected (both are
- *  EMA-based), so the line flags when the two methods disagree. */
-function updateDwsSync(sym, snap, win) {
-    const el = $bind('dws-sync-' + sym);
-    if (!el) return;
-    const biasScore = dwsBiasScore(snap, sym);
-    const biasDir = biasScore >= 3 ? 'BUY' : biasScore <= -3 ? 'SELL' : 'NEUTRAL';
-    const last = win.c[win.c.length - 1];
-    const dwsDir = last.every(c => c === 0) ? 'BUY'
-                 : last.every(c => c === 1) ? 'SELL' : 'NEUTRAL';
-    const ar = d => d === 'BUY' ? '▲' : d === 'SELL' ? '▼' : '·';
-    let txt, cls;
-    if (biasDir !== 'NEUTRAL' && biasDir === dwsDir) {
-        txt = `✓ 整合 — BIAS ${ar(biasDir)} と DWS ${ar(dwsDir)} が一致`;
-        cls = 'dws-sync ' + (biasDir === 'BUY' ? 'buy' : 'sell');
-    } else if (biasDir !== 'NEUTRAL' && dwsDir !== 'NEUTRAL') {
-        txt = `⚠ 逆行 — DWS ${ar(dwsDir)}${dwsDir} / BIAS ${ar(biasDir)}${biasDir}（要注意）`;
-        cls = 'dws-sync conflict';
-    } else if (dwsDir !== 'NEUTRAL') {
-        txt = `⚠ 乖離 — DWS ${ar(dwsDir)}${dwsDir} / BIAS NEUTRAL（DWS先行）`;
-        cls = 'dws-sync diverge';
-    } else if (biasDir !== 'NEUTRAL') {
-        txt = `⚠ 乖離 — BIAS ${ar(biasDir)}${biasDir} / DWS 不一致（DWS未追随）`;
-        cls = 'dws-sync diverge';
-    } else {
-        txt = '— BIAS・DWS とも待機';
-        cls = 'dws-sync';
-    }
-    if (dwsTriggerMacroAlign(dwsDir, sym, snap) < 0) {
-        txt += '・マクロ逆行';
-        cls += ' macro-counter';
-    }
-    el.className = cls;
-    el.textContent = txt;
-}
-
-
-// Per-symbol persisted state for the "説明" disclosure on the validation
-// block. Defaults to collapsed; the user opens once and the choice survives
-// reloads. localStorage key prefix kept short to avoid collision noise.
-const DWS_DESC_OPEN_KEY = 'mt5dash.dwsDescOpen';
-const DWS_DESC_OPEN = (() => {
-    try { return new Set(JSON.parse(localStorage.getItem(DWS_DESC_OPEN_KEY) || '[]')); }
-    catch (_e) { return new Set(); }
-})();
-function _saveDwsDescOpen() {
-    try { localStorage.setItem(DWS_DESC_OPEN_KEY, JSON.stringify([...DWS_DESC_OPEN])); }
-    catch (_e) { /* private mode etc — non-fatal */ }
-}
-
-// Delegate clicks on the "説明" disclosure toggle. Toggles the .desc-open class
-// on the per-symbol validation block; CSS then reveals the header / verdict /
-// rolling explanation paragraphs (.dws-vhead-desc / .dws-vverdict-desc / .dws-vsec-desc).
-// stopPropagation is critical — the parent .panel has its own click-to-collapse
-// listener (onPanelClick), so without it the panel would fold up underneath us
-// and the user would never get to read the descriptions we just opened.
-document.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-explain-toggle]');
-    if (!btn) return;
-    ev.stopPropagation();
-    ev.preventDefault();
-    const sym = btn.dataset.explainToggle;
-    const wrap = $bind('dws-validation-' + sym);
-    if (!wrap) return;
-    const open = wrap.classList.toggle('desc-open');
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    btn.querySelector('.dws-vexplain-icon').textContent = open ? '▼' : '▶';
-    if (open) DWS_DESC_OPEN.add(sym); else DWS_DESC_OPEN.delete(sym);
-    _saveDwsDescOpen();
-}, true);    // capture phase — fires before panel's own bubble-phase listener
-
-/** Render the deep-history OOS confidence block for the selected base TF.
- *
- *  PRIMARY data: the 16-year offline baseline (snap.oos_baseline), produced by
- *  scripts/_oos_xauusd_16y.py over the FULL Dukascopy CSV history (no year
- *  filter, no warmup skip). Includes Wilson + moving-block-bootstrap CIs and
- *  a chronological 2-period drift z-test (Bonferroni α/3 corrected).
- *
- *  SECONDARY data: the live rolling ~7-month broker-fetched validation
- *  (snap.validation), used only as a "recent regime drift" indicator
- *  alongside the 16Y figures. */
-function updateDwsValidation(sym, snap) {
-    const el = $bind('dws-validation-' + sym);
-    if (!el) return;
-    const fmtN = n => (n == null ? '--' : Number(n).toLocaleString('en-US'));
-
-    // ---- Primary: 16Y deep-history evaluation ----
-    const base = snap.oos_baseline && snap.oos_baseline.by_symbol
-              && snap.oos_baseline.by_symbol[sym]
-              && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
-
-    // No 16Y baseline available (CSV missing for this symbol) — fall back to
-    // empty state + secondary if any.
-    if (!base) {
-        el.className = 'dws-validation';
-        el.innerHTML = `<div class="dws-vempty">16Y 評価 — データ未取得</div>`
-                     + _buildSecondaryRolling(sym, snap, null);
-        return;
-    }
-
-    const tierCls = base.tier === '信頼' ? 'trusted'
-                  : base.tier === '要注意' ? 'caution' : 'insufficient';
-    el.className = 'dws-validation ' + tierCls;
-
-    // Period-drift verdict — STABLE / DRIFT / REGIME-CHANGE.
-    const ps = base.period_split || null;
-    const verdictHtml = _buildPeriodVerdict(ps);
-
-    const verdictDescHtml = (ps && ps.early && ps.late
-            && ps.drift_wr_pp != null && ps.p_wr_raw != null) ? `<div class="dws-vverdict-desc">
-        <b>期間ドリフト検定</b>:
-        <em>2010-2017</em> (N=${fmtN(ps.early.n)} WR ${(ps.early.win_rate*100).toFixed(2)}%)
-        vs <em>2018-2025</em> (N=${fmtN(ps.late.n)} WR ${(ps.late.win_rate*100).toFixed(2)}%) を
-        <b>2-proportion z-test</b> で比較。drift <em>${ps.drift_wr_pp>=0?'+':''}${ps.drift_wr_pp.toFixed(2)}pp</em>,
-        p=<em>${ps.p_wr_raw.toExponential(2)}</em>,
-        <b>Bonferroni α/3=0.0167（症状毎=3TF）</b> ${ps.p_wr_bonferroni_significant?'<span class="dws-sig">クリア (有意)</span>':'未クリア (非有意)'}。
-        Verdict <b>${esc(ps.verdict)}</b>: ${ps.verdict==='STABLE'?'両期間で統計的に差なし':
-            ps.verdict==='DRIFT'?'有意差あり、ただし <em>|drift|<5pp</em>':'有意差あり、<em>|drift|≥5pp</em> で局面変化レベル'}
-    </div>` : '';
-
-    const headerHtml =
-        `<div class="dws-vhead">`
-      + `<span class="dws-vtier">${esc(base.tier)}</span>`
-      + `<span class="dws-vlabel">16Y ディープ評価 · N=${fmtN(base.n_trades)}</span>`
-      + verdictHtml
-      + `<button type="button" class="dws-vexplain" data-explain-toggle="${esc(sym)}"`
-      +   ` aria-expanded="false" title="各項目の統計的説明を展開">`
-      +   `<span class="dws-vexplain-icon">▶</span><span class="dws-vexplain-label">説明</span>`
-      + `</button>`
-      + `</div>`
-      + `<div class="dws-vhead-desc">`
-      +   `Dukascopy CSV <em>16 年 (2010-2025)</em> の全データを <b>deterministic DWS-SMT ルール</b> で再評価した結果。`
-      +   `<b>year filter / warmup skip 一切なし</b>。<em>N</em> はシグナル発出回数。`
-      +   `Tier <b>${esc(base.tier)}</b>: ${
-            base.tier === '信頼' ? '<b>Wilson CI 下限 > Breakeven</b> かつ <b>全 3 期間の期待値 > 0</b> — 統計的に支持された継続的エッジ'
-            : base.tier === '要注意' ? 'CI 下限が Breakeven 未満、または期間ごとに不安定 — エッジ不確実'
-            : '<em>N < 30</em> — サンプル不足で評価不可'}`
-      + `</div>`
-      + verdictDescHtml;
-
-    // ---- Secondary: rolling ~7M live validation ----
-    const secondaryHtml = _buildSecondaryRolling(sym, snap, base);
-
-    // Recent regime FIRST (a drawdown banner + the rolling line), THEN the 16Y
-    // deep-eval header. The detailed 16Y stats BOX (win-rate / CIs / PF /
-    // expectancy / breakeven / MaxDD grid + its PF sparkline) was removed at the
-    // user's request — the regime banner + rolling line + tier header carry the
-    // at-a-glance read; the per-cell figures were redundant clutter.
-    el.innerHTML = _buildRegimeBanner(sym, snap, base)
-                 + secondaryHtml + headerHtml;
-
-    // Re-apply the persisted "説明" disclosure state for this symbol.
-    if (DWS_DESC_OPEN.has(sym)) {
-        el.classList.add('desc-open');
-        const btn = el.querySelector('[data-explain-toggle]');
-        if (btn) {
-            btn.setAttribute('aria-expanded', 'true');
-            const icon = btn.querySelector('.dws-vexplain-icon');
-            if (icon) icon.textContent = '▼';
-        }
-    }
-}
-
-/** Build the chronological-split verdict badge (STABLE / DRIFT / REGIME-CHANGE).
- *  Verdict is precomputed offline in the OOS baseline JSON using a
- *  Bonferroni-corrected 2-prop z-test on WR + Welch t-test on expectancy. */
-function _buildPeriodVerdict(ps) {
-    if (!ps || ps.drift_wr_pp == null || ps.p_wr_raw == null) return '';
-    const v = ps.verdict;
-    const drift = ps.drift_wr_pp;
-    let cls = 'stable', label = 'STABLE', dir = '';
-    if (v === 'DRIFT') {
-        cls = 'drift';
-        label = 'DRIFT';
-        dir = drift > 0 ? ' ↑改善' : ' ↓悪化';
-    } else if (v === 'REGIME-CHANGE') {
-        cls = 'regime';
-        label = 'REGIME-CHANGE';
-        dir = drift > 0 ? ' ↑改善' : ' ↓悪化';
-    }
-    const sign = drift > 0 ? '+' : '';
-    const driftTxt = `${sign}${drift.toFixed(2)}pp`;
-    return `<span class="dws-vverdict ${cls}" `
-         + `title="2010-2017 vs 2018-2025: drift ${driftTxt}, p=${ps.p_wr_raw.toExponential(2)}, Bonferroni ${ps.p_wr_bonferroni_significant ? '有意' : '非有意'}">`
-         + `${esc(label)}${esc(dir)} · ${esc(driftTxt)}</span>`;
-}
-
-/** Recent rolling regime vs the 16Y baseline for the active base TF (UI.dwsBase).
- *  Returns {drift, pf, wr, n} or null. drift = (rolling.PF - base.PF)/base.PF.
- *  Shared by the banner and the gate so both judge on the SAME numbers. Pure
- *  read — never throws on partial snapshots.
- *
- *  Returns null (= gate + banner both silent) in three documented cases:
- *    1. The baseline cell is absent (no oos_baseline entry for this sym/tf).
- *    2. The baseline PF is null or ≤ 0. JSON-null is how
- *       ``_oos_xauusd_16y._aggregate`` encodes PF = +∞ (a baseline with zero
- *       losing trades) — drift is undefined in that case so the conservative
- *       choice is to monitor it manually rather than fabricate a denominator.
- *       Verify against ``data/oos_baseline.json``: at last regeneration every
- *       cell had a finite positive PF, so no symbol is currently in this
- *       branch. If a future regen produces a zero-loss cell, that symbol
- *       silently drops out of drift monitoring — by design.
- *    3. Rolling PF is null/Infinity (no closed trades yet, or no losses). */
-function _regimeState(sym, snap) {
-    const base = snap.oos_baseline && snap.oos_baseline.by_symbol
-              && snap.oos_baseline.by_symbol[sym]
-              && snap.oos_baseline.by_symbol[sym][UI.dwsBase];
-    const stats = snap.validation && snap.validation.by_symbol
-               && snap.validation.by_symbol[sym]
-               && snap.validation.by_symbol[sym][UI.dwsBase];
-    const c = stats && stats.raw;
-    if (!base || !base.profit_factor || base.profit_factor <= 0) return null;
-    if (!c || c.profit_factor == null || c.profit_factor === Infinity) return null;
-    return {
-        drift: (c.profit_factor - base.profit_factor) / base.profit_factor,
-        pf: c.profit_factor, wr: c.win_rate, n: c.n_trades,
-    };
-}
-
-/** #3 gate: demote/mute ONLY when recent PF is BOTH materially below the 16Y
- *  baseline (drift) AND below the absolute floor — genuinely thin, not merely
- *  below the exceptional long-run peak. Profitable regimes never gate. */
-function _regimeGated(st) {
-    return !!st && st.drift <= REGIME_GATE_DRIFT && st.pf < REGIME_PF_FLOOR;
-}
-
-/** Regime banner shown ABOVE everything. WARN (amber) only when the recent PF is
- *  BOTH materially below the 16Y baseline AND below the absolute floor — so a
- *  still-profitable "below the 16Y peak" regime (the common FX case the IC/Duka
- *  calibration explained) does NOT cry wolf. A materially BETTER regime (>= +20%)
- *  gets a quiet positive note; everything else → nothing (the rolling line still
- *  carries the drift detail). */
-function _buildRegimeBanner(sym, snap, base) {
-    const st = _regimeState(sym, snap);
-    if (!st) return '';
-    const pct = Math.round(st.drift * 100);
-    const wr = st.wr == null ? '--' : Math.round(st.wr * 100) + '%';
-    if (st.drift <= REGIME_WARN_DRIFT && st.pf < REGIME_PF_FLOOR) {
-        return `<div class="dws-regime warn">⚠ <b>直近地合い悪化</b>`
-             + ` · 直近PF <b>${st.pf.toFixed(2)}</b> <span class="neg">(16Y比 ${pct}%)</span>`
-             + ` · 勝率 ${esc(wr)} · N=${st.n}`
-             + ` <em>— 直近PFが絶対水準でも低い (&lt;${REGIME_PF_FLOOR.toFixed(2)})。慎重に。</em></div>`;
-    }
-    if (st.drift >= 0.20) {
-        return `<div class="dws-regime good">直近地合い良好`
-             + ` · 直近PF <b>${st.pf.toFixed(2)}</b> <span class="pos">(16Y比 +${pct}%)</span>`
-             + ` · 勝率 ${esc(wr)} · N=${st.n}</div>`;
-    }
-    return '';
-}
-
-/** Build the secondary "直近 ローリング ~7M" line — N, WR, PF drift vs 16Y. */
-function _buildSecondaryRolling(sym, snap, base) {
-    const v = snap.validation;
-    const stats = v && v.by_symbol && v.by_symbol[sym]
-                  && v.by_symbol[sym][UI.dwsBase];
-    if (!stats || !stats.raw) {
-        return `<div class="dws-vsecondary dws-vsec-empty">`
-             + `直近ローリング — 検証中</div>`;
-    }
-    const c = stats.raw;
-    const pf = c.profit_factor == null ? '∞' : c.profit_factor.toFixed(2);
-    const wrTxt = c.win_rate == null ? '--' : Math.round(c.win_rate * 100) + '%';
-    const thirds = (c.thirds || [])
-        .map(t => (t.expectancy > 0 ? '✓' : '✗')).join('') || '--';
-
-    // PF drift vs the 16Y baseline. ±20% is alarm.
-    let driftHtml = '';
-    if (base && base.profit_factor && c.profit_factor != null
-        && c.profit_factor !== Infinity && base.profit_factor > 0) {
-        const drift = (c.profit_factor - base.profit_factor) / base.profit_factor;
-        const driftPct = Math.round(drift * 100);
-        const driftCls = Math.abs(drift) > 0.20
-            ? (drift > 0 ? 'pos warn' : 'neg warn')
-            : (drift > 0 ? 'pos' : drift < 0 ? 'neg' : '');
-        const arrow = drift > 0 ? '↑' : drift < 0 ? '↓' : '·';
-        driftHtml = ` <span class="dws-pf-drift ${driftCls}">`
-                  + `${arrow}${driftPct > 0 ? '+' : ''}${driftPct}% vs 16Y</span>`;
-    }
-    return `<div class="dws-vsecondary">`
-         + `<div class="dws-vsec-row">`
-         +   `<span class="dws-vsec-label">直近ローリング (~7M)</span>`
-         +   `<span class="dws-vsec-fig">N=${c.n_trades}`
-         +     ` · 勝率 ${esc(wrTxt)} · PF ${esc(pf)}${driftHtml}`
-         +     ` · 安定性 ${esc(thirds)}</span>`
-         + `</div>`
-         + `<div class="dws-vsec-desc">`
-         +   `直近 <em>~7 ヶ月 (M15 で 20,000 バー)</em> を broker から fetch して同じルールで再評価。`
-         +   `<b>16Y baseline からのドリフト確認用</b>。`
-         +   `PF 比較で <em>+20% 以上</em> の乖離は要警戒。`
-         +   `安定性 <b>${esc(thirds)}</b> = 直近期間を時系列で <em>3 等分</em> し、各期間の期待値の符号 `
-         +   `(✓ = プラス、✗ = マイナス)`
-         + `</div>`
-         + `</div>`;
-}
-
-function drawDwsCanvas(snap, sym) {
-    const canvas = $bind('dws-canvas-' + sym);
-    if (!canvas) return;
-    const wrap = canvas.parentElement;
-    const W = wrap.clientWidth, H = wrap.clientHeight;
-    if (W === 0 || H === 0) return;            // panel collapsed / hidden
-
-    const dpr = window.devicePixelRatio || 1;
-    const bw = Math.round(W * dpr), bh = Math.round(H * dpr);
-    if (canvas.width !== bw || canvas.height !== bh) {
-        // Reassigning width/height reallocates + clears the bitmap; only do it
-        // on a real size change. setTransform+clearRect below clear every draw.
-        canvas.width = bw; canvas.height = bh;
-        canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    }
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-
-    const stateEl = $bind('dws-state-' + sym);
-    const d = dwsResult(snap, sym);
-    const win = d && d.by_base && d.by_base[UI.dwsBase];
-    if (!win || !win.c || win.c.length === 0) {
-        ctx.fillStyle = '#8089a0';
-        ctx.font = '12px monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('データなし', W / 2, H / 2);
-        if (stateEl) { stateEl.textContent = 'データなし'; stateEl.className = 'dws-state'; }
-        const syncEl0 = $bind('dws-sync-' + sym);
-        if (syncEl0) { syncEl0.textContent = '--'; syncEl0.className = 'dws-sync'; }
-        updateDwsValidation(sym, snap);
-        return;
-    }
-
-    const rows = win.rows, N = win.c.length;
-    const biasArr = win.bias || [];              // per-bar historical BIAS
-    const ptMult = pointMultiplierFor(sym);      // price → MT5 points
-    const liveF = pipsFactor(sym, 'live');       // MT5 points → pips (live feed)
-    const tradeByEntry = {};                     // entry bar idx → trade record
-    (win.trades || []).forEach(t => { tradeByEntry[t.i] = t; });
-    const gutter = 30, axisH = 14, markH = 32;   // markH fits marker + P/L label
-    const plotX = gutter, plotW = W - gutter - 4;
-    const plotY = 2, plotH = H - axisH - markH - 4;
-    const rowH = plotH / rows.length, barW = plotW / N;
-
-    // 3 stacked rows — gradient fill: hue = sign(flip_norm), alpha = |flip_norm|
-    // (pale near a flip, solid when firmly aligned). win.c is the fallback for
-    // older snapshots without fn.
-    const fn = win.fn || null;
-    for (let r = 0; r < rows.length; r++) {
-        const y = plotY + r * rowH;
-        for (let j = 0; j < N; j++) {
-            const fv = (fn && fn[j]) ? fn[j][r] : null;
-            ctx.fillStyle = dwsCellFill(fv, win.c[j][r]);
-            ctx.fillRect(plotX + j * barW, y + 1, Math.max(1, barW - 0.4), rowH - 2);
-        }
-        ctx.fillStyle = '#f2f4f9';
-        ctx.font = '700 11px monospace';
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(rows[r], 4, y + rowH / 2);
-    }
-
-    // Holdout emphasis on the CURRENT (rightmost) bar: when exactly two rows
-    // share an aligned colour and the third is near its flip, ring that third
-    // cell and label its TF — the literal "2 aligned, 1 about to complete".
-    if (fn && N > 0) {
-        const cj = N - 1, cc = win.c[cj], cf = fn[cj];
-        if (cc && cf) {
-            for (const dir of [0, 1]) {              // 0 = all-up holdout, 1 = all-down
-                const aligned = [];
-                let holdout = -1;
-                for (let r = 0; r < rows.length; r++) {
-                    if (cc[r] === dir) aligned.push(r); else holdout = r;
-                }
-                if (aligned.length === rows.length - 1 && holdout >= 0
-                    && Math.abs(cf[holdout]) < DWS_FLIP_IMMINENT) {
-                    const y = plotY + holdout * rowH;
-                    const x = plotX + cj * barW;
-                    ctx.strokeStyle = dir === 0 ? 'rgba(0,208,156,0.95)'
-                                                : 'rgba(255,91,107,0.95)';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(x + 0.5, y + 1.5, Math.max(1, barW - 1.4), rowH - 3);
-                    ctx.fillStyle = '#fff';
-                    ctx.font = '700 9px monospace';
-                    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-                    ctx.fillText(rows[holdout] + (dir === 0 ? '▲' : '▼'),
-                                 x - 1, y + rowH / 2);
-                }
-            }
-        }
-    }
-
-    // Trigger guide lines + markers — BIAS-confirmed triggers are solid with a
-    // bright guide line; unconfirmed ones are hollow with a faint line.
-    const markY = plotY + plotH;
-    for (let j = 0; j < N; j++) {
-        const g = win.g[j];
-        if (!g) continue;
-        const cx = plotX + j * barW + barW / 2;
-        // Judge each trigger by the BIAS as it was *at that bar* (no look-ahead).
-        const barBias = biasArr[j] != null ? biasArr[j] : 0;
-        const tradeable = dwsTriggerTradeable(g, barBias);
-        const macroAlign = dwsTriggerMacroAlign(g, sym, snap);
-        const a = tradeable ? 0.55 : 0.16;
-        ctx.strokeStyle = g === 'BUY' ? `rgba(0,208,156,${a})`
-                        : g === 'SELL' ? `rgba(255,91,107,${a})`
-                        : `rgba(255,183,77,${a})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(cx, plotY); ctx.lineTo(cx, markY); ctx.stroke();
-        drawDwsMarker(ctx, cx, markY + 9, g, tradeable);
-        if (macroAlign < 0) {
-            // Counter-carry: this BUY/SELL fights the rate differential.
-            ctx.fillStyle = '#ffb74d';
-            ctx.font = '700 9px monospace';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-            ctx.fillText('逆', cx, plotY - 1);
-        }
-        // Per-trigger trade result (recommendation A): the P/L of the trade
-        // this BUY/SELL opened. EXIT triggers open no trade → no label.
-        const tr = tradeByEntry[j];
-        if (tr) {
-            // The histogram is a TIMING guide, not a P/L ledger: show the GROSS
-            // move in pips with NO spread deduction. The 履歴 table is the
-            // spread-accurate record (each trade net of its own bar's spread),
-            // so it reads slightly smaller than this gross figure — never larger.
-            const pips = tr.p * ptMult * liveF;                 // gross, in pips
-            ctx.fillStyle = pips > 0 ? '#00d09c' : pips < 0 ? '#ff5b6b' : '#8089a0';
-            ctx.font = '700 9px monospace';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-            ctx.fillText((pips >= 0 ? '+' : '') + fmtPips(pips), cx, markY + 19);
-        }
-    }
-
-    // Static bottom time-axis labels removed — the time now shows on hover only.
-    // Stash the bar geometry so the canvas mousemove handler (wired once in
-    // ensureDwsSkeleton) can map a cursor X → bar index → bar time and render it
-    // in the bottom chip + guide line, without re-drawing the canvas.
-    canvas._dws = { t: win.t, plotX, barW, N, W };
-
-    updateDwsState(stateEl, win);
-    updateDwsValidation(sym, snap);
-    updateDwsSync(sym, snap, win);
 }
 
 // ------------------------------------------------------------
@@ -2408,11 +1348,7 @@ function connect() {
             latestSnap.price = msg.price;
             latestSnap.account = msg.account;
         } else {
-            // Full snapshot. The static 16Y oos_baseline (~2 MB) ships only on
-            // the FIRST full per connection; cache it and re-attach to every
-            // later full so all readers keep seeing snap.oos_baseline.
-            if (msg.oos_baseline) OOS_BASELINE = msg.oos_baseline;
-            else if (OOS_BASELINE) msg.oos_baseline = OOS_BASELINE;
+            // Full snapshot.
             latestSnap = msg;
         }
         // Schedule paint on next frame so we coalesce bursts.
@@ -2428,6 +1364,421 @@ function connect() {
     ws.onerror = () => ws.close();
 }
 
+// ------------------------------------------------------------
+// Fund / trade-management panel — bottom row
+// ------------------------------------------------------------
+function paintFundKpi(snap) {
+    const root = $bind('fund-kpi');
+    if (!root) return;
+    const a = snap.account, p = snap.performance;
+    if (!a) { root.innerHTML = '<div class="empty mute">口座待ち…</div>'; return; }
+    const def = (p && p.by_range && p.default_range) ? p.by_range[p.default_range] : null;
+    const w7 = (p && p.by_range && p.by_range['7d']) ? p.by_range['7d'].net_profit : null;
+    const m30 = (p && p.by_range && p.by_range['30d']) ? p.by_range['30d'].net_profit : null;
+    const today = (p && p.today_total_pnl != null) ? p.today_total_pnl : null;
+    const adv = p && p.advanced;
+    const dailyLimit = a.balance ? a.balance * 0.03 : 0;
+    const usedLoss = (today != null && today < 0) ? -today : 0;
+    const remainPct = dailyLimit > 0 ? Math.max(0, 1 - usedLoss / dailyLimit) : 1;
+    const sgn = (v, d) => v == null ? '--' : (v > 0 ? '+' : '') + Number(v).toFixed(d);
+    const clsOf = v => v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+    const row = (label, val, cls) =>
+        `<div class="fk-row"><span class="fk-l">${label}</span>`
+        + `<span class="fk-v mono ${cls || ''}">${val}</span></div>`;
+    root.innerHTML =
+        `<div class="fk-acct">${esc(String(a.login))} / ${esc(String(a.server))}</div>`
+        + row('Balance', fmtPrice(a.balance, 0))
+        + row('Equity', fmtPrice(a.equity, 0))
+        + row('Today', sgn(today, 0), clsOf(today))
+        + row('7日', sgn(w7, 0), clsOf(w7))
+        + row('30日', sgn(m30, 0), clsOf(m30))
+        + row('Margin', fmtPrice(a.margin, 0))
+        + row('Free', fmtPrice(a.margin_free, 0))
+        + row('維持率', a.margin_level != null ? a.margin_level.toFixed(0) + '%' : '--')
+        + row('MaxDD', (def && def.max_drawdown_pct != null) ? '-' + def.max_drawdown_pct.toFixed(1) + '%' : '--')
+        + row('連勝/連敗', adv ? `${adv.max_win_streak}/${adv.max_loss_streak}` : '--')
+        + row('推奨Lot', a.recommended_lot != null ? Number(a.recommended_lot).toFixed(2) : '--', 'accent')
+        + `<div class="fk-bar"><div class="fk-bar-fill" style="width:${(remainPct*100).toFixed(0)}%"></div></div>`
+        + `<div class="fk-bar-cap mute">日次損失上限まで ${(remainPct*100).toFixed(0)}%</div>`;
+}
+function paintPositionsTab(snap) {
+    const root = $bind('fund-body');
+    if (!root || UI.fundTab !== 'positions') return;
+    const a = snap.account;
+    const positions = (a && a.positions) || [];
+    const sig = positions.map(p => `${p.ticket}:${p.type}:${p.volume}`).join(',')
+        + '|' + (a && a.trade_allowed ? 1 : 0) + '|positions';
+    if (sig !== root._fsig) {
+        root._fsig = sig;
+        if (!positions.length) {
+            root.innerHTML = '<div class="empty">no open positions</div>';
+        } else {
+            const allBtn = a.trade_allowed
+                ? `<button class="pos-close-all" type="button">全決済 (${positions.length})</button>` : '';
+            root.innerHTML = allBtn + '<div class="ftab-pos">' + positions.map(p => {
+                const cls = p.type === 'BUY' ? 'buy' : 'sell';
+                const closeBtn = a.trade_allowed
+                    ? `<button class="pos-close" type="button" data-ticket="${p.ticket}" title="この建玉を成行決済">✕</button>` : '';
+                return `<div class="pos-row ${cls}" data-ticket="${p.ticket}">`
+                    + `<span class="type-${cls}">${esc(p.type)}</span>`
+                    + `<span class="pos-vol">${(p.volume || 0).toFixed(2)}L</span>`
+                    + `<span class="pos-px mono"></span>`
+                    + `<span class="pos-pnl mono"></span>`
+                    + `<span class="pos-r mono mute"></span>`
+                    + `<span class="pos-sltp mute"></span>`
+                    + `<span class="pos-age mute"></span>`
+                    + closeBtn + `</div>`;
+            }).join('') + '</div>';
+        }
+        wireFundCloseButtons(root);
+    }
+    const pip = 0.10;   // XAUUSD pip in price units
+    for (const p of positions) {
+        const row = root.querySelector(`.pos-row[data-ticket="${p.ticket}"]`);
+        if (!row) continue;
+        const d = priceDigits(p.price_open, p.symbol);
+        const px = row.querySelector('.pos-px');
+        if (px) px.textContent = `${fmtPrice(p.price_open, d)}→${fmtPrice(p.price_current, d)}`;
+        const pnlEl = row.querySelector('.pos-pnl');
+        const pips = (p.type === 'BUY'
+            ? (p.price_current - p.price_open)
+            : (p.price_open - p.price_current)) / pip;
+        if (pnlEl) {
+            pnlEl.textContent = `${fmtSigned(p.profit, 0)} (${pips >= 0 ? '+' : ''}${pips.toFixed(1)}pip)`;
+            pnlEl.className = 'pos-pnl mono ' + (p.profit > 0 ? 'pos' : p.profit < 0 ? 'neg' : '');
+        }
+        const rEl = row.querySelector('.pos-r');
+        if (rEl) {
+            let rtxt = '--';
+            if (p.sl && Math.abs(p.price_open - p.sl) > 0) {
+                const risk = Math.abs(p.price_open - p.sl);
+                const move = p.type === 'BUY'
+                    ? (p.price_current - p.price_open)
+                    : (p.price_open - p.price_current);
+                rtxt = (move / risk >= 0 ? '+' : '') + (move / risk).toFixed(2) + 'R';
+            }
+            rEl.textContent = rtxt;
+        }
+        const sltp = row.querySelector('.pos-sltp');
+        if (sltp) sltp.textContent = (p.sl ? `SL ${fmtPrice(p.sl, d)}` : '') + (p.tp ? ` TP ${fmtPrice(p.tp, d)}` : '');
+        const age = row.querySelector('.pos-age');
+        if (age && p.time) age.textContent = _fmtAge(Date.now() / 1000 - p.time);
+    }
+}
+function _fmtAge(sec) {
+    if (sec < 0) sec = 0;
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h ? `${h}h${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+/** Delegated close-button handler on the fund panel positions tab (one-time per root). */
+function wireFundCloseButtons(root) {
+    if (!root || root._wiredClose) return;
+    root._wiredClose = true;
+    root.addEventListener('click', (e) => {
+        if (e.target.closest('.pos-close-all')) { confirmClose({ all: true }); return; }
+        const one = e.target.closest('.pos-close');
+        if (one) confirmClose({ ticket: Number(one.dataset.ticket) });
+    });
+}
+// ------------------------------------------------------------
+// Fund panel — 資金管理 tab (F4)
+// ------------------------------------------------------------
+
+function _moneyFormHtml(snap) {
+    const a = (snap && snap.account) || {};
+    const p = (snap && snap.performance) || {};
+    const defRange = p.default_range || '30d';
+    const byRange = (p.by_range && p.by_range[defRange]) || {};
+    const recLot = (a.recommended_lot != null && isFinite(a.recommended_lot))
+        ? Number(a.recommended_lot).toFixed(2) : '0.01';
+    const defaultWrPct = (byRange.win_rate != null && isFinite(byRange.win_rate))
+        ? (byRange.win_rate * 100).toFixed(1) : '';
+    const defaultRrVal = (byRange.risk_reward != null && isFinite(byRange.risk_reward))
+        ? Number(byRange.risk_reward).toFixed(2) : '';
+
+    return `<div class="mm-gate" data-bind="mm-gate"></div>
+<div class="mm-grid">
+  <div class="mm-group">
+    <h4>ポジションサイジング</h4>
+    <div class="mm-field">
+      <label>エントリー価格</label>
+      <input type="number" step="0.01" min="0" placeholder="例: 2350.00" data-bind="mm-entry">
+    </div>
+    <div class="mm-field">
+      <label>ストップロス価格</label>
+      <input type="number" step="0.01" min="0" placeholder="例: 2340.00" data-bind="mm-sl">
+    </div>
+    <div class="mm-field">
+      <label>リスク率 %</label>
+      <input type="number" step="0.1" min="0.1" max="100" value="1" data-bind="mm-risk-pct">
+    </div>
+    <div class="mm-field">
+      <label>推奨 Lot</label>
+      <span class="mm-out" data-bind="mm-lot">--</span>
+    </div>
+    <div class="mm-field">
+      <label>リスク額 ≈ USD</label>
+      <span class="mm-out" data-bind="mm-risk-amt">--</span>
+    </div>
+  </div>
+  <div class="mm-group">
+    <h4>リスク:リワード</h4>
+    <div class="mm-field">
+      <label>テイクプロフィット価格</label>
+      <input type="number" step="0.01" min="0" placeholder="例: 2380.00" data-bind="mm-tp">
+    </div>
+    <div class="mm-field">
+      <label>勝率 %</label>
+      <input type="number" step="0.1" min="0" max="100" value="${esc(defaultWrPct)}" placeholder="例: 55.0" data-bind="mm-wr">
+    </div>
+    <div class="mm-field">
+      <label>RR 比</label>
+      <span class="mm-out" data-bind="mm-rr">--</span>
+    </div>
+    <div class="mm-field">
+      <label>期待値 R</label>
+      <span class="mm-out" data-bind="mm-exp">--</span>
+    </div>
+    <div class="mm-field">
+      <label>損益分岐 WR %</label>
+      <span class="mm-out" data-bind="mm-bewr">--</span>
+    </div>
+  </div>
+  <div class="mm-group">
+    <h4>ケリー基準 / 破産確率</h4>
+    <div class="mm-field">
+      <label>RR (手入力 or 計算値)</label>
+      <input type="number" step="0.01" min="0" value="${esc(defaultRrVal)}" placeholder="例: 2.00" data-bind="mm-rr-manual">
+    </div>
+    <div class="mm-field">
+      <label>連続トレード数 (RoR)</label>
+      <input type="number" step="1" min="1" value="20" data-bind="mm-ror-n">
+    </div>
+    <div class="mm-field">
+      <label>f* / ¼Kelly</label>
+      <span class="mm-out" data-bind="mm-kelly">--</span>
+    </div>
+    <div class="mm-field">
+      <label>破産確率 %</label>
+      <span class="mm-out" data-bind="mm-ror">--</span>
+    </div>
+  </div>
+  <div class="mm-group">
+    <h4>マージンシミュレーション</h4>
+    <div class="mm-field">
+      <label>ロット数</label>
+      <input type="number" step="0.01" min="0.01" value="${esc(recLot)}" data-bind="mm-lot-sim">
+    </div>
+    <div class="mm-field">
+      <label>1pip価値 ≈ USD</label>
+      <span class="mm-out" data-bind="mm-pipval">--</span>
+    </div>
+    <div class="mm-field">
+      <label>維持率100%まで (pip)</label>
+      <span class="mm-out" data-bind="mm-liq">--</span>
+    </div>
+    <div class="mm-field">
+      <label>強制ロスカット目安</label>
+      <span class="mm-out mute" data-bind="mm-liq-px">--</span>
+    </div>
+  </div>
+</div>`;
+}
+
+function _wireMoneyForm(root) {
+    root.addEventListener('input', () => {
+        if (latestSnap) _recalcMoney(root, latestSnap);
+    });
+}
+
+function _recalcMoney(root, snap) {
+    if (!root) return;
+    const a = (snap && snap.account) || {};
+    const p = (snap && snap.performance) || {};
+    const defRange = p.default_range || '30d';
+    const byRange = (p.by_range && p.by_range[defRange]) || {};
+
+    // Helper to read a bound input value as float; returns NaN if empty/invalid.
+    function readF(name) { const el = root.querySelector(`[data-bind="${name}"]`); return el ? parseFloat(el.value) : NaN; }
+    function writeOut(name, txt) { const el = root.querySelector(`[data-bind="${name}"]`); if (el) el.textContent = txt; }
+
+    // Pre-fill win-rate / RR from snap only when the input is still pristine (empty value).
+    const wrEl = root.querySelector('[data-bind="mm-wr"]');
+    if (wrEl && wrEl.value === '' && byRange.win_rate != null && isFinite(byRange.win_rate)) {
+        wrEl.value = (byRange.win_rate * 100).toFixed(1);
+    }
+    const rrManEl = root.querySelector('[data-bind="mm-rr-manual"]');
+    if (rrManEl && rrManEl.value === '' && byRange.risk_reward != null && isFinite(byRange.risk_reward)) {
+        rrManEl.value = Number(byRange.risk_reward).toFixed(2);
+    }
+
+    // --- Account values ---
+    const balance  = (a.balance  != null && isFinite(a.balance))  ? a.balance  : 0;
+    const equity   = (a.equity   != null && isFinite(a.equity))   ? a.equity   : 0;
+    const marginUsed = (a.margin != null && isFinite(a.margin))   ? a.margin   : 0;
+
+    // --- Position sizing ---
+    const entry   = readF('mm-entry');
+    const sl      = readF('mm-sl');
+    const riskPct = readF('mm-risk-pct');
+    const riskAmt = (isFinite(riskPct) && balance > 0) ? balance * riskPct / 100 : NaN;
+    const slPips  = (isFinite(entry) && isFinite(sl)) ? Math.abs(entry - sl) / 0.10 : NaN;
+    const PIP_VAL_PER_LOT = pipValueUsd(1);   // $10
+    const lots = (isFinite(riskAmt) && isFinite(slPips) && slPips > 0)
+        ? positionSizeLots(riskAmt, slPips, PIP_VAL_PER_LOT) : null;
+
+    writeOut('mm-lot',      lots != null ? lots.toFixed(2) + ' lot' : '--');
+    writeOut('mm-risk-amt', isFinite(riskAmt) ? riskAmt.toFixed(0) : '--');
+
+    // --- RR / expectancy ---
+    const tp       = readF('mm-tp');
+    const rrCalc   = (isFinite(entry) && isFinite(sl) && isFinite(tp))
+        ? rrRatio(entry, sl, tp) : null;
+    const wrRaw    = readF('mm-wr');
+    const winRate  = isFinite(wrRaw) ? wrRaw / 100 : null;
+
+    writeOut('mm-rr',   rrCalc != null ? rrCalc.toFixed(2) : '--');
+
+    const exp  = (winRate != null && rrCalc != null) ? expectancyR(winRate, rrCalc) : null;
+    const bewr = rrCalc != null ? breakevenWR(rrCalc) : null;
+    writeOut('mm-exp',  exp  != null ? exp.toFixed(3) + ' R' : '--');
+    writeOut('mm-bewr', bewr != null ? (bewr * 100).toFixed(1) + '%' : '--');
+
+    // --- Kelly / RoR (use manual RR field, fallback to computed RR) ---
+    const rrManRaw = readF('mm-rr-manual');
+    const rrForKelly = isFinite(rrManRaw) && rrManRaw > 0 ? rrManRaw
+                     : (rrCalc != null && rrCalc > 0 ? rrCalc : null);
+    const rorN     = readF('mm-ror-n');
+    const kelly    = (winRate != null && rrForKelly != null) ? kellyFraction(winRate, rrForKelly) : null;
+    const quarter  = kelly != null ? kelly / 4 : null;
+    writeOut('mm-kelly',
+        kelly != null ? `f*=${(kelly*100).toFixed(1)}% / ¼=${quarter != null ? (quarter*100).toFixed(1) : '--'}%` : '--');
+
+    const rorUnits = isFinite(rorN) && rorN > 0 ? rorN : 20;
+    const ror = (winRate != null && rrForKelly != null)
+        ? riskOfRuin(winRate, rrForKelly, rorUnits) : null;
+    writeOut('mm-ror', ror != null ? (ror * 100).toFixed(2) + '%' : '--');
+
+    // --- Margin simulation ---
+    const lotSim  = readF('mm-lot-sim');
+    const pipVal  = isFinite(lotSim) && lotSim > 0 ? pipValueUsd(lotSim) : null;
+    writeOut('mm-pipval', pipVal != null ? '$' + pipVal.toFixed(2) : '--');
+
+    const liqPips = (pipVal != null && equity > 0)
+        ? liquidationPips(equity, marginUsed, lotSim) : null;
+    writeOut('mm-liq', liqPips != null ? liqPips.toFixed(1) + ' pip' : '--');
+
+    // Liquidation price estimate (assuming a SELL exposure against current bid)
+    // We don't know direction; just note both.
+    if (liqPips != null && isFinite(entry)) {
+        const liqPrice = entry - liqPips * 0.10;  // assumes BUY open
+        writeOut('mm-liq-px', `買方向: ↓${fmtPrice(liqPrice, 2)} 付近`);
+    } else {
+        writeOut('mm-liq-px', '--');
+    }
+
+    // --- Gate banner ---
+    const gateEl = root.querySelector('[data-bind="mm-gate"]');
+    if (gateEl) {
+        const todayPnl = (p.today_total_pnl != null) ? p.today_total_pnl : 0;
+        const maxDd    = (byRange.max_drawdown_pct != null) ? byRange.max_drawdown_pct : 0;
+        if (balance > 0 && todayPnl <= balance * -0.03) {
+            gateEl.className = 'mm-gate warn';
+            gateEl.innerHTML = '<span>日次損失上限到達 — 様子見推奨</span>';
+        } else if (maxDd >= 10) {
+            gateEl.className = 'mm-gate warn';
+            gateEl.innerHTML = '<span>累計DD上限到達 — 様子見推奨</span>';
+        } else {
+            gateEl.className = 'mm-gate';
+            gateEl.innerHTML = '';
+        }
+    }
+}
+
+function paintMoneyTab(snap) {
+    const root = $bind('fund-body');
+    if (!root || UI.fundTab !== 'money') return;
+    if (root._fsig !== 'money') {
+        root._fsig = 'money';
+        root.innerHTML = _moneyFormHtml(snap);
+        _wireMoneyForm(root);
+    }
+    _recalcMoney(root, snap);
+}
+function paintHistoryTab(snap) {
+    const root = $bind('fund-body');
+    if (!root || UI.fundTab !== 'history') return;
+    const p = snap.performance;
+    const trades = (p && p.trades) || [];
+    const stamp = (p && p.generated_at) || 0;
+    const fsig = 'history:' + stamp + ':' + trades.length;
+    if (root._fsig === fsig) return;       // only repaint on full-snapshot change
+    root._fsig = fsig;
+    if (!trades.length) {
+        root.innerHTML = '<div class="empty mute">確定取引なし(90日)。発注すると3TF状況つきで記録されます</div>';
+        return;
+    }
+    const rows = trades.slice().sort((a,b)=>b.exit_time-a.exit_time).map(_histRow).join('');
+    root.innerHTML = '<div class="ftab-hist">' + rows + '</div>';
+}
+function _histRow(t) {
+    const cls = t.type === 'BUY' ? 'buy' : 'sell';
+    const pnlCls = (t.profit||0) > 0 ? 'pos' : (t.profit||0) < 0 ? 'neg' : '';
+    const d = priceDigits(t.entry_price, t.symbol);
+    const r = t.r_multiple != null ? (t.r_multiple>=0?'+':'') + t.r_multiple.toFixed(2) + 'R' : '--';
+    const pips = t.pips != null ? (t.pips>=0?'+':'') + t.pips.toFixed(1) : '--';
+    const mae = t.mae_pips != null ? t.mae_pips.toFixed(0) : '--';
+    const mfe = t.mfe_pips != null ? '+' + t.mfe_pips.toFixed(0) : '--';
+    const ctx = t.ctx || {};
+    const order = ['D1','H4','H1','M15'];
+    const chips = Object.keys(ctx).sort((a,b)=>order.indexOf(a)-order.indexOf(b)).map(tf => {
+        const c = ctx[tf] || {}; const up = !!c.ae;
+        const tip = 'EMA ' + (up?'上':'下') + (c.adx!=null?` / ADX ${Math.round(c.adx)}`:'') + (c.rsi!=null?` / RSI ${c.rsi}`:'');
+        return `<span class="jr-tf ${up?'up':'dn'}" title="${esc(tip)}">${esc(tf)} ${up?'↑':'↓'}</span>`;
+    }).join('');
+    return `<div class="hist-row ${cls}">`
+        + `<span class="h-time mute">${esc(fmtJSTdate(t.exit_time))} ${esc(fmtJSTclockNoSec(t.exit_time))}</span>`
+        + `<span class="h-side h-side-${cls}">${esc(t.type)}</span>`
+        + `<span class="h-lot mono">${(t.volume||0).toFixed(2)}L</span>`
+        + `<span class="h-px mono">${fmtPrice(t.entry_price,d)}→${fmtPrice(t.exit_price,d)}</span>`
+        + `<span class="h-pips mono ${pnlCls}">${pips}pip</span>`
+        + `<span class="h-pnl mono ${pnlCls}">${fmtSigned(t.profit,0)}</span>`
+        + `<span class="h-r mono">${r}</span>`
+        + `<span class="h-mae mute" title="MAE/MFE pips">${mae}/${mfe}</span>`
+        + `<span class="h-ctx">${chips}</span>`
+        + `</div>`;
+}
+
+/** Risk-limit gate: returns true when daily-loss or max-drawdown limits are hit.
+ *  DISPLAY ONLY — does NOT disable buttons, does NOT alter order logic or lot size.
+ *  The trader retains full discretion; this is a visual caution (様子見) signal. */
+function _riskGated(snap) {
+    const a = snap.account, p = snap.performance;
+    if (!a || !p) return false;
+    const today = p.today_total_pnl;
+    const dailyHit = (a.balance > 0 && today != null && today <= a.balance * -0.03);
+    const def = (p.by_range && p.default_range) ? p.by_range[p.default_range] : null;
+    const ddHit = !!(def && def.max_drawdown_pct != null && def.max_drawdown_pct >= 10.0);
+    return dailyHit || ddHit;
+}
+
+function paintFundPanel(snap) {
+    paintFundKpi(snap);
+    const tab = UI.fundTab;
+    document.querySelectorAll('.fund-tabs .pill').forEach(p =>
+        p.classList.toggle('on', p.dataset.fundtab === tab));
+    if (tab === 'positions') paintPositionsTab(snap);
+    else if (tab === 'money') paintMoneyTab(snap);
+    else if (tab === 'history') paintHistoryTab(snap);
+    // Risk gate: toggle .degraded on all panel-head order buttons (visual caution only).
+    const gated = _riskGated(snap);
+    document.querySelectorAll('.panel-head .trade-btn').forEach(b =>
+        b.classList.toggle('degraded', gated));
+    // Trade-permission gating + recommended-lot prefill (keeps the LOT input
+    // pre-filled with the recommended lot).
+    if (snap.account) applyTradeGating(snap.account);
+}
+
 let pendingFrame = null;
 function paintAll() {
     pendingFrame = null;
@@ -2435,105 +1786,21 @@ function paintAll() {
     paintHeader(latestSnap);
     paintPrices(latestSnap);
     paintSignals(latestSnap);
-    paintAccount(latestSnap);
+    paintEmaStack(latestSnap);
+    paintFundPanel(latestSnap);
     paintRealYield(latestSnap);
     paintDxy(latestSnap);
     paintCot(latestSnap);
     paintCalendar(latestSnap);
-    paintDws(latestSnap);
-    maybeRefreshJournal(latestSnap);
 }
 
-// 1-second clock + countdown tick (independent of WS)
+// 1-second clock tick (independent of WS)
 function startTickers() {
     setInterval(() => {
         if (!latestSnap) return;
         $bind('clock').textContent = fmtJSTclock(Date.now() / 1000);
-        // Smoothly tick the DWS bar-close countdown(s) between 5 s snapshots.
-        const now = Date.now();
-        document.querySelectorAll('.dws-cd[data-close]').forEach(s => {
-            const c = Number(s.dataset.close);
-            if (c) s.textContent = fmtCountdown(c - now);
-        });
     }, 1000);
 }
-
-// ------------------------------------------------------------
-// Broker switcher — click the ▾ next to the ACCOUNT identity to swap
-// MT5 terminals. The server writes .env and self-restarts; the existing
-// WebSocket reconnect loop picks the new instance up automatically.
-// ------------------------------------------------------------
-
-async function setupBrokerSwitcher() {
-    const toggle = $bind('broker-toggle');
-    const menu = $bind('broker-menu');
-    if (!toggle || !menu) return;
-
-    let info;
-    try {
-        info = await fetch('/api/broker').then(r => r.json());
-    } catch (e) {
-        toggle.disabled = true;
-        return;
-    }
-    const current = info.current_path || '';
-    const presets = info.presets || {};
-
-    menu.innerHTML = Object.entries(presets).map(([name, path]) => {
-        const active = path === current ? ' active' : '';
-        return `<button class="broker-opt${active}" data-name="${esc(name)}">`
-             + `<span class="broker-check">${path === current ? '●' : '○'}</span>`
-             + `<span>${esc(name)}</span></button>`;
-    }).join('');
-
-    toggle.onclick = (ev) => {
-        ev.stopPropagation();
-        menu.hidden = !menu.hidden;
-    };
-    document.addEventListener('click', (ev) => {
-        if (!menu.hidden && !menu.contains(ev.target) && ev.target !== toggle) {
-            menu.hidden = true;
-        }
-    });
-
-    menu.querySelectorAll('.broker-opt').forEach(btn => {
-        btn.onclick = async (ev) => {
-            ev.stopPropagation();
-            const name = btn.dataset.name;
-            if (btn.classList.contains('active')) { menu.hidden = true; return; }
-            menu.hidden = true;
-            showSwitchOverlay(`Switching to ${name}…`);
-            try {
-                const res = await fetch('/api/broker', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name}),
-                }).then(r => r.json());
-                if (!res.ok) {
-                    showSwitchOverlay(`切替失敗: ${res.error || 'unknown'}`, true);
-                    return;
-                }
-                showSwitchOverlay(
-                    `Switching to ${name}…  サーバー再起動中(約7秒)`,
-                    false);
-            } catch (e) {
-                showSwitchOverlay('サーバー再起動中…', false);
-            }
-        };
-    });
-}
-
-function showSwitchOverlay(msg, isError) {
-    let ov = document.getElementById('broker-switch-overlay');
-    if (!ov) {
-        ov = document.createElement('div');
-        ov.id = 'broker-switch-overlay';
-        document.body.appendChild(ov);
-    }
-    ov.textContent = msg;
-    ov.className = isError ? 'err' : '';
-}
-
 
 // ------------------------------------------------------------
 // Display auto-fit — render the dashboard at a fixed 2560-wide design
@@ -2557,26 +1824,28 @@ function applyDisplayFit() {
 // Boot
 // ------------------------------------------------------------
 
+// Fund tab click handler — event delegation on the bottom panel tab row.
+document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.fund-tabs .pill[data-fundtab]');
+    if (!btn) return;
+    UI.fundTab = btn.dataset.fundtab;
+    try { localStorage.setItem('mt5-fundtab', UI.fundTab); } catch (_e) {}
+    if (latestSnap) paintFundPanel(latestSnap);
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     applyDisplayFit();
     buildSymbolGrid();
     startTickers();
-    setupBrokerSwitcher();
     setupOrderModal();
     paintAlertBell();                 // reflect the saved high-conviction-alert state
     connect();
-    // NB: the journal is seeded by maybeRefreshJournal() on the first snapshot
-    // that carries account.server (the broker-scoped store key) — NOT here. A
-    // load-time fetch would fire a second, broker-unknown request (the observed
-    // double GET /api/journal).
+    fetchEmaHistory();                // deep EMA history for drag-to-the-past
+    setInterval(fetchEmaHistory, EMA_HISTORY_POLL_MS);
 });
 
 window.addEventListener('resize', () => {
     applyDisplayFit();
-    // Canvas-drawn elements (DWS-SMT histogram) need an explicit redraw
-    // when the logical viewport height changes — DOM-based panels reflow
-    // via CSS automatically.
-    delete STAMPS['dws'];
     if (latestSnap && !pendingFrame) {
         pendingFrame = requestAnimationFrame(paintAll);
     }
