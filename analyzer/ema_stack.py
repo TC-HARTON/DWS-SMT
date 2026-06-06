@@ -51,16 +51,19 @@ class EmaStackSnapshot:
     dev_mid: tuple[float, ...]         # (EMA80   − EMA320) / EMA320 * 100
     as_of: float                       # epoch seconds
     stale: bool                        # True when no live data
-    bands: dict | None = None          # 16Y disparity percentile bands (feature 1)
+    bands: dict | None = None          # disparity percentile bands (feature 1)
+    mode: str = "M15"                  # oscillator mode name (M15 / H1)
 
 
-def _stale_snapshot(symbol: str | None) -> EmaStackSnapshot:
+def _stale_snapshot(symbol: str | None, *,
+                    periods: tuple[int, int, int] = config.EMA_STACK_PERIODS,
+                    mode: str = "M15") -> EmaStackSnapshot:
     """A fully-empty snapshot (no live data), optionally tagged with the symbol."""
     return EmaStackSnapshot(
-        symbol=symbol, periods=config.EMA_STACK_PERIODS,
+        symbol=symbol, periods=periods,
         price=None, ema_fast=None, ema_mid=None, ema_center=None,
         times_ms=(), dev_price=(), dev_fast=(), dev_mid=(),
-        as_of=time.time(), stale=True, bands=load_bands(),
+        as_of=time.time(), stale=True, bands=load_bands(mode), mode=mode,
     )
 
 
@@ -70,49 +73,52 @@ def _ema(values: np.ndarray, period: int) -> np.ndarray:
     return pd.Series(values).ewm(span=period, adjust=False).mean().to_numpy()
 
 
-def _ema_tf_const() -> int:
-    """mt5 timeframe constant for ``config.EMA_STACK_TF`` (falls back to M15)."""
-    spec = config.TIMEFRAME_BY_LABEL.get(config.EMA_STACK_TF)
+def _tf_const(tf_label: str) -> int:
+    """mt5 timeframe constant for *tf_label* (falls back to M15)."""
+    spec = config.TIMEFRAME_BY_LABEL.get(tf_label)
     return spec.mt5_const if spec is not None else mt5.TIMEFRAME_M15
 
 
 def compute_ema_stack(
     connector,
+    *,
+    tf: str = config.EMA_STACK_TF,
+    periods: tuple[int, int, int] = config.EMA_STACK_PERIODS,
     fetch_bars: int = config.EMA_STACK_FETCH_BARS,
     display_bars: int = config.EMA_STACK_DISPLAY_BARS,
+    mode: str = "M15",
 ) -> EmaStackSnapshot:
-    """Compute the EMA-stack oscillator for XAUUSD from a deep M15 history.
+    """Compute the EMA-stack oscillator for XAUUSD from a deep *tf* history.
 
     Returns a STALE empty snapshot when the symbol is unresolved, the broker
     returns no bars, or there is too little history for the center EMA. Otherwise
-    fetches *fetch_bars* bars, drops the forming last bar (closed bars only),
-    computes the three EMAs and their %-deviation from the center EMA, and emits
-    the trailing *display_bars*. The live WS path uses the small config defaults;
-    the /api/ema_history endpoint passes the deep-history values. Never raises
-    into the analysis loop — every path is guarded.
+    fetches *fetch_bars* bars of *tf*, drops the forming last bar (closed bars
+    only), computes the three *periods* EMAs and their %-deviation from the
+    center EMA, and emits the trailing *display_bars*. Defaults are the M15 mode;
+    ``compute_ema_stack_for`` drives the H1 mode. Never raises into the loop.
     """
     sym = config.SYMBOLS[0].base
     if sym not in connector.resolved_symbols:
-        return _stale_snapshot(None)
+        return _stale_snapshot(None, periods=periods, mode=mode)
 
     try:
-        df = connector.copy_rates(sym, _ema_tf_const(), fetch_bars)
+        df = connector.copy_rates(sym, _tf_const(tf), fetch_bars)
     except Exception:  # noqa: BLE001 — feed must never raise into the loop
         log.exception("compute_ema_stack: copy_rates failed for %s", sym)
-        return _stale_snapshot(sym)
+        return _stale_snapshot(sym, periods=periods, mode=mode)
 
     if df is None or df.empty or "close" not in df.columns:
-        return _stale_snapshot(sym)
+        return _stale_snapshot(sym, periods=periods, mode=mode)
 
     # Closed bars only — drop the still-forming last bar (codebase convention),
     # so every emitted bar's EMAs are final and never repaint.
     closed = df.iloc[:-1]
     closes = closed["close"].to_numpy(dtype=float)
-    p_fast, p_mid, p_center = config.EMA_STACK_PERIODS
+    p_fast, p_mid, p_center = periods
     # Need enough history for the center EMA to be meaningful (its warm-up must
     # have decayed well before the displayed window).
     if closes.size < p_center:
-        return _stale_snapshot(sym)
+        return _stale_snapshot(sym, periods=periods, mode=mode)
 
     ema_f = _ema(closes, p_fast)
     ema_m = _ema(closes, p_mid)
@@ -131,7 +137,7 @@ def compute_ema_stack(
 
     return EmaStackSnapshot(
         symbol=sym,
-        periods=config.EMA_STACK_PERIODS,
+        periods=periods,
         price=float(closes[-1]),
         ema_fast=float(ema_f[-1]),
         ema_mid=float(ema_m[-1]),
@@ -142,5 +148,19 @@ def compute_ema_stack(
         dev_mid=_dev(ema_m),
         as_of=time.time(),
         stale=False,
-        bands=load_bands(),
+        bands=load_bands(mode),
+        mode=mode,
     )
+
+
+def compute_ema_stack_for(connector, mode_spec, *, deep: bool = False) -> EmaStackSnapshot:
+    """Compute one oscillator mode from a ``config.EmaStackMode`` spec.
+
+    ``deep=True`` uses the larger history fetch/display sizes (for the
+    /api/ema_history endpoint); otherwise the small live-snapshot sizes.
+    """
+    fb = mode_spec.history_fetch_bars if deep else mode_spec.fetch_bars
+    db = mode_spec.history_bars if deep else mode_spec.display_bars
+    return compute_ema_stack(
+        connector, tf=mode_spec.tf, periods=mode_spec.periods,
+        fetch_bars=fb, display_bars=db, mode=mode_spec.name)

@@ -385,19 +385,18 @@ def build_app(connector=None) -> Flask:
     def get_ema_history():
         """Deep EMA-stack history for the oscillator's drag-to-the-past.
 
-        Computed on demand (the frontend fetches once on load + polls every few
-        minutes) so the full multi-month series never rides the live WS snapshot.
-        Read-only; returns a stale-shaped block when the connector is absent.
+        ``?tf=M15|H1`` (default M15). Computed on demand (frontend fetches per
+        active mode + polls) so the full multi-month series never rides the live
+        WS snapshot. Read-only; 503 when the connector is absent.
         """
         from analyzer import ema_stack
         from dashboard.serialize import serialize_ema_stack
         if connector is None:
             return jsonify(None), 503
-        snap = ema_stack.compute_ema_stack(
-            connector,
-            fetch_bars=config.EMA_STACK_HISTORY_FETCH_BARS,
-            display_bars=config.EMA_STACK_HISTORY_BARS,
-        )
+        tf = request.args.get("tf", "M15")
+        spec = (config.EMA_STACK_MODE_BY_NAME.get(tf)
+                or config.EMA_STACK_MODE_BY_NAME["M15"])
+        snap = ema_stack.compute_ema_stack_for(connector, spec, deep=True)
         return jsonify(serialize_ema_stack(snap))
 
     @app.route("/api/close", methods=["POST"])

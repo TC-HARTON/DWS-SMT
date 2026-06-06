@@ -693,11 +693,15 @@ const EMA_HISTORY_POLL_MS = 120000;             // re-fetch deep history every 2
 // Deep EMA history (~10 months M15) from /api/ema_history — preferred over the
 // small live WS window so the oscillator can drag months into the past without
 // bloating the WS snapshot. Polled; the WS block is the instant initial paint.
-let EMA_HISTORY = null;
-function fetchEmaHistory() {
-    fetch('/api/ema_history')
+let EMA_HISTORY = {};                            // per-mode deep history cache
+function emaMode() {
+    try { return localStorage.getItem('mt5-ematf') || 'M15'; } catch (_e) { return 'M15'; }
+}
+function fetchEmaHistory(mode) {
+    const m = mode || emaMode();
+    fetch('/api/ema_history?tf=' + encodeURIComponent(m))
         .then(r => (r.ok ? r.json() : null))
-        .then(d => { if (d && d.t && d.t.length > 1) { EMA_HISTORY = d; paintEmaStack(latestSnap); } })
+        .then(d => { if (d && d.t && d.t.length > 1) { EMA_HISTORY[m] = d; paintEmaStack(latestSnap); } })
         .catch(() => {});
 }
 
@@ -739,11 +743,23 @@ function paintEmaStack(snap) {
                 _emaRender(el);
             }
         });
+        // M15 / 1H mode tabs: switch the series, fetch that mode's deep history.
+        el.addEventListener('click', ev => {
+            const tab = ev.target.closest('.ema-tab[data-ematf]');
+            if (!tab) return;
+            const m = tab.dataset.ematf;
+            try { localStorage.setItem('mt5-ematf', m); } catch (_e) {}
+            el._emaStamp = null;                 // force re-render
+            if (!EMA_HISTORY[m]) fetchEmaHistory(m);
+            paintEmaStack(latestSnap);
+        });
     }
     const content = el.querySelector('.ema-content');
     // Prefer the deep /api/ema_history series; fall back to the live WS window
     // until the first history fetch returns.
-    const d = EMA_HISTORY || (snap && snap.ema_stack);
+    const mode = emaMode();
+    const live = mode === 'H1' ? (snap && snap.ema_stack_h1) : (snap && snap.ema_stack);
+    const d = EMA_HISTORY[mode] || live;
     if (!d || d.stale || !d.t || d.t.length < 2) {
         content.innerHTML = `<div class="empty mute">${d && d.symbol ? 'EMA データ取得待ち' : 'EMA320 用の履歴待ち'}</div>`;
         el._ema = null;
@@ -755,7 +771,8 @@ function paintEmaStack(snap) {
     // drawn. off=0 keeps the right edge pinned to the newest bar (auto-follow).
     el._ema = { t: d.t, dp: d.dev_price, df: d.dev_fast, dm: d.dev_mid, n,
                 price: d.price, ema_fast: d.ema_fast, ema_mid: d.ema_mid,
-                ema_center: d.ema_center, bands: d.bands || null };
+                ema_center: d.ema_center, bands: d.bands || null,
+                periods: d.periods || [20, 80, 320] };
     if (!el._view) el._view = { count: Math.min(EMA_VIEW_DEFAULT, n), off: 0 };
     el._view.count = Math.min(el._view.count, n);
     // Re-render the SVG only when a new confirmed bar arrives (data is fixed
@@ -852,12 +869,19 @@ function _emaRender(el) {
     const B = data.bands || null;
     const spO = (val, key) =>
         `<span class="ema-val${emaOxTier(val, B && B[key])}">${sp(val)}</span>`;
+    const P = data.periods || [20, 80, 320];
+    const kkey = (i) => 'ema' + P[i];
+    const curMode = emaMode();
+    const tabs = `<span class="ema-tabs">`
+        + `<button class="ema-tab${curMode === 'M15' ? ' on' : ''}" data-ematf="M15">M15</button>`
+        + `<button class="ema-tab${curMode === 'H1' ? ' on' : ''}" data-ematf="H1">1H</button></span>`;
     const read =
         `<div class="ema-read">`
+      + tabs
       + `<span class="ema-side ${upCls(d320)}">乖離率</span>`
-      + `<span class="ema-k"><i class="ema-dot" style="background:#ffb74d"></i>EMA20 ${spO(dr(data.ema_fast), 'ema20')}</span>`
-      + `<span class="ema-k"><i class="ema-dot" style="background:#4d8eff"></i>EMA80 ${spO(dr(data.ema_mid), 'ema80')}</span>`
-      + `<span class="ema-k"><i class="ema-dot ema-dot-center"></i>EMA320 ${spO(d320, 'ema320')}</span>`
+      + `<span class="ema-k"><i class="ema-dot" style="background:#ffb74d"></i>EMA${P[0]} ${spO(dr(data.ema_fast), kkey(0))}</span>`
+      + `<span class="ema-k"><i class="ema-dot" style="background:#4d8eff"></i>EMA${P[1]} ${spO(dr(data.ema_mid), kkey(1))}</span>`
+      + `<span class="ema-k"><i class="ema-dot ema-dot-center"></i>EMA${P[2]} ${spO(d320, kkey(2))}</span>`
       + `<span class="ema-k mute">${cnt}本 (ホイール拡縮/ドラッグで遡る)</span>`
       + `<button type="button" class="ema-latest${v.off > 0 ? '' : ' at-latest'}">▶ 直近</button>`
       + `</div>`;
@@ -960,13 +984,14 @@ function _emaHover(el, ev) {
         //   is just devPrice (price vs EMA320).
         const kairi = (dP, dE) => { const den = 1 + dE / 100; return den ? ((1 + dP / 100) / den - 1) * 100 : 0; };
         const B = data.bands || null;
+        const P = data.periods || [20, 80, 320];
         const k20 = kairi(data.dp[ai], data.df[ai]);
         const k80 = kairi(data.dp[ai], data.dm[ai]);
         const k320 = data.dp[ai];
         hov.innerHTML = `<b>${fmtJSTdate(sec)} ${fmtJSTclockNoSec(sec)}</b>`
-            + `<span class="${emaOxTier(k20, B && B.ema20)}">EMA20 ${sgn(k20)}%</span>`
-            + `<span class="${emaOxTier(k80, B && B.ema80)}">EMA80 ${sgn(k80)}%</span>`
-            + `<span class="${emaOxTier(k320, B && B.ema320)}">EMA320 ${sgn(k320)}%</span>`;
+            + `<span class="${emaOxTier(k20, B && B['ema' + P[0]])}">EMA${P[0]} ${sgn(k20)}%</span>`
+            + `<span class="${emaOxTier(k80, B && B['ema' + P[1]])}">EMA${P[1]} ${sgn(k80)}%</span>`
+            + `<span class="${emaOxTier(k320, B && B['ema' + P[2]])}">EMA${P[2]} ${sgn(k320)}%</span>`;
         const hw = hov.offsetWidth || 200;
         const panelW = el.offsetWidth || (elR.width / scale);
         const hx = Math.max(0, Math.min(panelW - hw, localX - hw / 2));
@@ -1862,8 +1887,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupOrderModal();
     paintAlertBell();                 // reflect the saved high-conviction-alert state
     connect();
-    fetchEmaHistory();                // deep EMA history for drag-to-the-past
-    setInterval(fetchEmaHistory, EMA_HISTORY_POLL_MS);
+    fetchEmaHistory(emaMode());       // deep EMA history for the active mode
+    setInterval(() => fetchEmaHistory(emaMode()), EMA_HISTORY_POLL_MS);
 });
 
 window.addEventListener('resize', () => {

@@ -513,6 +513,7 @@ def serialize_ema_stack(s: EmaStackSnapshot | None) -> dict[str, Any] | None:
         "ema_mid": _opt_float(s.ema_mid),
         "ema_center": _opt_float(s.ema_center),
         "bands": s.bands,
+        "mode": s.mode,
         "t": list(s.times_ms),
         "dev_price": [float(v) for v in s.dev_price],
         "dev_fast": [float(v) for v in s.dev_fast],
@@ -576,6 +577,7 @@ def snapshot_to_json(state: LatestState) -> dict[str, Any]:
         "real_yield": serialize_real_yield(snap["real_yield"]),  # type: ignore[arg-type]
         "dxy": serialize_dxy(snap.get("dxy")),  # type: ignore[arg-type]
         "ema_stack": serialize_ema_stack(snap.get("ema_stack")),  # type: ignore[arg-type]
+        "ema_stack_h1": serialize_ema_stack(snap.get("ema_stack_h1")),  # type: ignore[arg-type]
         "cot": serialize_cot(snap.get("cot")),  # type: ignore[arg-type]
         "symbol_order": [s.base for s in config.SYMBOLS],
         "symbol_meta": {

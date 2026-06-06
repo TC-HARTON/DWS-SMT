@@ -170,6 +170,33 @@ EMA_STACK_DISPLAY_BARS: Final[int] = 480   # trailing bars on the LIVE WS snapsh
 # is the broker's practical depth.
 EMA_STACK_HISTORY_FETCH_BARS: Final[int] = 20000
 EMA_STACK_HISTORY_BARS: Final[int] = 20000
+
+
+# Multi-mode oscillator (M15 + 1H). Each mode is a single-series EMA stack with
+# the same fast=EMA20 / mid=EMA20x4 / center=EMA20x(next-TF-multiple) shape:
+#   M15: 20/80/320  (EMA80~H1, EMA320~H4)   center=H4
+#   H1 : 20/80/480  (EMA80~4H, EMA480~D1)   center=D1
+# bars: live fetch deep enough for the center EMA (~4.7x period); display ~480
+# trailing bars; history = broker practical depth. Repaint-free either way
+# (single series, causal EMA, confirmed bars only — no multi-TF mapping).
+@dataclass(frozen=True)
+class EmaStackMode:
+    name: str
+    tf: str                        # MT5 timeframe label (TIMEFRAME_BY_LABEL key)
+    periods: tuple[int, int, int]  # fast, mid, center
+    fetch_bars: int
+    display_bars: int
+    history_fetch_bars: int
+    history_bars: int
+
+
+EMA_STACK_MODES: Final[tuple[EmaStackMode, ...]] = (
+    EmaStackMode("M15", "M15", (20, 80, 320), 1500, 480, 20000, 20000),
+    EmaStackMode("H1",  "H1",  (20, 80, 480), 3000, 480, 20000, 20000),
+)
+EMA_STACK_MODE_BY_NAME: Final[dict[str, EmaStackMode]] = {
+    m.name: m for m in EMA_STACK_MODES
+}
 EMA_STACK_HISTORY_REFRESH_SEC: Final[float] = 120.0   # frontend poll cadence
 
 

@@ -99,3 +99,26 @@ def test_ema_matches_pandas_adjust_false():
     got = _ema(x, 3)
     want = pd.Series(x).ewm(span=3, adjust=False).mean().to_numpy()
     np.testing.assert_allclose(got, want, rtol=1e-12)
+
+
+def _ramp_df_n(n: int):
+    idx = pd.date_range("2026-01-01", periods=n, freq="1h", tz="UTC")
+    close = 2000.0 + 0.2 * np.arange(n, dtype=float)
+    return pd.DataFrame({"open": close, "high": close + 1,
+                         "low": close - 1, "close": close}, index=idx)
+
+
+def test_compute_ema_stack_for_h1_mode():
+    from analyzer.ema_stack import compute_ema_stack_for
+    spec = config.EMA_STACK_MODE_BY_NAME["H1"]
+    conn = _StubConnector({"XAUUSD": "XAUUSD"}, _ramp_df_n(3000))
+    snap = compute_ema_stack_for(conn, spec)
+    assert snap.stale is False
+    assert snap.mode == "H1"
+    assert snap.periods == (20, 80, 480)
+    assert len(snap.dev_price) == spec.display_bars
+
+
+def test_compute_ema_stack_default_is_m15():
+    snap = compute_ema_stack(_StubConnector({"XAUUSD": "XAUUSD"}, _ramp_df(1500)))
+    assert snap.mode == "M15" and snap.periods == (20, 80, 320)

@@ -68,7 +68,7 @@ class LatestState:
         self._macro: Optional[MacroSnapshot] = None
         self._real_yield: Optional[RealYieldSnapshot] = None
         self._dxy: Optional[DxySnapshot] = None
-        self._ema_stack: Optional[EmaStackSnapshot] = None
+        self._ema_stacks: dict[str, EmaStackSnapshot] = {}
         self._cot: Optional[CotSnapshot] = None
         self._status: ConnectionStatus = ConnectionStatus(False, None, None)
         self._broker_meta: dict[str, dict[str, float]] = {}
@@ -164,10 +164,10 @@ class LatestState:
             self._cond.notify_all()
 
     def set_ema_stack(self, snapshot: EmaStackSnapshot) -> None:
-        """Publish the latest EMA-stack oscillator snapshot. Counts as a heavy
-        domain so the next WS push is a full snapshot carrying it."""
+        """Publish an EMA-stack oscillator snapshot, keyed by its mode (M15/H1).
+        Counts as a heavy domain so the next WS push is a full snapshot."""
         with self._cond:
-            self._ema_stack = snapshot
+            self._ema_stacks[snapshot.mode] = snapshot
             self._monotonic_version += 1
             self._analysis_version += 1
             self._cond.notify_all()
@@ -235,9 +235,9 @@ class LatestState:
             return self._cot
 
     @property
-    def ema_stack(self) -> EmaStackSnapshot | None:
+    def ema_stacks(self) -> dict[str, EmaStackSnapshot]:
         with self._lock:
-            return self._ema_stack
+            return dict(self._ema_stacks)
 
     @property
     def version(self) -> int:
@@ -265,7 +265,8 @@ class LatestState:
                 "macro": self._macro,
                 "real_yield": self._real_yield,
                 "dxy": self._dxy,
-                "ema_stack": self._ema_stack,
+                "ema_stack": self._ema_stacks.get("M15"),
+                "ema_stack_h1": self._ema_stacks.get("H1"),
                 "cot": self._cot,
                 "broker_meta": {k: dict(v) for k, v in self._broker_meta.items()},
             }

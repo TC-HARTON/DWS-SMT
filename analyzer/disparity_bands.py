@@ -72,29 +72,37 @@ def read_dukascopy_closes(path: Path) -> np.ndarray:
     return df["Close"].to_numpy(dtype=float)
 
 
-def _read(path: Path) -> dict | None:
+def _read_doc(path: Path) -> dict | None:
     try:
         with open(path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-        bands = doc.get("bands")
-        return bands if isinstance(bands, dict) else None
+            return json.load(fh)
     except (OSError, ValueError):
         return None
 
 
-_cached: dict | None = None
+_cached_doc: dict | None = None
 _cached_done = False
 
 
-def load_bands(path: Path | None = None) -> dict | None:
-    """Return the "bands" dict from the committed JSON, or None.
+def load_bands(mode: str = "M15", *, path: Path | None = None) -> dict | None:
+    """Return the disparity bands dict for *mode* ("M15"/"H1"), or None.
 
-    The default-path load is cached (called every analysis cycle). An explicit
-    *path* (tests) bypasses the cache."""
+    Reads data/ema_disparity_bands.json (cached for the default path). An
+    explicit *path* (tests) bypasses the cache. Returns None for an unknown
+    mode or an absent/unreadable file → the readout degrades to no coloring."""
     if path is not None:
-        return _read(path)
-    global _cached, _cached_done
-    if not _cached_done:
-        _cached = _read(config.PROJECT_ROOT / "data" / "ema_disparity_bands.json")
-        _cached_done = True
-    return _cached
+        doc = _read_doc(path)
+    else:
+        global _cached_doc, _cached_done
+        if not _cached_done:
+            _cached_doc = _read_doc(
+                config.PROJECT_ROOT / "data" / "ema_disparity_bands.json")
+            _cached_done = True
+        doc = _cached_doc
+    if not isinstance(doc, dict):
+        return None
+    entry = (doc.get("modes") or {}).get(mode)
+    if not isinstance(entry, dict):
+        return None
+    bands = entry.get("bands")
+    return bands if isinstance(bands, dict) else None

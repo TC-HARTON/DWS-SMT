@@ -216,11 +216,14 @@ class AnalysisLoop:
         except Exception:  # noqa: BLE001
             log.exception("dxy compute failed")
 
-        # EMA-stack oscillator (one deep M15 copy_rates), same piggyback pattern.
-        try:
-            self._state.set_ema_stack(ema_stack.compute_ema_stack(self._connector))
-        except Exception:  # noqa: BLE001
-            log.exception("ema_stack compute failed")
+        # EMA-stack oscillator — compute every configured mode (M15 + H1), each
+        # guarded independently so one mode failing leaves the other live.
+        for _spec in config.EMA_STACK_MODES:
+            try:
+                self._state.set_ema_stack(
+                    ema_stack.compute_ema_stack_for(self._connector, _spec))
+            except Exception:  # noqa: BLE001
+                log.exception("ema_stack compute failed (%s)", _spec.name)
 
         return len(rates)
 

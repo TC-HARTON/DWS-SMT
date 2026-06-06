@@ -238,3 +238,31 @@ def test_serialize_performance_includes_trades_advanced_edge():
     assert out["advanced"]["sharpe"] == 1.5
     assert out["advanced"]["equity_curve"] == [200.0]
     assert out["edge"]["by_alignment"]["M15_above"]["win_rate"] == 0.5
+
+
+def test_state_holds_both_ema_modes():
+    from analyzer.state import LatestState
+    from analyzer.ema_stack import EmaStackSnapshot
+
+    def _snap(mode, periods):
+        return EmaStackSnapshot(
+            symbol="XAUUSD", periods=periods, price=1.0, ema_fast=1.0,
+            ema_mid=1.0, ema_center=1.0, times_ms=(1,), dev_price=(0.0,),
+            dev_fast=(0.0,), dev_mid=(0.0,), as_of=1.0, stale=False, mode=mode)
+
+    st = LatestState()
+    st.set_ema_stack(_snap("M15", (20, 80, 320)))
+    st.set_ema_stack(_snap("H1", (20, 80, 480)))
+    blob = st.snapshot()
+    assert blob["ema_stack"].mode == "M15"
+    assert blob["ema_stack_h1"].mode == "H1"
+
+
+def test_serialize_ema_stack_carries_mode():
+    from analyzer.ema_stack import EmaStackSnapshot
+    from dashboard.serialize import serialize_ema_stack
+    snap = EmaStackSnapshot(
+        symbol="XAUUSD", periods=(20, 80, 480), price=1.0, ema_fast=1.0,
+        ema_mid=1.0, ema_center=1.0, times_ms=(1,), dev_price=(0.0,),
+        dev_fast=(0.0,), dev_mid=(0.0,), as_of=1.0, stale=False, mode="H1")
+    assert serialize_ema_stack(snap)["mode"] == "H1"

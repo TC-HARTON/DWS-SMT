@@ -38,20 +38,29 @@ def test_compute_bands_pos_neg_split():
 
 
 def test_load_bands_missing(tmp_path):
-    assert load_bands(tmp_path / "nope.json") is None
+    assert load_bands("M15", path=tmp_path / "nope.json") is None
 
 
 def test_load_bands_valid(tmp_path):
     p = tmp_path / "b.json"
-    p.write_text(json.dumps({"bands": {"ema20": {"pos": {}, "neg": {}}}}),
-                 encoding="utf-8")
-    assert load_bands(p) == {"ema20": {"pos": {}, "neg": {}}}
+    p.write_text(json.dumps({"modes": {
+        "M15": {"bands": {"ema20": {"pos": {}, "neg": {}}}},
+        "H1":  {"bands": {"ema480": {"pos": {}, "neg": {}}}},
+    }}), encoding="utf-8")
+    assert load_bands("M15", path=p) == {"ema20": {"pos": {}, "neg": {}}}
+    assert load_bands("H1", path=p) == {"ema480": {"pos": {}, "neg": {}}}
+
+
+def test_load_bands_unknown_mode(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_text(json.dumps({"modes": {"M15": {"bands": {}}}}), encoding="utf-8")
+    assert load_bands("H1", path=p) is None
 
 
 def test_load_bands_malformed(tmp_path):
     p = tmp_path / "bad.json"
     p.write_text("{not json", encoding="utf-8")
-    assert load_bands(p) is None
+    assert load_bands("M15", path=p) is None
 
 
 def test_read_dukascopy_closes(tmp_path):

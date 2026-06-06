@@ -21,32 +21,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import config
 from analyzer.disparity_bands import compute_bands, read_dukascopy_closes
 
-DEFAULT_CSV = config.PROJECT_ROOT / "XAUUSD_15 Mins_Bid_2010.01.01_2025.12.31.csv"
 OUT_PATH = config.PROJECT_ROOT / "data" / "ema_disparity_bands.json"
+
+# 16Y Dukascopy Bid CSV per mode (same format, different timeframe).
+_SOURCES = {
+    "M15": config.PROJECT_ROOT / "XAUUSD_15 Mins_Bid_2010.01.01_2025.12.31.csv",
+    "H1":  config.PROJECT_ROOT / "XAUUSD_Hourly_Bid_2010.01.01_2025.12.31.csv",
+}
 
 
 def main(argv: list[str]) -> int:
-    csv_path = Path(argv[1]) if len(argv) > 1 else DEFAULT_CSV
-    if not csv_path.exists():
-        print("ERROR: CSV not found: %s" % csv_path)
-        return 1
-    closes = read_dukascopy_closes(csv_path)
-    bands = compute_bands(closes, periods=config.EMA_STACK_PERIODS)
+    modes_out = {}
+    for spec in config.EMA_STACK_MODES:
+        csv_path = _SOURCES[spec.name]
+        if not csv_path.exists():
+            print("ERROR: CSV not found: %s" % csv_path)
+            return 1
+        closes = read_dukascopy_closes(csv_path)
+        bands = compute_bands(closes, periods=spec.periods)
+        modes_out[spec.name] = {
+            "tf": spec.tf, "periods": list(spec.periods),
+            "source": csv_path.name, "bands": bands,
+        }
+        print("OK %s (bars=%d): " % (spec.name, closes.size) + ", ".join(
+            "%s pos=%.2f neg=%.2f(p99)" % (k, b["pos"]["p99"], b["neg"]["p99"])
+            for k, b in bands.items()))
     doc = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source": csv_path.name,
-        "tf": config.EMA_STACK_TF,
-        "periods": list(config.EMA_STACK_PERIODS),
-        "bands": bands,
+        "modes": modes_out,
     }
     OUT_PATH.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-    print("OK wrote %s (bars=%d)" % (OUT_PATH, closes.size))
-    for key, b in bands.items():
-        print("  %-6s pos p95=%.3f p99=%.3f max=%.3f n=%d | "
-              "neg p95=%.3f p99=%.3f max=%.3f n=%d" % (
-                  key,
-                  b["pos"]["p95"], b["pos"]["p99"], b["pos"]["max"], b["pos"]["n"],
-                  b["neg"]["p95"], b["neg"]["p99"], b["neg"]["max"], b["neg"]["n"]))
+    print("OK wrote %s" % OUT_PATH)
     return 0
 
 
