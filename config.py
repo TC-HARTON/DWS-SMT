@@ -162,14 +162,10 @@ EMA_STACK_PERIODS: Final[tuple[int, int, int]] = (20, 80, 320)  # fast, mid, cen
 EMA_STACK_FETCH_BARS: Final[int] = 1500    # deep enough for EMA320 to fully settle
 EMA_STACK_DISPLAY_BARS: Final[int] = 480   # trailing bars on the LIVE WS snapshot
                                            # (~5 days M15) — kept small so the 2 Hz/5 s
-                                           # WS stays light; the deep history comes from
-                                           # the /api/ema_history endpoint below.
-# Deep history for the oscillator's drag-to-the-past. Served on demand via
-# /api/ema_history (fetched once on load + polled every few minutes) so the full
-# multi-month series never bloats the live WS snapshot. ~20k M15 bars ≈ 10 months
-# is the broker's practical depth.
-EMA_STACK_HISTORY_FETCH_BARS: Final[int] = 20000
-EMA_STACK_HISTORY_BARS: Final[int] = 20000
+                                           # WS stays light; deep history is served on
+                                           # demand via /api/ema_history (per-mode fetch
+                                           # / display sizes live on each EMA_STACK_MODES
+                                           # entry below).
 
 
 # Multi-mode oscillator (M15 + 1H). Each mode is a single-series EMA stack with
@@ -197,7 +193,6 @@ EMA_STACK_MODES: Final[tuple[EmaStackMode, ...]] = (
 EMA_STACK_MODE_BY_NAME: Final[dict[str, EmaStackMode]] = {
     m.name: m for m in EMA_STACK_MODES
 }
-EMA_STACK_HISTORY_REFRESH_SEC: Final[float] = 120.0   # frontend poll cadence
 
 
 # --------------------------------------------------------------------------- #
