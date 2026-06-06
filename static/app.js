@@ -766,6 +766,19 @@ function paintEmaStack(snap) {
     _emaRender(el);
 }
 
+// (1) EMA-disparity overextension tier from the 16Y bands. Shared by the
+// readout (_emaRender) and the hover crosshair (_emaHover). side picked by
+// sign; absent band => '' (feature degrades to no colour).
+function emaOxTier(val, band) {
+    if (val == null || !band) return '';
+    const side = val >= 0 ? band.pos : band.neg;
+    if (!side) return '';
+    const a = Math.abs(val);
+    if (side.p99 && a >= side.p99) return ' ema-overext-x';
+    if (side.p95 && a >= side.p95) return ' ema-overext';
+    return '';
+}
+
 /** Render the SVG + readout for the current view window. */
 function _emaRender(el) {
     const data = el._ema, content = el.querySelector('.ema-content');
@@ -837,17 +850,8 @@ function _emaRender(el) {
     // (1) overextension tier from the 16Y bands: |乖離率| >= p99 blinks, >= p95
     // warns. side picked by sign; absent bands => no class (feature degrades).
     const B = data.bands || null;
-    const oxTier = (val, band) => {
-        if (val == null || !band) return '';
-        const side = val >= 0 ? band.pos : band.neg;
-        if (!side) return '';
-        const a = Math.abs(val);
-        if (side.p99 && a >= side.p99) return ' ema-overext-x';
-        if (side.p95 && a >= side.p95) return ' ema-overext';
-        return '';
-    };
     const spO = (val, key) =>
-        `<span class="ema-val${oxTier(val, B && B[key])}">${sp(val)}</span>`;
+        `<span class="ema-val${emaOxTier(val, B && B[key])}">${sp(val)}</span>`;
     const read =
         `<div class="ema-read">`
       + `<span class="ema-side ${upCls(d320)}">乖離率</span>`
@@ -955,10 +959,14 @@ function _emaHover(el, ev) {
         //   (price−EMA)/EMA = (1+devPrice/100)/(1+devEMA/100) − 1.  EMA320乖離率
         //   is just devPrice (price vs EMA320).
         const kairi = (dP, dE) => { const den = 1 + dE / 100; return den ? ((1 + dP / 100) / den - 1) * 100 : 0; };
+        const B = data.bands || null;
+        const k20 = kairi(data.dp[ai], data.df[ai]);
+        const k80 = kairi(data.dp[ai], data.dm[ai]);
+        const k320 = data.dp[ai];
         hov.innerHTML = `<b>${fmtJSTdate(sec)} ${fmtJSTclockNoSec(sec)}</b>`
-            + `<span>EMA20 ${sgn(kairi(data.dp[ai], data.df[ai]))}%</span>`
-            + `<span>EMA80 ${sgn(kairi(data.dp[ai], data.dm[ai]))}%</span>`
-            + `<span>EMA320 ${sgn(data.dp[ai])}%</span>`;
+            + `<span class="${emaOxTier(k20, B && B.ema20)}">EMA20 ${sgn(k20)}%</span>`
+            + `<span class="${emaOxTier(k80, B && B.ema80)}">EMA80 ${sgn(k80)}%</span>`
+            + `<span class="${emaOxTier(k320, B && B.ema320)}">EMA320 ${sgn(k320)}%</span>`;
         const hw = hov.offsetWidth || 200;
         const panelW = el.offsetWidth || (elR.width / scale);
         const hx = Math.max(0, Math.min(panelW - hw, localX - hw / 2));
