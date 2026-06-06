@@ -755,7 +755,7 @@ function paintEmaStack(snap) {
     // drawn. off=0 keeps the right edge pinned to the newest bar (auto-follow).
     el._ema = { t: d.t, dp: d.dev_price, df: d.dev_fast, dm: d.dev_mid, n,
                 price: d.price, ema_fast: d.ema_fast, ema_mid: d.ema_mid,
-                ema_center: d.ema_center };
+                ema_center: d.ema_center, bands: d.bands || null };
     if (!el._view) el._view = { count: Math.min(EMA_VIEW_DEFAULT, n), off: 0 };
     el._view.count = Math.min(el._view.count, n);
     // Re-render the SVG only when a new confirmed bar arrives (data is fixed
@@ -834,12 +834,26 @@ function _emaRender(el) {
     const sp = (v) => (v == null ? '--' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
     const d320 = dr(data.ema_center);
     const upCls = (v) => (v == null ? '' : v >= 0 ? 'pos' : 'neg');
+    // (1) overextension tier from the 16Y bands: |乖離率| >= p99 blinks, >= p95
+    // warns. side picked by sign; absent bands => no class (feature degrades).
+    const B = data.bands || null;
+    const oxTier = (val, band) => {
+        if (val == null || !band) return '';
+        const side = val >= 0 ? band.pos : band.neg;
+        if (!side) return '';
+        const a = Math.abs(val);
+        if (side.p99 && a >= side.p99) return ' ema-overext-x';
+        if (side.p95 && a >= side.p95) return ' ema-overext';
+        return '';
+    };
+    const spO = (val, key) =>
+        `<span class="ema-val${oxTier(val, B && B[key])}">${sp(val)}</span>`;
     const read =
         `<div class="ema-read">`
       + `<span class="ema-side ${upCls(d320)}">乖離率</span>`
-      + `<span class="ema-k"><i class="ema-dot" style="background:#ffb74d"></i>EMA20 ${sp(dr(data.ema_fast))}</span>`
-      + `<span class="ema-k"><i class="ema-dot" style="background:#4d8eff"></i>EMA80 ${sp(dr(data.ema_mid))}</span>`
-      + `<span class="ema-k"><i class="ema-dot ema-dot-center"></i>EMA320 ${sp(d320)}</span>`
+      + `<span class="ema-k"><i class="ema-dot" style="background:#ffb74d"></i>EMA20 ${spO(dr(data.ema_fast), 'ema20')}</span>`
+      + `<span class="ema-k"><i class="ema-dot" style="background:#4d8eff"></i>EMA80 ${spO(dr(data.ema_mid), 'ema80')}</span>`
+      + `<span class="ema-k"><i class="ema-dot ema-dot-center"></i>EMA320 ${spO(d320, 'ema320')}</span>`
       + `<span class="ema-k mute">${cnt}本 (ホイール拡縮/ドラッグで遡る)</span>`
       + `<button type="button" class="ema-latest${v.off > 0 ? '' : ' at-latest'}">▶ 直近</button>`
       + `</div>`;

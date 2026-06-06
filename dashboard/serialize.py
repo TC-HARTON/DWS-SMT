@@ -512,6 +512,7 @@ def serialize_ema_stack(s: EmaStackSnapshot | None) -> dict[str, Any] | None:
         "ema_fast": _opt_float(s.ema_fast),
         "ema_mid": _opt_float(s.ema_mid),
         "ema_center": _opt_float(s.ema_center),
+        "bands": s.bands,
         "t": list(s.times_ms),
         "dev_price": [float(v) for v in s.dev_price],
         "dev_fast": [float(v) for v in s.dev_fast],

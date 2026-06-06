@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 import config
+from analyzer.disparity_bands import load_bands
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class EmaStackSnapshot:
     dev_mid: tuple[float, ...]         # (EMA80   − EMA320) / EMA320 * 100
     as_of: float                       # epoch seconds
     stale: bool                        # True when no live data
+    bands: dict | None = None          # 16Y disparity percentile bands (feature 1)
 
 
 def _stale_snapshot(symbol: str | None) -> EmaStackSnapshot:
@@ -58,7 +60,7 @@ def _stale_snapshot(symbol: str | None) -> EmaStackSnapshot:
         symbol=symbol, periods=config.EMA_STACK_PERIODS,
         price=None, ema_fast=None, ema_mid=None, ema_center=None,
         times_ms=(), dev_price=(), dev_fast=(), dev_mid=(),
-        as_of=time.time(), stale=True,
+        as_of=time.time(), stale=True, bands=load_bands(),
     )
 
 
@@ -140,4 +142,5 @@ def compute_ema_stack(
         dev_mid=_dev(ema_m),
         as_of=time.time(),
         stale=False,
+        bands=load_bands(),
     )
