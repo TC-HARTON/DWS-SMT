@@ -99,6 +99,11 @@ function fmtJSTdate(epochSec) {
     const d = new Date(epochSec * 1000 + 9 * 3600 * 1000);
     return (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
 }
+function fmtJSTdateY(epochSec) {        // with 西暦 (year) — oscillator cursor
+    if (!epochSec) return '--';
+    const d = new Date(epochSec * 1000 + 9 * 3600 * 1000);
+    return d.getUTCFullYear() + '/' + (d.getUTCMonth() + 1) + '/' + d.getUTCDate();
+}
 
 // ------------------------------------------------------------
 // Money-management math helpers (XAUUSD-specific, no order logic)
@@ -988,7 +993,7 @@ function _emaHover(el, ev) {
         const k20 = kairi(data.dp[ai], data.df[ai]);
         const k80 = kairi(data.dp[ai], data.dm[ai]);
         const k320 = data.dp[ai];
-        hov.innerHTML = `<b>${fmtJSTdate(sec)} ${fmtJSTclockNoSec(sec)}</b>`
+        hov.innerHTML = `<b>${fmtJSTdateY(sec)} ${fmtJSTclockNoSec(sec)}</b>`
             + `<span class="${emaOxTier(k20, B && B['ema' + P[0]])}">EMA${P[0]} ${sgn(k20)}%</span>`
             + `<span class="${emaOxTier(k80, B && B['ema' + P[1]])}">EMA${P[1]} ${sgn(k80)}%</span>`
             + `<span class="${emaOxTier(k320, B && B['ema' + P[2]])}">EMA${P[2]} ${sgn(k320)}%</span>`;
