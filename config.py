@@ -106,12 +106,15 @@ class TimeframeSpec:
     bars_to_fetch: int    # how many bars we pull each refresh
 
 
-# SPEC 5 / 6.1: D1=EMA200, H4=EMA50, H1=EMA20, M15=EMA13
+# 全TF統一トレンドEMA(②, 2026-06-06)。SPEC 5/6.1 の TF別期間(D1=200/H4=50/H1=20/
+# M15=13)から意図的に逸脱し、中央オシレーター(ema_stack: 全て EMA20 基準)と物差しを
+# 揃える。bars_to_fetch は EMA20 + ADX/RSI/ATR(14) + 履歴に十分なため据え置き。
+TREND_EMA_PERIOD: Final[int] = 20
 TIMEFRAMES: Final[tuple[TimeframeSpec, ...]] = (
-    TimeframeSpec("D1",  mt5.TIMEFRAME_D1,  200, 400),
-    TimeframeSpec("H4",  mt5.TIMEFRAME_H4,   50, 300),
-    TimeframeSpec("H1",  mt5.TIMEFRAME_H1,   20, 240),
-    TimeframeSpec("M15", mt5.TIMEFRAME_M15,  13, 200),
+    TimeframeSpec("D1",  mt5.TIMEFRAME_D1,  TREND_EMA_PERIOD, 400),
+    TimeframeSpec("H4",  mt5.TIMEFRAME_H4,  TREND_EMA_PERIOD, 300),
+    TimeframeSpec("H1",  mt5.TIMEFRAME_H1,  TREND_EMA_PERIOD, 240),
+    TimeframeSpec("M15", mt5.TIMEFRAME_M15, TREND_EMA_PERIOD, 200),
 )
 
 TIMEFRAME_BY_LABEL: Final[dict[str, TimeframeSpec]] = {tf.label: tf for tf in TIMEFRAMES}
