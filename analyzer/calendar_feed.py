@@ -445,6 +445,17 @@ def upcoming_cb_events(
     return out
 
 
+def _looks_like_ff_feed(body: str) -> bool:
+    """True only if *body* is the Forex Factory weekly XML, not an HTML page.
+
+    faireconomy returns HTTP 200 with an HTML "Rate Limited" page when the IP is
+    throttled. That HTML parses to zero events without raising, so without this
+    guard a throttled fetch would be mistaken for a successful empty week —
+    wiping the live event list and poisoning the on-disk cache with HTML.
+    """
+    return "<weeklyevents" in (body or "").lower()
+
+
 class CalendarEngine:
     """Pulls + parses + caches the SPEC §15 calendar with auto-fallback."""
 
@@ -615,7 +626,15 @@ class CalendarEngine:
             try:
                 resp = requests.get(url, timeout=self._timeout)
                 resp.raise_for_status()
-                return resp.text
+                body = resp.text
+                if not _looks_like_ff_feed(body):
+                    # 200 OK but NOT the XML feed — faireconomy's HTML "Rate
+                    # Limited" page. Treat as a failure (no retry: still
+                    # throttled) so the caller keeps the last good cache.
+                    log.warning("calendar: %s returned a non-feed body "
+                                "(rate-limited?), treating as failure", url)
+                    return None
+                return body
             except requests.RequestException as exc:
                 last_exc = exc
                 log.debug("calendar: HTTP attempt %d/%d for %s failed: %s",

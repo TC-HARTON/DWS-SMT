@@ -377,3 +377,46 @@ def test_engine_corrupt_cache_does_not_crash(tmp_path):
     eng = CalendarEngine(urls=("http://x/",), cache_file=cache, retries=0)
     # Bootstrap silently logs; _last_events remains empty.
     assert eng._last_events == ()
+
+
+# --------------------------------------------------------------------------- #
+# Rate-limit hardening: faireconomy serves a 200 HTML "Rate Limited" page when
+# throttled. It must be treated as a fetch failure, never parsed as 0 events
+# (which would wipe the live list and poison the cache with HTML).
+# --------------------------------------------------------------------------- #
+
+RATE_LIMITED_HTML = (
+    "<!DOCTYPE html><html><head><title>Rate Limited</title></head>"
+    "<body>Rate limit exceeded, please slow down.</body></html>"
+)
+
+
+def test_http_fetch_rejects_rate_limit_html(tmp_path, mocker):
+    eng = CalendarEngine(urls=("http://x/",), cache_file=tmp_path / "c.xml",
+                         retries=1)
+    mocker.patch("analyzer.calendar_feed.requests.get",
+                 return_value=_stub_response(RATE_LIMITED_HTML))
+    # A 200 that is not the XML feed must be rejected (return None = failure).
+    assert eng._http_fetch("http://x/") is None
+
+
+def test_compute_rate_limited_keeps_events_and_protects_cache(tmp_path, mocker):
+    cache = tmp_path / "thisweek.xml"
+    eng = CalendarEngine(urls=("http://x/",), cache_file=cache, retries=1,
+                         failure_fallback_after=5)
+    # Seed a good fetch (events + cache).
+    mocker.patch("analyzer.calendar_feed.requests.get",
+                 return_value=_stub_response(SAMPLE_XML))
+    ok = eng.compute()
+    ff_before = [e for e in ok.events if e.source == "forex_factory"]
+    assert ff_before and cache.read_text(encoding="utf-8") == SAMPLE_XML
+
+    # Now the rate-limit 200-HTML page.
+    mocker.patch("analyzer.calendar_feed.requests.get",
+                 return_value=_stub_response(RATE_LIMITED_HTML))
+    rl = eng.compute()
+    # Treated as a failure: previous FF events retained, cache NOT overwritten.
+    assert rl.consecutive_failures >= 1
+    ff_after = [e for e in rl.events if e.source == "forex_factory"]
+    assert len(ff_after) == len(ff_before)
+    assert cache.read_text(encoding="utf-8") == SAMPLE_XML   # not poisoned
