@@ -1821,6 +1821,43 @@ function _anlxRBars(rdist) {
          + `<div class="anlx-bars">${bars}</div></div>`;
 }
 
+// Edge-breakdown dimension labels (order = pill order). Empty dims are skipped.
+const ANLX_EDGE_DIMS = [
+    ['by_alignment', '整合'], ['by_adx', 'ADX'], ['by_rsi', 'RSI'],
+    ['by_weekday_jst', '曜日'], ['by_hold_min', '保有時間'], ['by_dxy', 'DXY'],
+    ['by_cot_extreme', 'COT極端'], ['by_real_yield', '実質金利'], ['by_flip', 'フリップ'],
+];
+let _edgeDim = null;   // selected edge dimension (persists across repaints)
+
+function _anlxEdgeSection(edge) {
+    if (!edge) return '';
+    const avail = ANLX_EDGE_DIMS.filter(([k]) => edge[k] && Object.keys(edge[k]).length);
+    if (!avail.length) return '';
+    if (!avail.some(([k]) => k === _edgeDim)) _edgeDim = avail[0][0];
+    const pills = avail.map(([k, lbl]) =>
+        `<button class="anlx-edge-pill${k === _edgeDim ? ' on' : ''}" data-edge="${k}">${lbl}</button>`
+    ).join('');
+    const buckets = edge[_edgeDim] || {};
+    const wr = v => (v == null || !isFinite(v)) ? '--' : (v * 100).toFixed(1) + '%';
+    const pf = v => (v == null || !isFinite(v)) ? '--' : Number(v).toFixed(2);
+    const rows = Object.keys(buckets).map(b => {
+        const s = buckets[b] || {};
+        const lown = (s.n != null && s.n < 5) ? ' lown' : '';
+        const wcls = (s.win_rate != null && isFinite(s.win_rate))
+            ? (s.win_rate >= 0.5 ? ' pos' : ' neg') : '';
+        return `<div class="anlx-edge-row${lown}"><span class="b">${b}</span>`
+             + `<span class="num">${s.n != null ? s.n : '--'}</span>`
+             + `<span class="num${wcls}">${wr(s.win_rate)}</span>`
+             + `<span class="num">${pf(s.pf)}</span></div>`;
+    }).join('');
+    return `<div class="anlx-edge"><div class="anlx-cap">エッジ別 勝率 / PF</div>`
+         + `<div class="anlx-edge-pills">${pills}</div>`
+         + `<div class="anlx-edge-table"><div class="anlx-edge-row head">`
+         + `<span class="b">条件</span><span class="num">件数</span>`
+         + `<span class="num">勝率</span><span class="num">PF</span></div>`
+         + rows + `</div></div>`;
+}
+
 function paintAnalyticsTab(snap) {
     const root = $bind('fund-body');
     if (!root || UI.fundTab !== 'analytics') return;
@@ -1866,7 +1903,15 @@ function paintAnalyticsTab(snap) {
           + `<div class="anlx-cap">ドローダウン</div>` + _anlxSparkArea(uw, '#ff5b6b')
           + `</div>`
         : '';
-    root.innerHTML = grid + chart + _anlxRBars(adv.r_distribution || {});
+    root.innerHTML = grid + chart + _anlxRBars(adv.r_distribution || {})
+                   + _anlxEdgeSection(p.edge);
+    root.querySelectorAll('.anlx-edge-pill').forEach(el => {
+        el.onclick = () => {
+            _edgeDim = el.dataset.edge;
+            root._fsig = null;            // force a full re-render
+            paintAnalyticsTab(latestSnap);
+        };
+    });
 }
 function _histRow(t) {
     const cls = t.type === 'BUY' ? 'buy' : 'sell';
