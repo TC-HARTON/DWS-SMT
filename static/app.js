@@ -200,6 +200,7 @@ function buildPanel(sym) {
                     </div>
                 </div>
                 <span class="comp-score" data-bind="comp-score-${sym}" title="複合スコア = TF別シグナル × TF加重 / 正規化">--</span>
+                <button class="sig-toggle" type="button" title="TF表 表示/非表示">▾</button>
             </div>
             <div class="sig-body" data-bind="sig-body-${sym}"></div>
         </div>
@@ -210,6 +211,19 @@ function buildPanel(sym) {
     tp.addEventListener('click', (e) => e.stopPropagation());
     tp.querySelectorAll('.trade-btn').forEach(btn =>
         btn.addEventListener('click', () => onTradeClick(sym, btn.dataset.side, a)));
+    // TF-table collapse toggle: folds .sig-body (BIAS bar stays); the grid's
+    // 1fr emastack row then grows up. stopPropagation so it never triggers the
+    // panel-level expand/collapse handler. State persists in localStorage.
+    const sigT = a.querySelector('.sig-toggle');
+    let tfHide = false;
+    try { tfHide = localStorage.getItem('mt5-tftable') === 'hide'; } catch (_e) {}
+    if (tfHide) { a.classList.add('tf-collapsed'); if (sigT) sigT.textContent = '▸'; }
+    if (sigT) sigT.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const hidden = a.classList.toggle('tf-collapsed');
+        sigT.textContent = hidden ? '▸' : '▾';
+        try { localStorage.setItem('mt5-tftable', hidden ? 'hide' : 'show'); } catch (_e) {}
+    });
     return a;
 }
 
@@ -882,12 +896,12 @@ function _emaRender(el) {
         + `<button class="ema-tab${curMode === 'H1' ? ' on' : ''}" data-ematf="H1">1H</button></span>`;
     const read =
         `<div class="ema-read">`
-      + tabs
       + `<span class="ema-side ${upCls(d320)}">乖離率</span>`
       + `<span class="ema-k"><i class="ema-dot" style="background:#ffb74d"></i>EMA${P[0]} ${spO(dr(data.ema_fast), kkey(0))}</span>`
       + `<span class="ema-k"><i class="ema-dot" style="background:#4d8eff"></i>EMA${P[1]} ${spO(dr(data.ema_mid), kkey(1))}</span>`
       + `<span class="ema-k"><i class="ema-dot ema-dot-center"></i>EMA${P[2]} ${spO(d320, kkey(2))}</span>`
       + `<span class="ema-k mute">${cnt}本 (ホイール拡縮/ドラッグで遡る)</span>`
+      + tabs
       + `<button type="button" class="ema-latest${v.off > 0 ? '' : ' at-latest'}">▶ 直近</button>`
       + `</div>`;
     content.innerHTML = read + svg;
