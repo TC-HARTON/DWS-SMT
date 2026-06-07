@@ -1563,6 +1563,7 @@ function _moneyFormHtml(snap) {
         ? Number(byRange.risk_reward).toFixed(2) : '';
 
     return `<div class="mm-gate" data-bind="mm-gate"></div>
+<div class="mm-edge" data-bind="mm-edge"></div>
 <div class="mm-grid">
   <div class="mm-group">
     <h4>ポジションサイジング</h4>
@@ -1594,7 +1595,7 @@ function _moneyFormHtml(snap) {
       <input type="number" step="0.01" min="0" placeholder="例: 2380.00" data-bind="mm-tp">
     </div>
     <div class="mm-field">
-      <label>勝率 %</label>
+      <label>勝率 %(実績既定)</label>
       <input type="number" step="0.1" min="0" max="100" value="${esc(defaultWrPct)}" placeholder="例: 55.0" data-bind="mm-wr">
     </div>
     <div class="mm-field">
@@ -1613,7 +1614,7 @@ function _moneyFormHtml(snap) {
   <div class="mm-group">
     <h4>ケリー基準 / 破産確率</h4>
     <div class="mm-field">
-      <label>RR (手入力 or 計算値)</label>
+      <label>RR (実績既定/上書可)</label>
       <input type="number" step="0.01" min="0" value="${esc(defaultRrVal)}" placeholder="例: 2.00" data-bind="mm-rr-manual">
     </div>
     <div class="mm-field">
@@ -1724,6 +1725,29 @@ function _recalcMoney(root, snap) {
     const ror = (winRate != null && rrForKelly != null)
         ? riskOfRuin(winRate, rrForKelly, rorUnits) : null;
     writeOut('mm-ror', ror != null ? (ror * 100).toFixed(2) + '%' : '--');
+
+    // --- 実績ベース 適正Lot (¼Kelly): realized edge -> Kelly -> lot via SL ---
+    const edgeEl = root.querySelector('[data-bind="mm-edge"]');
+    if (edgeEl) {
+        const rw = byRange.win_rate, rrR = byRange.risk_reward, nTr = byRange.trade_count;
+        if (rw == null || !isFinite(rw) || rrR == null || !isFinite(rrR) || !nTr) {
+            edgeEl.innerHTML = `<b>実績ベース 適正Lot</b> `
+                + `<span class="mute">実績データ不足（${defRange}に確定取引なし）</span>`;
+        } else {
+            const f = Math.max(0, kellyFraction(rw, rrR));
+            const q = f / 4;
+            const riskAmtE = balance > 0 ? q * balance : NaN;
+            const lotE = (isFinite(riskAmtE) && riskAmtE > 0 && isFinite(slPips) && slPips > 0)
+                ? positionSizeLots(riskAmtE, slPips, PIP_VAL_PER_LOT) : null;
+            const lotTxt = lotE != null
+                ? `<span class="mm-edge-num">${lotE.toFixed(2)} lot</span> (リスク$≈${riskAmtE.toFixed(0)})`
+                : (balance <= 0 ? '<span class="mute">残高0</span>' : '<span class="mute">SL入力で算出</span>');
+            const warn = nTr < 20 ? ` <span class="mm-edge-warn">⚠ サンプル少・参考程度</span>` : '';
+            edgeEl.innerHTML = `<b>実績ベース 適正Lot (¼Kelly)</b> `
+                + `実績(${defRange}, N=${nTr}) 勝率 ${(rw * 100).toFixed(1)}% / RR ${Number(rrR).toFixed(2)} `
+                + `→ f*=${(f * 100).toFixed(1)}% ¼=${(q * 100).toFixed(1)}% → ${lotTxt}${warn}`;
+        }
+    }
 
     // --- Margin simulation ---
     const lotSim  = readF('mm-lot-sim');

@@ -1162,3 +1162,10 @@ button, input, select, textarea { font-family: inherit; }
 .anlx-edge-row.lown { opacity: 0.5; }
 .anlx-edge-row .num.pos { color: var(--buy); }
 .anlx-edge-row .num.neg { color: var(--sell); }
+/* 実績エッジ連動 適正Lot バナー (Phase 3)。 */
+.mm-edge { font-family: var(--mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums;
+    color: var(--fg-2); background: var(--bg); border-left: 3px solid var(--accent);
+    border-radius: 5px; padding: 6px 10px; margin-bottom: var(--space-3); }
+.mm-edge b { color: var(--fg); margin-right: 6px; }
+.mm-edge-num { color: var(--accent); font-weight: 700; }
+.mm-edge-warn { color: var(--sell); font-weight: 600; }
