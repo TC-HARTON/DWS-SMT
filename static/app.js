@@ -1787,6 +1787,87 @@ function paintHistoryTab(snap) {
     const rows = trades.slice().sort((a,b)=>b.exit_time-a.exit_time).map(_histRow).join('');
     root.innerHTML = '<div class="ftab-hist">' + rows + '</div>';
 }
+
+// ------------------------------------------------------------
+// Fund panel — 分析 tab: surface the advanced analytics already computed by
+// account_monitor and shipped on snap.performance (no backend change).
+// ------------------------------------------------------------
+function _anlxSparkArea(arr, col) {
+    if (!arr || arr.length < 2) return '';
+    const W = 1000, H = 100, pad = 6, n = arr.length;
+    const max = Math.max(...arr), min = Math.min(...arr), rng = (max - min) || 1;
+    const X = i => pad + (i / (n - 1)) * (W - 2 * pad);
+    const Y = v => pad + (1 - (v - min) / rng) * (H - 2 * pad);
+    let d = 'M' + X(0).toFixed(1) + ',' + Y(arr[0]).toFixed(1);
+    for (let i = 1; i < n; i++) d += ' L' + X(i).toFixed(1) + ',' + Y(arr[i]).toFixed(1);
+    const fill = d + ` L${X(n - 1).toFixed(1)},${(H - pad).toFixed(1)} L${X(0).toFixed(1)},${(H - pad).toFixed(1)} Z`;
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="anlx-svg" role="img">`
+         + `<path d="${fill}" fill="${col}" opacity="0.16" stroke="none"/>`
+         + `<path d="${d}" fill="none" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`
+         + `</svg>`;
+}
+
+function _anlxRBars(rdist) {
+    const keys = Object.keys(rdist || {});
+    if (!keys.length) return '';
+    const mx = Math.max(...keys.map(k => rdist[k]), 1);
+    const bars = keys.map(k => {
+        const h = (rdist[k] / mx * 100).toFixed(1);
+        return `<div class="anlx-bar"><div class="anlx-bar-n">${rdist[k]}</div>`
+             + `<div class="anlx-bar-fill" style="height:${h}%"></div>`
+             + `<div class="anlx-bar-k">${k}</div></div>`;
+    }).join('');
+    return `<div class="anlx-rdist"><div class="anlx-cap">R倍数分布</div>`
+         + `<div class="anlx-bars">${bars}</div></div>`;
+}
+
+function paintAnalyticsTab(snap) {
+    const root = $bind('fund-body');
+    if (!root || UI.fundTab !== 'analytics') return;
+    const p = snap.performance;
+    const adv = p && p.advanced;
+    const br = p && p.by_range && p.by_range[p.default_range];
+    const stamp = (p && p.generated_at) || 0;
+    const fsig = 'anlx:' + stamp;
+    if (root._fsig === fsig) return;
+    root._fsig = fsig;
+    if (!adv || !br || !br.trade_count) {
+        root.innerHTML = '<div class="empty mute">約定履歴がまだありません</div>';
+        return;
+    }
+    const n2 = v => (v == null || !isFinite(v)) ? '--' : Number(v).toFixed(2);
+    const pct = v => (v == null || !isFinite(v)) ? '--' : (v * 100).toFixed(1) + '%';
+    const kpi = (k, v) => `<div class="anlx-kpi"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+    const grid = `<div class="anlx-grid">`
+        + kpi('取引数', br.trade_count)
+        + kpi('勝率', pct(br.win_rate))
+        + kpi('PF', n2(br.profit_factor))
+        + kpi('RR', n2(br.risk_reward))
+        + kpi('平均勝', fmtSigned(br.avg_win, 0))
+        + kpi('平均負', fmtSigned(br.avg_loss, 0))
+        + kpi('純損益', fmtSigned(br.net_profit, 0))
+        + kpi('Sharpe', n2(adv.sharpe))
+        + kpi('Sortino', n2(adv.sortino))
+        + kpi('Calmar', n2(adv.calmar))
+        + kpi('Recovery', n2(adv.recovery_factor))
+        + kpi('Ulcer', n2(adv.ulcer_index))
+        + kpi('最大DD', fmtSigned(adv.max_drawdown_abs != null ? -Math.abs(adv.max_drawdown_abs) : null, 0))
+        + kpi('VaR95', fmtSigned(adv.var_95, 0))
+        + kpi('CVaR95', fmtSigned(adv.cvar_95, 0))
+        + kpi('最大連勝', adv.max_win_streak != null ? adv.max_win_streak : '--')
+        + kpi('最大連敗', adv.max_loss_streak != null ? adv.max_loss_streak : '--')
+        + kpi('現在連続', adv.current_streak != null ? adv.current_streak : '--')
+        + `</div>`;
+    const eq = adv.equity_curve || [], uw = adv.underwater_curve || [];
+    const eqCol = (eq.length && eq[eq.length - 1] >= eq[0]) ? '#3fb98a' : '#ff5b6b';
+    const chart = (eq.length >= 2 || uw.length >= 2)
+        ? `<div class="anlx-chart"><div class="anlx-cap">エクイティカーブ(累積損益)</div>`
+          + _anlxSparkArea(eq, eqCol)
+          + `<div class="anlx-cap">ドローダウン</div>` + _anlxSparkArea(uw, '#ff5b6b')
+          + `</div>`
+        : '';
+    root.innerHTML = grid + chart + _anlxRBars(adv.r_distribution || {});
+}
 function _histRow(t) {
     const cls = t.type === 'BUY' ? 'buy' : 'sell';
     const pnlCls = (t.profit||0) > 0 ? 'pos' : (t.profit||0) < 0 ? 'neg' : '';
@@ -1836,6 +1917,7 @@ function paintFundPanel(snap) {
     if (tab === 'positions') paintPositionsTab(snap);
     else if (tab === 'money') paintMoneyTab(snap);
     else if (tab === 'history') paintHistoryTab(snap);
+    else if (tab === 'analytics') paintAnalyticsTab(snap);
     // Risk gate: toggle .degraded on all panel-head order buttons (visual caution only).
     const gated = _riskGated(snap);
     document.querySelectorAll('.panel-head .trade-btn').forEach(b =>

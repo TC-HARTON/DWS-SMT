@@ -1128,3 +1128,21 @@ button, input, select, textarea { font-family: inherit; }
 /* Folded: hide the TF matrix; the .signals grid row shrinks to the BIAS bar
    and the 1fr .emastack row grows up to fill the freed height. */
 .panel.tf-collapsed .sig-body { display: none; }
+
+/* 分析タブ (Phase 1): 指標グリッド + エクイティ/DD + R分布。 */
+.anlx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+             gap: 6px; margin-bottom: var(--space-4); }
+.anlx-kpi { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px;
+            background: var(--bg); border: 1px solid var(--border); border-radius: 5px; }
+.anlx-kpi .k { font-size: var(--text-2xs); color: var(--fg-2); }
+.anlx-kpi .v { font-family: var(--mono); font-size: var(--text-md); font-weight: 700;
+               font-variant-numeric: tabular-nums; }
+.anlx-cap { font-size: var(--text-2xs); color: var(--fg-2); margin: 6px 0 2px; }
+.anlx-svg { width: 100%; height: 84px; display: block; }
+.anlx-chart .anlx-svg + .anlx-cap { margin-top: 8px; }
+.anlx-rdist .anlx-bars { display: flex; align-items: flex-end; gap: 4px; height: 96px; margin-top: 2px; }
+.anlx-bar { flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: flex-end; height: 100%; gap: 2px; }
+.anlx-bar-fill { width: 68%; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 1px; }
+.anlx-bar-n { font-size: var(--text-3xs); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.anlx-bar-k { font-size: var(--text-3xs); color: var(--fg-3); }
